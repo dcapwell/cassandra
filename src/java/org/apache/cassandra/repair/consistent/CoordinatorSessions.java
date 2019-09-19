@@ -19,10 +19,12 @@
 package org.apache.cassandra.repair.consistent;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 
 import org.apache.cassandra.locator.InetAddressAndPort;
@@ -69,6 +71,21 @@ public class CoordinatorSessions
     public synchronized CoordinatorSession getSession(UUID sessionId)
     {
         return sessions.get(sessionId);
+    }
+
+    @VisibleForTesting
+    public synchronized Set<UUID> getActiveSessions()
+    {
+        return new HashSet<>(sessions.keySet());
+    }
+
+    /**
+     * This method is for tests to cleanup and should not be called in normal code
+     */
+    @VisibleForTesting
+    public synchronized void clear()
+    {
+        sessions.clear();
     }
 
     public void handlePrepareResponse(PrepareConsistentResponse msg)

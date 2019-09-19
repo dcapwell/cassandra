@@ -26,6 +26,7 @@ import javax.management.NotificationFilter;
 import javax.management.NotificationListener;
 import javax.management.openmbean.CompositeData;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
@@ -108,6 +109,16 @@ public class StreamManager implements StreamManagerMBean
      */
     private final Map<UUID, StreamResultFuture> initiatedStreams = new NonBlockingHashMap<>();
     private final Map<UUID, StreamResultFuture> receivingStreams = new NonBlockingHashMap<>();
+
+    /**
+     * This method is for tests to cleanup and should not be called in normal code
+     */
+    @VisibleForTesting
+    public void clear()
+    {
+        initiatedStreams.clear();
+        receivingStreams.clear();
+    }
 
     public Set<CompositeData> getCurrentStreams()
     {
