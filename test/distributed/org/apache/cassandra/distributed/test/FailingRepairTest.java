@@ -240,7 +240,7 @@ public class FailingRepairTest extends DistributedTestBase implements Serializab
             String ranges = StorageService.instance.getLocalAndPendingRanges(KEYSPACE).stream()
                                                    .map(r -> r.left + ":" + r.right)
                                                    .collect(Collectors.joining(","));
-            Map<String, String> args = new HashMap<>() {{
+            Map<String, String> args = new HashMap<String, String>() {{
                 put(RepairOption.PARALLELISM_KEY, parallelism.getName());
                 put(RepairOption.PRIMARY_RANGE_KEY, "false");
                 put(RepairOption.INCREMENTAL_KEY, "false");
