@@ -371,12 +371,12 @@ public class FailingRepairTest extends DistributedTestBase implements Serializab
 
         public boolean hasNext()
         {
-            throw new CorruptSSTableException(new IOException("Test commands it"), "mahahahaha");
+            throw new CorruptSSTableException(new IOException("Test commands it"), "mahahahaha!");
         }
 
         public UnfilteredRowIterator next()
         {
-            throw new CorruptSSTableException(new IOException("Test commands it"), "mahahahaha");
+            throw new CorruptSSTableException(new IOException("Test commands it"), "mahahahaha!");
         }
     }
 }
