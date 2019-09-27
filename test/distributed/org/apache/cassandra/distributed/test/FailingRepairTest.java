@@ -20,6 +20,7 @@ package org.apache.cassandra.distributed.test;
 
 import java.io.IOException;
 import java.io.Serializable;
+import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -31,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -59,14 +61,13 @@ import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.distributed.api.IIsolatedExecutor.SerializableConsumer;
 import org.apache.cassandra.distributed.api.IIsolatedExecutor.SerializableRunnable;
-import org.apache.cassandra.io.FSError;
+import org.apache.cassandra.io.FSReadError;
 import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.format.ForwardingSSTableReader;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.format.SSTableReadsListener;
 import org.apache.cassandra.io.util.ChannelProxy;
-import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.net.Verb;
@@ -78,7 +79,8 @@ import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.ActiveRepairService.ParentRepairStatus;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.streaming.StreamManager;
-import org.apache.cassandra.utils.JVMStabilityInspector;
+import org.mockito.Mockito;
+import org.mockito.stubbing.Answer;
 
 @RunWith(Parameterized.class)
 public class FailingRepairTest extends DistributedTestBase implements Serializable
@@ -114,8 +116,7 @@ public class FailingRepairTest extends DistributedTestBase implements Serializab
                 this.injectFailure = injectFailure;
             }
         }
-//        return Stream.of(RepairParallelism.values())
-        return Stream.of(RepairParallelism.PARALLEL)
+        return Stream.of(RepairParallelism.values())
                      .flatMap(p -> {
                          List<MessageOverride> os = new ArrayList<>(4);
                          os.add(new MessageOverride(Verb.PREPARE_MSG, () -> {
@@ -145,8 +146,20 @@ public class FailingRepairTest extends DistributedTestBase implements Serializab
             cf.forceBlockingFlush();
             Set<SSTableReader> remove = cf.getLiveSSTables();
             Set<SSTableReader> replace = new HashSet<>();
-            for (SSTableReader r : remove)
-                replace.add(new FailingSSTableReader(r));
+            if (type == Verb.VALIDATION_REQ)
+            {
+                for (SSTableReader r : remove)
+                    replace.add(new FailingSSTableReader(r));
+            }
+            else if (type == Verb.SYNC_REQ)
+            {
+                for (SSTableReader r : remove)
+                    replace.add(new FailingDataChannelSSTableReader(r));
+            }
+            else
+            {
+                throw new UnsupportedOperationException("verb: " + type);
+            }
             cf.getTracker().removeUnsafe(remove);
             cf.addSSTables(replace);
         };
@@ -286,15 +299,15 @@ public class FailingRepairTest extends DistributedTestBase implements Serializab
         {
             case VALIDATION_REQ:
                 Assert.assertTrue(errors.toString(), errors.stream().anyMatch(FailingRepairTest::hasCorruptSSTableException));
-                Assert.assertFalse(errors.toString(), errors.stream().anyMatch(FailingRepairTest::hasFSError));
+                Assert.assertFalse(errors.toString(), errors.stream().anyMatch(FailingRepairTest::hasFSReadError));
                 break;
             case SYNC_REQ:
                 Assert.assertFalse(errors.toString(), errors.stream().anyMatch(FailingRepairTest::hasCorruptSSTableException));
-                Assert.assertTrue(errors.toString(), errors.stream().anyMatch(FailingRepairTest::hasFSError));
+                Assert.assertTrue(errors.toString(), errors.stream().anyMatch(FailingRepairTest::hasFSReadError));
                 break;
             default:
                 Assert.assertFalse(errors.toString(), errors.stream().anyMatch(FailingRepairTest::hasCorruptSSTableException));
-                Assert.assertFalse(errors.toString(), errors.stream().anyMatch(FailingRepairTest::hasFSError));
+                Assert.assertFalse(errors.toString(), errors.stream().anyMatch(FailingRepairTest::hasFSReadError));
         }
 
         // make sure local state gets cleaned up
@@ -327,9 +340,9 @@ public class FailingRepairTest extends DistributedTestBase implements Serializab
         return false;
     }
 
-    private static boolean hasFSError(Throwable e)
+    private static boolean hasFSReadError(Throwable e)
     {
-        return hasError(e, FSError.class);
+        return hasError(e, FSReadError.class);
     }
 
     private static boolean hasCorruptSSTableException(Throwable e)
@@ -391,6 +404,41 @@ public class FailingRepairTest extends DistributedTestBase implements Serializab
         {
             return "FailingSSTableReader[" + super.toString() + "]";
         }
+    }
+
+    private static final class FailingDataChannelSSTableReader extends ForwardingSSTableReader {
+
+        private final ChannelProxy dataChannel;
+
+        private FailingDataChannelSSTableReader(SSTableReader delegate)
+        {
+            super(delegate);
+            FileChannel mock = Mockito.mock(FileChannel.class);
+            try
+            {
+                Mockito.doAnswer(throwingAnswer(() -> new IOException("Failure to read"))).when(mock).read(Mockito.any(), Mockito.anyLong());
+                Mockito.doAnswer(throwingAnswer(() -> new IOException("Failure to transferTo"))).when(mock).transferTo(Mockito.anyLong(), Mockito.anyLong(), Mockito.any());
+                Mockito.doAnswer(throwingAnswer(() -> new IOException("Failure to map"))).when(mock).map(Mockito.any(), Mockito.anyLong(), Mockito.anyLong());
+                Mockito.doReturn(delegate.onDiskLength()).when(mock).size();
+            }
+            catch (IOException e)
+            {
+                throw new AssertionError(e);
+            }
+            this.dataChannel = new ChannelProxy(delegate.getFilename(), mock);
+        }
+
+        public ChannelProxy getDataChannel()
+        {
+            return dataChannel;
+        }
+    }
+
+    private static <T> Answer<T> throwingAnswer(Supplier<Throwable> fn)
+    {
+        return ignore -> {
+            throw fn.get();
+        };
     }
 
     private static final class FailingISSTableScanner implements ISSTableScanner {
