@@ -30,6 +30,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -93,6 +96,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
     private static final Logger logger = LoggerFactory.getLogger(AbstractCluster.class);
     private static final AtomicInteger generation = new AtomicInteger();
 
+    private final ConcurrentMap<Integer, CopyOnWriteArrayList<Throwable>> instanceErrors = new ConcurrentHashMap<>();
     private final File root;
     private final ClassLoader sharedClassLoader;
 
@@ -102,6 +106,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
 
     // mutated by user-facing API
     private final MessageFilters filters;
+    private volatile Thread.UncaughtExceptionHandler previousHandler = null;
 
     protected class Wrapper extends DelegatingInvokableInstance implements IUpgradeableInstance
     {
@@ -230,6 +235,16 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
      */
     public I get(int node) { return instances.get(node - 1); }
     public I get(InetAddressAndPort addr) { return instanceMap.get(addr); }
+    public List<Throwable> getErrors(int node)
+    {
+        CopyOnWriteArrayList<Throwable> errors = instanceErrors.get(node);
+        // copy errors to provide a snapshot of errors
+        return errors == null ? Collections.emptyList() : new ArrayList<>(errors);
+    }
+    public void clearErrors()
+    {
+        instanceErrors.clear();
+    }
 
     public int size()
     {
@@ -360,7 +375,24 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
 
     void startup()
     {
+        previousHandler = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler(this::uncaughtExceptions);
         parallelForEach(I::startup, 0, null);
+    }
+
+    private void uncaughtExceptions(Thread thread, Throwable error)
+    {
+        if (!(thread.getContextClassLoader() instanceof InstanceClassLoader))
+        {
+            Thread.UncaughtExceptionHandler handler = previousHandler;
+            if (null != handler)
+                handler.uncaughtException(thread, error);
+            return;
+        }
+        InstanceClassLoader cl = (InstanceClassLoader) thread.getContextClassLoader();
+        int instanceNode = cl.getGeneration();
+        CopyOnWriteArrayList<Throwable> errors = instanceErrors.computeIfAbsent(instanceNode, ignore -> new CopyOnWriteArrayList<>());
+        errors.add(error);
     }
 
     protected interface Factory<I extends IInstance, C extends AbstractCluster<I>>
@@ -595,6 +627,9 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
         instanceMap.clear();
         // Make sure to only delete directory when threads are stopped
         FileUtils.deleteRecursive(root);
+        Thread.setDefaultUncaughtExceptionHandler(previousHandler);
+        previousHandler = null;
+        instanceErrors.clear();
 
         //withThreadLeakCheck(futures);
     }

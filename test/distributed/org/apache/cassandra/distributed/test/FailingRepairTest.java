@@ -59,12 +59,14 @@ import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.distributed.api.IIsolatedExecutor.SerializableConsumer;
 import org.apache.cassandra.distributed.api.IIsolatedExecutor.SerializableRunnable;
+import org.apache.cassandra.io.FSError;
 import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.format.ForwardingSSTableReader;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.format.SSTableReadsListener;
 import org.apache.cassandra.io.util.ChannelProxy;
+import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.net.Verb;
@@ -76,6 +78,7 @@ import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.ActiveRepairService.ParentRepairStatus;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.streaming.StreamManager;
+import org.apache.cassandra.utils.JVMStabilityInspector;
 
 @RunWith(Parameterized.class)
 public class FailingRepairTest extends DistributedTestBase implements Serializable
@@ -112,17 +115,25 @@ public class FailingRepairTest extends DistributedTestBase implements Serializab
             }
         }
         return Stream.of(RepairParallelism.values())
-              .flatMap(p -> {
-                  List<MessageOverride> os = new ArrayList<>(4);
-                  os.add(new MessageOverride(Verb.PREPARE_MSG, () -> {}, ignore -> { throw new IllegalArgumentException("Test would like you to fail, so do as I command");}));
-                  os.add(new MessageOverride(Verb.SNAPSHOT_MSG, () -> {}, ignore -> { throw new IllegalArgumentException("Test would like you to fail, so do as I command");}));
-                  os.add(new MessageOverride(Verb.VALIDATION_REQ, failingReaders(Verb.VALIDATION_REQ, p), ignore -> {}));
-                  os.add(new MessageOverride(Verb.SYNC_REQ, failingReaders(Verb.SYNC_REQ, p), ignore -> {}));
-                  return os.stream()
-                           // when doing parallel, snapshot is not done, so exclude from checking (since this repair SHOULD pass)
-                           .filter(mo -> !(p == RepairParallelism.PARALLEL && mo.messageType == Verb.SNAPSHOT_MSG))
-                           .map(tc -> new Object[]{ tc.messageType, p, tc.setup, tc.injectFailure });
-              }).collect(Collectors.toList());
+                     .flatMap(p -> {
+                         List<MessageOverride> os = new ArrayList<>(4);
+                         os.add(new MessageOverride(Verb.PREPARE_MSG, () -> {
+                         }, ignore -> {
+                             throw new IllegalArgumentException("Test would like you to fail, so do as I command");
+                         }));
+                         os.add(new MessageOverride(Verb.SNAPSHOT_MSG, () -> {
+                         }, ignore -> {
+                             throw new IllegalArgumentException("Test would like you to fail, so do as I command");
+                         }));
+                         os.add(new MessageOverride(Verb.VALIDATION_REQ, failingReaders(Verb.VALIDATION_REQ, p), ignore -> {
+                         }));
+                         os.add(new MessageOverride(Verb.SYNC_REQ, failingReaders(Verb.SYNC_REQ, p), ignore -> {
+                         }));
+                         return os.stream()
+                                  // when doing parallel, snapshot is not done, so exclude from checking (since this repair SHOULD pass)
+                                  .filter(mo -> !(p == RepairParallelism.PARALLEL && mo.messageType == Verb.SNAPSHOT_MSG))
+                                  .map(tc -> new Object[]{ tc.messageType, p, tc.setup, tc.injectFailure });
+                     }).collect(Collectors.toList());
     }
 
     private static SerializableRunnable failingReaders(Verb type, RepairParallelism parallelism)
@@ -164,12 +175,15 @@ public class FailingRepairTest extends DistributedTestBase implements Serializab
     public void cleanupState()
     {
         // since the cluster is shared between tests, make sure to clear the state
-        for (int i = 1; i <= CLUSTER.size(); i++) {
+        for (int i = 1; i <= CLUSTER.size(); i++)
+        {
             CLUSTER.get(i).runOnInstance(() -> {
                 MessagingService.instance().inboundSink.clear();
 
-                for (ColumnFamilyStore cf : Keyspace.open(KEYSPACE).getColumnFamilyStores()) {
-                    for (String snapshots : cf.getSnapshotDetails().keySet()) {
+                for (ColumnFamilyStore cf : Keyspace.open(KEYSPACE).getColumnFamilyStores())
+                {
+                    for (String snapshots : cf.getSnapshotDetails().keySet())
+                    {
                         cf.clearSnapshot(snapshots);
                     }
                 }
@@ -180,6 +194,7 @@ public class FailingRepairTest extends DistributedTestBase implements Serializab
                 StreamManager.instance.clear();
             });
         }
+        CLUSTER.clearErrors();
     }
 
     @Test(timeout = 1 * 60 * 1000)
@@ -219,7 +234,8 @@ public class FailingRepairTest extends DistributedTestBase implements Serializab
 
         // Inject a failure to the specific messaging type
         //TODO why does cluster.forEach NOT work but .get.runOnInstance does?
-        for (int i = 1; i <= CLUSTER.size(); i++) {
+        for (int i = 1; i <= CLUSTER.size(); i++)
+        {
             CLUSTER.get(i).runOnInstance(() -> {
                 setup.run();
                 MessagingService.instance().inboundSink.add(m -> {
@@ -240,7 +256,8 @@ public class FailingRepairTest extends DistributedTestBase implements Serializab
             String ranges = StorageService.instance.getLocalAndPendingRanges(KEYSPACE).stream()
                                                    .map(r -> r.left + ":" + r.right)
                                                    .collect(Collectors.joining(","));
-            Map<String, String> args = new HashMap<String, String>() {{
+            Map<String, String> args = new HashMap<String, String>()
+            {{
                 put(RepairOption.PARALLELISM_KEY, parallelism.getName());
                 put(RepairOption.PRIMARY_RANGE_KEY, "false");
                 put(RepairOption.INCREMENTAL_KEY, "false");
@@ -252,7 +269,8 @@ public class FailingRepairTest extends DistributedTestBase implements Serializab
             int cmd = StorageService.instance.repairAsync(KEYSPACE, args);
             Assert.assertFalse("repair command was 0, which means no-op", cmd == 0);
             List<String> status;
-            do {
+            do
+            {
                 Uninterruptibles.sleepUninterruptibly(100, TimeUnit.MILLISECONDS);
                 status = StorageService.instance.getParentRepairStatus(cmd);
             } while (status == null || status.get(0).equals(ParentRepairStatus.IN_PROGRESS.name()));
@@ -262,7 +280,9 @@ public class FailingRepairTest extends DistributedTestBase implements Serializab
         Assert.assertEquals(repairStatus.toString(), ParentRepairStatus.FAILED, ParentRepairStatus.valueOf(repairStatus.get(0)));
 
         // make sure local state gets cleaned up
-        for (int i = 1; i <= CLUSTER.size(); i++) {
+        for (int i = 1; i <= CLUSTER.size(); i++)
+        {
+            List<Throwable> errors = CLUSTER.getErrors(i);
             CLUSTER.get(i).runOnInstance(() -> {
                 // when running non-parallel, snapshots are taken, so make sure they are cleaned up
                 Assert.assertEquals(Collections.emptyMap(), Keyspace.open(KEYSPACE).getColumnFamilyStore(tableName).getSnapshotDetails());
@@ -273,8 +293,32 @@ public class FailingRepairTest extends DistributedTestBase implements Serializab
 
                 // make sure no stream sessions are still open
                 Assert.assertEquals(Collections.emptySet(), StreamManager.instance.getCurrentStreams());
+
+                // check errors
+                Assert.assertFalse(errors.toString(), errors.stream().anyMatch(FailingRepairTest::hasFSError));
+                Assert.assertFalse(errors.toString(), errors.stream().anyMatch(FailingRepairTest::hasCorruptSSTableException));
             });
         }
+    }
+
+    private static boolean hasError(Throwable e, Class<? extends Throwable> klass)
+    {
+        for (Throwable e2 = e; e2 != null; e2 = e2.getCause())
+        {
+            if (klass.isAssignableFrom(e2.getClass()))
+                return true;
+        }
+        return false;
+    }
+
+    private static boolean hasFSError(Throwable e)
+    {
+        return hasError(e, FSError.class);
+    }
+
+    private static boolean hasCorruptSSTableException(Throwable e)
+    {
+        return hasError(e, CorruptSSTableException.class);
     }
 
     private static Object[][] toNaturalOrder(Object[][] actuals)
