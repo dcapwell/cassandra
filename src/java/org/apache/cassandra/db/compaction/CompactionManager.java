@@ -1859,6 +1859,19 @@ public class CompactionManager implements CompactionManagerMBean
             {
                 ListenableFutureTask<T> ret = ListenableFutureTask.create(task);
                 execute(ret);
+                ret.addListener(() -> {
+                    if (!ret.isCancelled())
+                    {
+                        try
+                        {
+                            Futures.getDone(ret);
+                        }
+                        catch (ExecutionException e)
+                        {
+                            Thread.getDefaultUncaughtExceptionHandler().uncaughtException(Thread.currentThread(), e);
+                        }
+                    }
+                }, MoreExecutors.directExecutor());
                 return ret;
             }
             catch (RejectedExecutionException ex)

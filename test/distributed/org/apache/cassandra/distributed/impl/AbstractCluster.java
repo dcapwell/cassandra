@@ -241,6 +241,13 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
         // copy errors to provide a snapshot of errors
         return errors == null ? Collections.emptyList() : new ArrayList<>(errors);
     }
+    public List<Throwable> getErrors()
+    {
+        List<Throwable> errors = new ArrayList<>();
+        for (CopyOnWriteArrayList<Throwable> es : instanceErrors.values())
+            errors.addAll(es);
+        return errors;
+    }
     public void clearErrors()
     {
         instanceErrors.clear();

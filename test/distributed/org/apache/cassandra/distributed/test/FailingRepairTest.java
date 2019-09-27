@@ -114,7 +114,8 @@ public class FailingRepairTest extends DistributedTestBase implements Serializab
                 this.injectFailure = injectFailure;
             }
         }
-        return Stream.of(RepairParallelism.values())
+//        return Stream.of(RepairParallelism.values())
+        return Stream.of(RepairParallelism.PARALLEL)
                      .flatMap(p -> {
                          List<MessageOverride> os = new ArrayList<>(4);
                          os.add(new MessageOverride(Verb.PREPARE_MSG, () -> {
@@ -279,10 +280,26 @@ public class FailingRepairTest extends DistributedTestBase implements Serializab
         }).call();
         Assert.assertEquals(repairStatus.toString(), ParentRepairStatus.FAILED, ParentRepairStatus.valueOf(repairStatus.get(0)));
 
+        List<Throwable> errors = CLUSTER.getErrors();
+        // check errors
+        switch (messageType)
+        {
+            case VALIDATION_REQ:
+                Assert.assertTrue(errors.toString(), errors.stream().anyMatch(FailingRepairTest::hasCorruptSSTableException));
+                Assert.assertFalse(errors.toString(), errors.stream().anyMatch(FailingRepairTest::hasFSError));
+                break;
+            case SYNC_REQ:
+                Assert.assertFalse(errors.toString(), errors.stream().anyMatch(FailingRepairTest::hasCorruptSSTableException));
+                Assert.assertTrue(errors.toString(), errors.stream().anyMatch(FailingRepairTest::hasFSError));
+                break;
+            default:
+                Assert.assertFalse(errors.toString(), errors.stream().anyMatch(FailingRepairTest::hasCorruptSSTableException));
+                Assert.assertFalse(errors.toString(), errors.stream().anyMatch(FailingRepairTest::hasFSError));
+        }
+
         // make sure local state gets cleaned up
         for (int i = 1; i <= CLUSTER.size(); i++)
         {
-            List<Throwable> errors = CLUSTER.getErrors(i);
             CLUSTER.get(i).runOnInstance(() -> {
                 // when running non-parallel, snapshots are taken, so make sure they are cleaned up
                 Assert.assertEquals(Collections.emptyMap(), Keyspace.open(KEYSPACE).getColumnFamilyStore(tableName).getSnapshotDetails());
@@ -293,19 +310,18 @@ public class FailingRepairTest extends DistributedTestBase implements Serializab
 
                 // make sure no stream sessions are still open
                 Assert.assertEquals(Collections.emptySet(), StreamManager.instance.getCurrentStreams());
-
-                // check errors
-                Assert.assertFalse(errors.toString(), errors.stream().anyMatch(FailingRepairTest::hasFSError));
-                Assert.assertFalse(errors.toString(), errors.stream().anyMatch(FailingRepairTest::hasCorruptSSTableException));
             });
         }
     }
 
     private static boolean hasError(Throwable e, Class<? extends Throwable> klass)
     {
+        final String klassName = klass.getName();
         for (Throwable e2 = e; e2 != null; e2 = e2.getCause())
         {
-            if (klass.isAssignableFrom(e2.getClass()))
+            // if this is called in a different ClassLoader then equals checks will fail
+            // so rely on name checks...
+            if (e2.getClass().getName().equals(klassName))
                 return true;
         }
         return false;
