@@ -17,9 +17,13 @@
  */
 package org.apache.cassandra.streaming;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import javax.management.ListenerNotFoundException;
 import javax.management.MBeanNotificationInfo;
 import javax.management.NotificationFilter;
@@ -129,6 +133,26 @@ public class StreamManager implements StreamManagerMBean
                 return StreamStateCompositeData.toCompositeData(input.getCurrentState());
             }
         }));
+    }
+
+    public List<StreamState> getInitiatedStreamsState()
+    {
+        return getStreamStates(initiatedStreams.values());
+    }
+
+    public List<StreamState> getReceivingStreamsState()
+    {
+        return getStreamStates(receivingStreams.values());
+    }
+
+    private static List<StreamState> getStreamStates(Collection<StreamResultFuture> futures)
+    {
+        List<StreamState> states = new ArrayList<>(futures.size());
+        for (StreamResultFuture f : futures)
+        {
+            states.add(f.getCurrentState());
+        }
+        return states;
     }
 
     public void register(final StreamResultFuture result)

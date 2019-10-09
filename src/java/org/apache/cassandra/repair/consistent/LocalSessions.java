@@ -44,6 +44,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.primitives.Ints;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
@@ -151,6 +152,11 @@ public class LocalSessions
     int getNumSessions()
     {
         return sessions.size();
+    }
+
+    public Collection<LocalSession> getAllSessions()
+    {
+        return sessions.values();
     }
 
     @VisibleForTesting

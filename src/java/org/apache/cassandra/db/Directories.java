@@ -1089,6 +1089,16 @@ public class Directories
             this.dataSizeBytes = dataSizeBytes;
         }
 
+        public long getSizeOnDiskBytes()
+        {
+            return sizeOnDiskBytes;
+        }
+
+        public long getDataSizeBytes()
+        {
+            return dataSizeBytes;
+        }
+
         @Override
         public final int hashCode()
         {

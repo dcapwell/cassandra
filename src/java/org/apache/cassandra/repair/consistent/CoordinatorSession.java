@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.repair.consistent;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -89,6 +90,26 @@ public class CoordinatorSession extends ConsistentSession
     public static Builder builder()
     {
         return new Builder();
+    }
+
+    public long getSessionStart()
+    {
+        return sessionStart;
+    }
+
+    public long getRepairStart()
+    {
+        return repairStart;
+    }
+
+    public long getFinalizeStart()
+    {
+        return finalizeStart;
+    }
+
+    public Map<InetAddressAndPort, State> getParticipantStates()
+    {
+        return Collections.unmodifiableMap(participantStates);
     }
 
     public void setState(State state)

@@ -35,6 +35,8 @@ public final class SystemViewsKeyspace extends VirtualKeyspace
                     .add(new ThreadPoolsTable(NAME))
                     .add(new InternodeOutboundTable(NAME))
                     .add(new InternodeInboundTable(NAME))
+                    .add(new StreamStateTable(NAME))
+                    .add(new SnapshotDetailsTable(NAME))
                     .addAll(TableMetricTables.getAll(NAME))
                     .build());
     }

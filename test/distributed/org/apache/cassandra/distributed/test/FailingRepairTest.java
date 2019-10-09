@@ -75,7 +75,6 @@ import org.apache.cassandra.repair.RepairParallelism;
 import org.apache.cassandra.repair.messages.RepairMessage;
 import org.apache.cassandra.repair.messages.RepairOption;
 import org.apache.cassandra.schema.TableMetadata;
-import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.ActiveRepairService.ParentRepairStatus;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.streaming.StreamManager;
@@ -85,6 +84,7 @@ import org.mockito.stubbing.Answer;
 @RunWith(Parameterized.class)
 public class FailingRepairTest extends DistributedTestBase implements Serializable
 {
+    private static final Object[][] EMPTY_ROWS = new Object[0][0];
     private static Cluster CLUSTER;
 
     private final Verb messageType;
@@ -202,9 +202,6 @@ public class FailingRepairTest extends DistributedTestBase implements Serializab
                     }
                 }
 
-                ActiveRepairService.instance.consistent.local.cleanup();
-                ActiveRepairService.instance.consistent.coordinated.clear();
-
                 StreamManager.instance.clear();
             });
         }
@@ -313,17 +310,13 @@ public class FailingRepairTest extends DistributedTestBase implements Serializab
         // make sure local state gets cleaned up
         for (int i = 1; i <= CLUSTER.size(); i++)
         {
-            CLUSTER.get(i).runOnInstance(() -> {
-                // when running non-parallel, snapshots are taken, so make sure they are cleaned up
-                Assert.assertEquals(Collections.emptyMap(), Keyspace.open(KEYSPACE).getColumnFamilyStore(tableName).getSnapshotDetails());
+            // when running non-parallel, snapshots are taken, so make sure they are cleaned up
+            Object[][] rows = CLUSTER.get(i).executeInternal("SELECT * FROM system_views.table_snapshots");
+            Assert.assertArrayEquals("Expected no rows but given " + Arrays.deepToString(rows), EMPTY_ROWS, rows);
 
-                // make sure all sessions are cleaned up
-                Assert.assertEquals(Collections.emptyList(), ActiveRepairService.instance.consistent.local.sessionInfo(true));
-                Assert.assertEquals(Collections.emptySet(), ActiveRepairService.instance.consistent.coordinated.getActiveSessions());
-
-                // make sure no stream sessions are still open
-                Assert.assertEquals(Collections.emptySet(), StreamManager.instance.getCurrentStreams());
-            });
+            // make sure no stream sessions are still open
+            rows = CLUSTER.get(i).executeInternal("SELECT * FROM system_views.stream_state");
+            Assert.assertArrayEquals(EMPTY_ROWS, rows);
         }
     }
 
@@ -368,7 +361,8 @@ public class FailingRepairTest extends DistributedTestBase implements Serializab
                .toArray(Object[][]::new);
     }
 
-    private static final class FailingSSTableReader extends ForwardingSSTableReader {
+    private static final class FailingSSTableReader extends ForwardingSSTableReader
+    {
 
         private FailingSSTableReader(SSTableReader delegate)
         {
@@ -406,7 +400,8 @@ public class FailingRepairTest extends DistributedTestBase implements Serializab
         }
     }
 
-    private static final class FailingDataChannelSSTableReader extends ForwardingSSTableReader {
+    private static final class FailingDataChannelSSTableReader extends ForwardingSSTableReader
+    {
 
         private final ChannelProxy dataChannel;
 
@@ -441,7 +436,8 @@ public class FailingRepairTest extends DistributedTestBase implements Serializab
         };
     }
 
-    private static final class FailingISSTableScanner implements ISSTableScanner {
+    private static final class FailingISSTableScanner implements ISSTableScanner
+    {
         public long getLengthInBytes()
         {
             return 0;

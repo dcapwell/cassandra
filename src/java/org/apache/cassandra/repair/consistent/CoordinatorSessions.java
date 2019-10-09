@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.repair.consistent;
 
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -26,6 +27,8 @@ import java.util.UUID;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.repair.messages.FailSession;
@@ -71,6 +74,11 @@ public class CoordinatorSessions
     public synchronized CoordinatorSession getSession(UUID sessionId)
     {
         return sessions.get(sessionId);
+    }
+
+    public synchronized Collection<CoordinatorSession> getAllSessions()
+    {
+        return Lists.newArrayList(sessions.values());
     }
 
     @VisibleForTesting
