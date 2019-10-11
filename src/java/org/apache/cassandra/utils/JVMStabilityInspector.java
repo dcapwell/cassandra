@@ -32,6 +32,7 @@ import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.io.FSError;
 import org.apache.cassandra.io.sstable.CorruptSSTableException;
+import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.service.StorageService;
 
 /**
@@ -87,9 +88,12 @@ public final class JVMStabilityInspector
             throw (OutOfMemoryError) t;
         }
 
-        if (DatabaseDescriptor.getDiskFailurePolicy() == Config.DiskFailurePolicy.die)
-            if (t instanceof FSError || t instanceof CorruptSSTableException)
-            isUnstable = true;
+        // its expected that the fs handler will kill the JVM if unstable, so don't need
+        // to know about the disk failure policy
+        if (t instanceof FSError)
+            FileUtils.handleFSError((FSError) t);
+        else if (t instanceof CorruptSSTableException)
+            FileUtils.handleCorruptSSTable((CorruptSSTableException) t);
 
         // Check for file handle exhaustion
         if (t instanceof FileNotFoundException || t instanceof SocketException)
@@ -100,7 +104,10 @@ public final class JVMStabilityInspector
             killer.killCurrentJVM(t);
 
         if (t.getCause() != null)
-            inspectThrowable(t.getCause());
+            inspectThrowable(t.getCause(), propagateOutOfMemory);
+
+        for (Throwable s : t.getSuppressed())
+            inspectThrowable(s, propagateOutOfMemory);
     }
 
     public static void inspectCommitLogThrowable(Throwable t)
@@ -172,6 +179,7 @@ public final class JVMStabilityInspector
             if (killing.compareAndSet(false, true))
             {
                 StorageService.instance.removeShutdownHook();
+                //NOTE TO REVIEWER : the logger above may be async, so may not flush.  Can't find any logic to force flushing logs before exiting in C*
                 System.exit(100);
             }
         }

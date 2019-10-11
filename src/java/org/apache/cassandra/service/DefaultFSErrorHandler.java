@@ -39,25 +39,20 @@ public class DefaultFSErrorHandler implements FSErrorHandler
     @Override
     public void handleCorruptSSTable(CorruptSSTableException e)
     {
-        if (!StorageService.instance.isDaemonSetupCompleted())
-            handleStartupFSError(e);
-
-        JVMStabilityInspector.inspectThrowable(e);
-        switch (DatabaseDescriptor.getDiskFailurePolicy())
-        {
-            case stop_paranoid:
-                StorageService.instance.stopTransports();
-                break;
-        }
+        handleDiskFailurePolicy(e, e.path);
     }
 
     @Override
     public void handleFSError(FSError e)
     {
-        if (!StorageService.instance.isDaemonSetupCompleted())
-            handleStartupFSError(e);
+        handleDiskFailurePolicy(e, e.path);
+    }
 
-        JVMStabilityInspector.inspectThrowable(e);
+    private static void handleDiskFailurePolicy(Throwable t, File path)
+    {
+        if (!StorageService.instance.isDaemonSetupCompleted())
+            handleStartupFSError(t);
+
         switch (DatabaseDescriptor.getDiskFailurePolicy())
         {
             case stop_paranoid:
@@ -66,13 +61,16 @@ public class DefaultFSErrorHandler implements FSErrorHandler
                 break;
             case best_effort:
                 // for both read and write errors mark the path as unwritable.
-                BlacklistedDirectories.maybeMarkUnwritable(e.path);
-                if (e instanceof FSReadError)
+                BlacklistedDirectories.maybeMarkUnwritable(path);
+                if (t instanceof FSReadError)
                 {
-                    File directory = BlacklistedDirectories.maybeMarkUnreadable(e.path);
+                    File directory = BlacklistedDirectories.maybeMarkUnreadable(path);
                     if (directory != null)
                         Keyspace.removeUnreadableSSTables(directory);
                 }
+                break;
+            case die:
+                JVMStabilityInspector.killCurrentJVM(t, false);
                 break;
             case ignore:
                 // already logged, so left nothing to do
