@@ -39,19 +39,30 @@ public class DefaultFSErrorHandler implements FSErrorHandler
     @Override
     public void handleCorruptSSTable(CorruptSSTableException e)
     {
-        handleDiskFailurePolicy(e, e.path);
+        if (!StorageService.instance.isDaemonSetupCompleted())
+            handleStartupFSError(e);
+
+        switch (DatabaseDescriptor.getDiskFailurePolicy())
+        {
+            case stop_paranoid:
+                StorageService.instance.stopTransports();
+                break;
+            case die:
+                JVMStabilityInspector.killCurrentJVM(e, false);
+                break;
+            case ignore:
+                // already logged, so left nothing to do
+                break;
+            default:
+                throw new IllegalStateException();
+        }
     }
 
     @Override
     public void handleFSError(FSError e)
     {
-        handleDiskFailurePolicy(e, e.path);
-    }
-
-    private static void handleDiskFailurePolicy(Throwable t, File path)
-    {
         if (!StorageService.instance.isDaemonSetupCompleted())
-            handleStartupFSError(t);
+            handleStartupFSError(e);
 
         switch (DatabaseDescriptor.getDiskFailurePolicy())
         {
@@ -61,16 +72,16 @@ public class DefaultFSErrorHandler implements FSErrorHandler
                 break;
             case best_effort:
                 // for both read and write errors mark the path as unwritable.
-                BlacklistedDirectories.maybeMarkUnwritable(path);
-                if (t instanceof FSReadError)
+                BlacklistedDirectories.maybeMarkUnwritable(e.path);
+                if (e instanceof FSReadError)
                 {
-                    File directory = BlacklistedDirectories.maybeMarkUnreadable(path);
+                    File directory = BlacklistedDirectories.maybeMarkUnreadable(e.path);
                     if (directory != null)
                         Keyspace.removeUnreadableSSTables(directory);
                 }
                 break;
             case die:
-                JVMStabilityInspector.killCurrentJVM(t, false);
+                JVMStabilityInspector.killCurrentJVM(e, false);
                 break;
             case ignore:
                 // already logged, so left nothing to do
