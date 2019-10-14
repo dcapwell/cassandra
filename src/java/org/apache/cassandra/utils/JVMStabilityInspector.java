@@ -179,7 +179,6 @@ public final class JVMStabilityInspector
             if (killing.compareAndSet(false, true))
             {
                 StorageService.instance.removeShutdownHook();
-                //NOTE TO REVIEWER : the logger above may be async, so may not flush.  Can't find any logic to force flushing logs before exiting in C*
                 System.exit(100);
             }
         }

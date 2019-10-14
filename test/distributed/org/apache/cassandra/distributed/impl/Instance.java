@@ -32,7 +32,6 @@ import java.util.function.BiConsumer;
 import java.util.function.BiPredicate;
 
 import io.netty.util.concurrent.GlobalEventExecutor;
-
 import org.apache.cassandra.batchlog.BatchlogManager;
 import org.apache.cassandra.concurrent.ExecutorLocals;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
@@ -77,14 +76,15 @@ import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.PendingRangeCalculatorService;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.service.StorageService;
-import org.apache.cassandra.streaming.async.StreamingInboundHandler;
 import org.apache.cassandra.streaming.StreamReceiveTask;
 import org.apache.cassandra.streaming.StreamTransferTask;
+import org.apache.cassandra.streaming.async.StreamingInboundHandler;
 import org.apache.cassandra.tracing.TraceState;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.ExecutorUtils;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.Throwables;
 import org.apache.cassandra.utils.concurrent.Ref;
 import org.apache.cassandra.utils.memory.BufferPool;
@@ -96,6 +96,7 @@ import static org.apache.cassandra.distributed.api.Feature.NETWORK;
 public class Instance extends IsolatedExecutor implements IInvokableInstance
 {
     public final IInstanceConfig config;
+    private volatile boolean isKilled = false;
 
     // should never be invoked directly, so that it is instantiated on other class loader;
     // only visible for inheritance
@@ -165,7 +166,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
 
     public boolean isShutdown()
     {
-        throw new UnsupportedOperationException();
+        return isolatedExecutor.isShutdown();
     }
 
     @Override
@@ -325,6 +326,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
 //                    -- not sure what that means?  SocketFactory.instance.getClass();
                     registerMockMessaging(cluster);
                 }
+                JVMStabilityInspector.replaceKiller(InstanceKiller.createKiller(() -> FBUtilities.waitOnFuture(shutdown())));
 
                 // TODO: this is more than just gossip
                 if (config.has(GOSSIP))
@@ -430,6 +432,9 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
     @Override
     public Future<Void> shutdown(boolean graceful)
     {
+        if (isShutdown())
+            return CompletableFuture.completedFuture(null);
+
         Future<?> future = async((ExecutorService executor) -> {
             Throwable error = null;
 
@@ -473,7 +478,16 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         }).apply(isolatedExecutor);
 
         return CompletableFuture.runAsync(ThrowingRunnable.toRunnable(future::get), isolatedExecutor)
+                                .thenRun(() -> {
+                                    // after shutdown is called, the kill state is lost, so need to copy it over so it won't be lost
+                                    isKilled = callsOnInstance(() -> InstanceKiller.isKilled()).call();
+                                })
                                 .thenRun(super::shutdown);
+    }
+
+    public boolean isKilled()
+    {
+        return isKilled;
     }
 
     private static void shutdownAndWait(List<ExecutorService> executors) throws TimeoutException, InterruptedException

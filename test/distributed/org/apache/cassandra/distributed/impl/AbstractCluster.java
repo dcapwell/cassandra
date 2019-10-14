@@ -110,11 +110,15 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
         private volatile IInvokableInstance delegate;
         private volatile Versions.Version version;
         private volatile boolean isShutdown = true;
+        private volatile boolean isKilled = false;
 
         protected IInvokableInstance delegate()
         {
             if (delegate == null)
+            {
                 delegate = newInstance(generation);
+                isKilled = false;
+            }
             return delegate;
         }
 
@@ -166,9 +170,19 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
             if (isShutdown)
                 throw new IllegalStateException();
             isShutdown = true;
+            // save the killed state for later, since the delegate pointer is cleared
+            isKilled = delegate.isKilled();
             Future<Void> future = delegate.shutdown(graceful);
             delegate = null;
             return future;
+        }
+
+        public synchronized boolean isKilled()
+        {
+            IInvokableInstance local = delegate;
+            if (local == null)
+                return isKilled;
+            return local.isKilled();
         }
 
         @Override
@@ -594,7 +608,8 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
         instances.clear();
         instanceMap.clear();
         // Make sure to only delete directory when threads are stopped
-        FileUtils.deleteRecursive(root);
+        if (root.exists())
+            FileUtils.deleteRecursive(root);
 
         //withThreadLeakCheck(futures);
     }
