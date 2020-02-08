@@ -43,7 +43,10 @@ public interface IInstance extends IIsolatedExecutor
 
     int liveMemberCount();
 
-    int nodetool(String... commandAndArgs);
+    NodeToolResult nodetoolResult(String... commandAndArgs);
+    default int nodetool(String... commandAndArgs) {
+        return nodetoolResult(commandAndArgs).rc;
+    }
     void uncaughtException(Thread t, Throwable e);
 
     /**

@@ -143,6 +143,11 @@ public class MessageFilters implements IMessageFilters
         {
             return new Filter(from, to, verbs, matcher).on();
         }
+
+        public IMessageFilters.Filter on()
+        {
+            return null;
+        }
     }
 
 

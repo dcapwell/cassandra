@@ -151,6 +151,8 @@ public class DatabaseDescriptor
     // turns some warnings into exceptions for testing
     private static final boolean strictRuntimeChecks = Boolean.getBoolean("cassandra.strict.runtime.checks");
 
+    private static volatile boolean repair_local_sync_enabled = true;
+
     private static Function<CommitLog, AbstractCommitLogSegmentManager> commitLogSegmentMgrProvider = c -> DatabaseDescriptor.isCDCEnabled()
                                        ? new CommitLogSegmentManagerCDC(c, DatabaseDescriptor.getCommitLogLocation())
                                        : new CommitLogSegmentManagerStandard(c, DatabaseDescriptor.getCommitLogLocation());
@@ -3011,6 +3013,14 @@ public class DatabaseDescriptor
     public static void setCommitLogSegmentMgrProvider(Function<CommitLog, AbstractCommitLogSegmentManager> provider)
     {
         commitLogSegmentMgrProvider = provider;
+    }
+
+    public static boolean repair_local_sync_enabled() {
+        return repair_local_sync_enabled;
+    }
+
+    public static void repair_local_sync_enabled(boolean value) {
+        repair_local_sync_enabled = value;
     }
 
     /**

@@ -25,10 +25,14 @@ import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeoutException;
 import java.util.function.BiConsumer;
+
+import javax.management.Notification;
+import javax.management.NotificationListener;
 
 import com.google.common.annotations.VisibleForTesting;
 
@@ -58,6 +62,8 @@ import org.apache.cassandra.distributed.api.ICoordinator;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.api.IListen;
 import org.apache.cassandra.distributed.api.IMessage;
+import org.apache.cassandra.distributed.api.NodeToolResult;
+import org.apache.cassandra.distributed.mock.nodetool.InternalNodeProbe;
 import org.apache.cassandra.distributed.mock.nodetool.InternalNodeProbeFactory;
 import org.apache.cassandra.gms.ApplicationState;
 import org.apache.cassandra.gms.Gossiper;
@@ -80,7 +86,9 @@ import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.DefaultFSErrorHandler;
 import org.apache.cassandra.service.PendingRangeCalculatorService;
 import org.apache.cassandra.service.QueryState;
+import org.apache.cassandra.service.StorageProxyMBean;
 import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.service.StorageServiceMBean;
 import org.apache.cassandra.streaming.StreamReceiveTask;
 import org.apache.cassandra.streaming.StreamTransferTask;
 import org.apache.cassandra.streaming.async.StreamingInboundHandler;
@@ -214,9 +222,12 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
     // unnecessary if registerMockMessaging used
     private void registerFilter(ICluster cluster)
     {
-        MessagingService.instance().outboundSink.add((message, to) -> {
-            return permitMessage(cluster, to, serializeMessage(message.from(), to, message));
+        MessagingService.instance().inboundSink.add(message -> {
+            return permitMessage(cluster, FBUtilities.getBroadcastAddressAndPort(), serializeMessage(message.from(), FBUtilities.getBroadcastAddressAndPort(), message));
         });
+//        MessagingService.instance().outboundSink.add((message, to) -> {
+//            return permitMessage(cluster, to, serializeMessage(message.from(), to, message));
+//        });
     }
 
     private boolean permitMessage(ICluster cluster, InetAddressAndPort to, IMessage message)
@@ -373,6 +384,8 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                     registerMockMessaging(cluster);
                 }
                 JVMStabilityInspector.replaceKiller(new InstanceKiller());
+
+                ActiveRepairService.instance.start();
 
                 // TODO: this is more than just gossip
                 if (config.has(GOSSIP))
@@ -552,9 +565,46 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         }).call();
     }
 
-    public int nodetool(String... commandAndArgs)
+    public NodeToolResult nodetoolResult(String... commandAndArgs)
     {
-        return sync(() -> new NodeTool(new InternalNodeProbeFactory()).execute(commandAndArgs)).call();
+        return sync(() -> {
+            DtestNodeTool nodetool = new DtestNodeTool();
+            int rc =  nodetool.execute(commandAndArgs);
+            return new NodeToolResult(commandAndArgs, rc, new ArrayList<>(nodetool.notifications.notifications), nodetool.latestError);
+        }).call();
+    }
+
+    private static class DtestNodeTool extends NodeTool {
+        private final StorageServiceMBean storageProxy = InternalNodeProbe.create().getStorageService();
+        private final CollectingNotificationListener notifications = new CollectingNotificationListener();
+
+        private Throwable latestError;
+
+        DtestNodeTool() {
+            super(new InternalNodeProbeFactory());
+            storageProxy.addNotificationListener(notifications, null, null);
+        }
+
+        protected void badUse(Exception e)
+        {
+            super.badUse(e);
+            latestError = e;
+        }
+
+        protected void err(Throwable e)
+        {
+            super.err(e);
+            latestError = e;
+        }
+    }
+
+    private static final class CollectingNotificationListener implements NotificationListener {
+        private final CopyOnWriteArrayList<Notification> notifications = new CopyOnWriteArrayList<>();
+
+        public void handleNotification(Notification notification, Object handback)
+        {
+            notifications.add(notification);
+        }
     }
 
     public long killAttempts()

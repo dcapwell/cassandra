@@ -55,6 +55,16 @@ public class InternalNodeProbe extends NodeProbe
         super("", 0);
     }
 
+    public static InternalNodeProbe create() {
+        try {
+            return new InternalNodeProbe();
+        }
+        catch (IOException e)
+        {
+            throw new AssertionError(e);
+        }
+    }
+
     protected void connect()
     {
         // note that we are not connecting via JMX for testing
