@@ -22,9 +22,11 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.net.UnknownHostException;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.Uninterruptibles;
@@ -373,6 +375,58 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
         finally
         {
             filter.off();
+        }
+    }
+
+    @Test(timeout = 1 * 60 * 1000)
+    public void validationParticipentCrashesAndComesBack()
+    {
+        // Test what happens when a participant restarts in the middle of validation
+        // Currently this isn't recoverable but could be.
+        // TODO since this is a real restart, how would I test "long pause"? Can't send SIGSTOP since same procress
+        CLUSTER.schemaChange("CREATE TABLE " + KEYSPACE + ".validationparticipentcrashesandcomesback (key text, value text, PRIMARY KEY (key))");
+        AtomicReference<Future<Void>> participantShutdown = new AtomicReference<>();
+        IMessageFilters.Filter filter = CLUSTER.verbs(Verb.VALIDATION_REQ).to(2).messagesMatching(of(m -> {
+            // the nice thing about this is that this lambda is "capturing" and not "transfer", what this means is that
+            // this lambda isn't serialized and any object held isn't copied.
+            participantShutdown.set(CLUSTER.get(2).shutdown());
+            return true; // drop it so this node doesn't reply before shutdown.
+        })).drop();
+        try
+        {
+            // since nodetool is blocking, need to handle participantShutdown in the background
+            CompletableFuture<Void> recovered = CompletableFuture.runAsync(() -> {
+                try {
+                    while (participantShutdown.get() == null) {
+                        // event not happened, wait for it
+                        TimeUnit.MILLISECONDS.sleep(100);
+                    }
+                    Future<Void> f = participantShutdown.get();
+                    f.get(); // wait for shutdown to complete
+                    CLUSTER.get(2).startup(CLUSTER);
+                } catch (Exception e) {
+                    if (e instanceof RuntimeException) {
+                        throw (RuntimeException) e;
+                    }
+                    throw new RuntimeException(e);
+                }
+            });
+            NodeToolResult result = CLUSTER.get(1).nodetoolResult("repair", KEYSPACE, "validationparticipentcrashesandcomesback", "--full");
+            recovered.join(); // if recovery didn't happen then the results are not what are being tested, so block here first
+            result.asserts()
+                  .notOk()
+                  .errorContains("Some repair failed")
+                  .notificationContains(ProgressEventType.ERROR, "Some repair failed")
+                  .notificationContains(ProgressEventType.COMPLETE, "finished with error");
+        }
+        finally
+        {
+            filter.off();
+            try {
+                CLUSTER.get(2).startup(CLUSTER);
+            } catch (Exception e) {
+                // if you call startup twice it is allowed to fail, so ignore it... hope this didn't brike the other tests =x
+            }
         }
     }
 
