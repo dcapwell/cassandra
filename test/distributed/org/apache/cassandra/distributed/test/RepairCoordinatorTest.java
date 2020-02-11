@@ -311,7 +311,7 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
     }
 
     @Test(timeout = 1 * 60 * 1000)
-    public void prepareIrFailure()
+    public void prepareIrFailure() //TODO test times out
     {
         CLUSTER.schemaChange("CREATE TABLE " + KEYSPACE + ".prepareirfailure (key text, value text, PRIMARY KEY (key))");
         IMessageFilters.Filter filter = CLUSTER.verbs(Verb.PREPARE_CONSISTENT_REQ).messagesMatching(of(m -> {
@@ -357,7 +357,7 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
     // IR doesn't use the snapshot message, so don't need to test it
 
     @Test(timeout = 1 * 60 * 1000)
-    public void validationFailure()
+    public void validationFailure() //TODO test times out
     {
         CLUSTER.schemaChange("CREATE TABLE " + KEYSPACE + ".validationfailure (key text, value text, PRIMARY KEY (key))");
         IMessageFilters.Filter filter = CLUSTER.verbs(Verb.VALIDATION_REQ).messagesMatching(of(m -> {
@@ -379,7 +379,7 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
     }
 
     @Test(timeout = 1 * 60 * 1000)
-    public void validationParticipentCrashesAndComesBack()
+    public void validationParticipentCrashesAndComesBack() //TODO test times out
     {
         // Test what happens when a participant restarts in the middle of validation
         // Currently this isn't recoverable but could be.
@@ -431,7 +431,7 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
     }
 
     @Test(timeout = 1 * 60 * 1000)
-    public void validationIrFailure()
+    public void validationIrFailure() //TODO test times out
     {
         CLUSTER.schemaChange("CREATE TABLE " + KEYSPACE + ".validationirfailure (key text, value text, PRIMARY KEY (key))");
         IMessageFilters.Filter filter = CLUSTER.verbs(Verb.VALIDATION_REQ).messagesMatching(of(m -> {
@@ -456,7 +456,7 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
     //TODO failure reply murkle tree IR
 
     @Test(timeout = 1 * 60 * 1000)
-    public void streamFailure()
+    public void streamFailure() //TODO test times out
     {
         CLUSTER.schemaChange("CREATE TABLE " + KEYSPACE + ".streamfailure (key text, value text, PRIMARY KEY (key))");
         // there needs to be a difference to cause streaming to happen, so add to one node
@@ -486,7 +486,7 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
     }
 
     @Test(timeout = 1 * 60 * 1000)
-    public void streamIrFailure()
+    public void streamIrFailure() //TODO test times out
     {
         CLUSTER.schemaChange("CREATE TABLE " + KEYSPACE + ".streamirfailure (key text, value text, PRIMARY KEY (key))");
         // there needs to be a difference to cause streaming to happen, so add to one node
