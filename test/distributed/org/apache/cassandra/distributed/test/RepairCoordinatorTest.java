@@ -55,7 +55,6 @@ import static org.apache.cassandra.distributed.api.IMessageFilters.Matcher.of;
 
 //TODO JMX to make sure no over counting
 //TODO check system tables
-//TODO test START event is seen; this is a regression with the patch
 //TODO paramaterized test for incremental or full
 public class RepairCoordinatorTest extends DistributedTestBase implements Serializable
 {
@@ -107,6 +106,8 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
         NodeToolResult result = CLUSTER.get(2).nodetoolResult("repair", KEYSPACE, "simpleir");
         result.asserts()
               .ok()
+              .notificationContains(ProgressEventType.START, "Starting repair command")
+              .notificationContains(ProgressEventType.START, "repairing keyspace " + KEYSPACE + " with repair options")
               .notificationContains(ProgressEventType.SUCCESS, "Repair completed successfully")
               .notificationContains(ProgressEventType.COMPLETE, "finished");
     }
@@ -114,6 +115,7 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
     @Test(timeout = 1 * 60 * 1000)
     public void missingKeyspace()
     {
+        // as of this moment the check is done in nodetool so the JMX notifications are not imporant
         NodeToolResult result = CLUSTER.get(2).nodetoolResult("repair", "doesnotexist");
         result.asserts()
               .notOk()
@@ -127,6 +129,7 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
         result.asserts()
               .notOk()
               .errorContains("failed with error Unknown keyspace/cf pair (distributed_test_keyspace.doesnotexist)")
+              // Start notification is ignored since this is checked during setup (aka before start)
               .notificationContains(ProgressEventType.ERROR, "failed with error Unknown keyspace/cf pair (distributed_test_keyspace.doesnotexist)")
               .notificationContains(ProgressEventType.COMPLETE, "finished with error");
     }
@@ -145,6 +148,7 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
               .ok()
               .notificationContains("Empty keyspace")
               .notificationContains("skipping repair: " + KEYSPACE)
+              // Start notification is ignored since this is checked during setup (aka before start)
               .notificationContains(ProgressEventType.SUCCESS, "Empty keyspace") // will fail since success isn't returned; only complete
               .notificationContains(ProgressEventType.COMPLETE, "finished"); // will fail since it doesn't do this
     }
@@ -174,6 +178,8 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
         result.asserts()
               .notOk()
               .errorContains("Requested range " + intersectingRange + " intersects a local range (" + tokenRange + ") but is not fully contained in one")
+              .notificationContains(ProgressEventType.START, "Starting repair command")
+              .notificationContains(ProgressEventType.START, "repairing keyspace " + KEYSPACE + " with repair options")
               .notificationContains(ProgressEventType.ERROR, "Requested range " + intersectingRange + " intersects a local range (" + tokenRange + ") but is not fully contained in one")
               .notificationContains(ProgressEventType.COMPLETE, "finished with error");
     }
@@ -187,6 +193,8 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
         result.asserts()
               .notOk()
               .errorContains("Unknown host specified thisreally.should.not.exist.apache.org")
+              .notificationContains(ProgressEventType.START, "Starting repair command")
+              .notificationContains(ProgressEventType.START, "repairing keyspace " + KEYSPACE + " with repair options")
               .notificationContains(ProgressEventType.ERROR, "Unknown host specified thisreally.should.not.exist.apache.org")
               .notificationContains(ProgressEventType.COMPLETE, "finished with error");
     }
@@ -202,6 +210,8 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
         result.asserts()
               .notOk()
               .errorContains("The current host must be part of the repair")
+              .notificationContains(ProgressEventType.START, "Starting repair command")
+              .notificationContains(ProgressEventType.START, "repairing keyspace " + KEYSPACE + " with repair options")
               .notificationContains(ProgressEventType.ERROR, "The current host must be part of the repair")
               .notificationContains(ProgressEventType.COMPLETE, "finished with error");
     }
@@ -217,6 +227,8 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
         result.asserts()
               .notOk()
               .errorContains("Specified hosts [localhost] do not share range")
+              .notificationContains(ProgressEventType.START, "Starting repair command")
+              .notificationContains(ProgressEventType.START, "repairing keyspace " + KEYSPACE + " with repair options")
               .notificationContains(ProgressEventType.ERROR, "Specified hosts [localhost] do not share range")
               .notificationContains(ProgressEventType.COMPLETE, "finished with error");
     }
@@ -244,6 +256,8 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
             result.asserts()
                   .notOk()
                   .errorContains("Got negative replies from endpoints [127.0.0.2:7012]")
+                  .notificationContains(ProgressEventType.START, "Starting repair command")
+                  .notificationContains(ProgressEventType.START, "repairing keyspace " + KEYSPACE + " with repair options")
                   .notificationContains(ProgressEventType.ERROR, "Got negative replies from endpoints [127.0.0.2:7012]")
                   .notificationContains(ProgressEventType.COMPLETE, "finished with error");
         }
@@ -282,6 +296,8 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
             result.asserts()
                   .notOk()
                   .errorContains("Endpoint not alive")
+                  .notificationContains(ProgressEventType.START, "Starting repair command")
+                  .notificationContains(ProgressEventType.START, "repairing keyspace " + KEYSPACE + " with repair options")
                   .notificationContains(ProgressEventType.ERROR, "Endpoint not alive")
                   .notificationContains(ProgressEventType.COMPLETE, "finished with error");
         }
@@ -305,6 +321,8 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
                   .notOk()
                   //TODO error message may be better to improve since its user facing
                   .errorContains("Got negative replies from endpoints")
+                  .notificationContains(ProgressEventType.START, "Starting repair command")
+                  .notificationContains(ProgressEventType.START, "repairing keyspace " + KEYSPACE + " with repair options")
                   .notificationContains(ProgressEventType.ERROR, "Got negative replies from endpoints")
                   .notificationContains(ProgressEventType.COMPLETE, "finished with error");
         }
@@ -327,6 +345,8 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
             result.asserts()
                   .notOk()
                   .errorContains("Some repair failed")
+                  .notificationContains(ProgressEventType.START, "Starting repair command")
+                  .notificationContains(ProgressEventType.START, "repairing keyspace " + KEYSPACE + " with repair options")
                   .notificationContains(ProgressEventType.ERROR, "Some repair failed")
                   .notificationContains(ProgressEventType.COMPLETE, "finished with error");
         }

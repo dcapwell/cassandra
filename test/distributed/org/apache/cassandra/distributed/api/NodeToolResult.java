@@ -86,7 +86,7 @@ public class NodeToolResult
                     }
                 }
             }
-            Assert.fail("Unable to locate message " + msg + " in notifications: " + notifications);
+            Assert.fail("Unable to locate message '" + msg + "' in notifications: " + notifications);
             return this; // unreachable
         }
     }
