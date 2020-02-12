@@ -46,7 +46,6 @@ import org.apache.cassandra.net.Verb;
 import static java.lang.String.format;
 import static org.apache.cassandra.distributed.api.IMessageFilters.Matcher.of;
 
-//TODO paramaterized test for incremental or full
 @RunWith(Parameterized.class)
 public class RepairCoordinatorFailingMessageTest extends DistributedTestBase implements Serializable
 {
