@@ -21,18 +21,22 @@ package org.apache.cassandra.distributed.test;
 import java.io.IOException;
 import java.io.Serializable;
 import java.net.UnknownHostException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.Uninterruptibles;
+import org.apache.commons.lang3.ArrayUtils;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ConsistencyLevel;
@@ -51,14 +55,33 @@ import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.FBUtilities;
 
+import static java.lang.String.format;
 import static org.apache.cassandra.distributed.api.IMessageFilters.Matcher.of;
 
 //TODO JMX to make sure no over counting
 //TODO check system tables
-//TODO paramaterized test for incremental or full
+@RunWith(Parameterized.class)
 public class RepairCoordinatorTest extends DistributedTestBase implements Serializable
 {
     private static Cluster CLUSTER;
+
+    private final RepairType repairType;
+
+    public RepairCoordinatorTest(RepairType repairType)
+    {
+        this.repairType = repairType;
+    }
+
+    @Parameterized.Parameters(name = "{0}")
+    public static Collection<Object[]> messages()
+    {
+        List<Object[]> tests = new ArrayList<>();
+        for (RepairType type : RepairType.values())
+        {
+            tests.add(new Object[] { type });
+        }
+        return tests;
+    }
 
     @BeforeClass
     public static void before()
@@ -84,26 +107,28 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
             CLUSTER.close();
     }
 
-    @Test(timeout = 1 * 60 * 1000)
-    public void simple() {
-        CLUSTER.schemaChange("CREATE TABLE " + KEYSPACE + ".simple (key text, PRIMARY KEY (key))");
-        CLUSTER.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".simple (key) VALUES (?)", ConsistencyLevel.ANY, "some text");
+    private String tableName(String prefix) {
+        return prefix + "_" + postfix();
+    }
 
-        NodeToolResult result = CLUSTER.get(2).nodetoolResult("repair", KEYSPACE, "simple", "--full");
-        result.asserts()
-              .ok()
-              .notificationContains(ProgressEventType.START, "Starting repair command")
-              .notificationContains(ProgressEventType.START, "repairing keyspace " + KEYSPACE + " with repair options")
-              .notificationContains(ProgressEventType.SUCCESS, "Repair completed successfully")
-              .notificationContains(ProgressEventType.COMPLETE, "finished");
+    private String postfix()
+    {
+        return repairType.name().toLowerCase();
+    }
+
+    private NodeToolResult repair(int node, String... args) {
+        args = repairType.append(args);
+        args = ArrayUtils.addAll(new String[] { "repair" }, args);
+        return CLUSTER.get(node).nodetoolResult(args);
     }
 
     @Test(timeout = 1 * 60 * 1000)
-    public void simpleIr() {
-        CLUSTER.schemaChange("CREATE TABLE " + KEYSPACE + ".simpleir (key text, PRIMARY KEY (key))");
-        CLUSTER.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".simpleir (key) VALUES (?)", ConsistencyLevel.ANY, "some text");
+    public void simple() {
+        String table = tableName("simple");
+        CLUSTER.schemaChange(format("CREATE TABLE %s.%s (key text, PRIMARY KEY (key))", KEYSPACE, table));
+        CLUSTER.coordinator(1).execute(format("INSERT INTO %s.%s (key) VALUES (?)", KEYSPACE, table), ConsistencyLevel.ANY, "some text");
 
-        NodeToolResult result = CLUSTER.get(2).nodetoolResult("repair", KEYSPACE, "simpleir");
+        NodeToolResult result = repair(2, KEYSPACE, table);
         result.asserts()
               .ok()
               .notificationContains(ProgressEventType.START, "Starting repair command")
@@ -116,7 +141,7 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
     public void missingKeyspace()
     {
         // as of this moment the check is done in nodetool so the JMX notifications are not imporant
-        NodeToolResult result = CLUSTER.get(2).nodetoolResult("repair", "doesnotexist");
+        NodeToolResult result = repair(2, "doesnotexist");
         result.asserts()
               .notOk()
               .errorContains("Keyspace [doesnotexist] does not exist.");
@@ -125,7 +150,7 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
     @Test(timeout = 1 * 60 * 1000)
     public void missingTable()
     {
-        NodeToolResult result = CLUSTER.get(2).nodetoolResult("repair", KEYSPACE, "doesnotexist");
+        NodeToolResult result = repair(2, KEYSPACE, "doesnotexist");
         result.asserts()
               .notOk()
               .errorContains("failed with error Unknown keyspace/cf pair (distributed_test_keyspace.doesnotexist)")
@@ -140,10 +165,11 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
         // index CF currently don't support repair, so they get dropped when listed
         // this is done in this test to cause the keyspace to have 0 tables to repair, which causes repair to no-op
         // early and skip.
-        CLUSTER.schemaChange("CREATE TABLE " + KEYSPACE + ".withindex (key text, value text, PRIMARY KEY (key))");
-        CLUSTER.schemaChange("CREATE INDEX value ON " + KEYSPACE + ".withindex (value)");
+        String table = tableName("withindex");
+        CLUSTER.schemaChange(format("CREATE TABLE %s.%s (key text, value text, PRIMARY KEY (key))", KEYSPACE, table));
+        CLUSTER.schemaChange(format("CREATE INDEX value_%s ON %s.%s (value)", postfix(), KEYSPACE, table));
         // if CF has a . in it, it is assumed to be a 2i which rejects repairs
-        NodeToolResult result = CLUSTER.get(2).nodetoolResult("repair", KEYSPACE, "withindex.value");
+        NodeToolResult result = repair(2, KEYSPACE, table + ".value");
         result.asserts()
               .ok()
               .notificationContains("Empty keyspace")
@@ -160,7 +186,8 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
         // if repair is enhanced to allow intersecting ranges w/ local then this test will fail saying that we expected
         // repair to fail but it didn't, this would be fine and this test should be updated to reflect the new
         // semantic
-        CLUSTER.schemaChange("CREATE TABLE " + KEYSPACE + ".intersectingrange (key text, value text, PRIMARY KEY (key))");
+        String table = tableName("intersectingrange");
+        CLUSTER.schemaChange(format("CREATE TABLE %s.%s (key text, value text, PRIMARY KEY (key))", KEYSPACE, table));
 
         //TODO dtest api for this?
         LongTokenRange tokenRange = CLUSTER.get(2).callOnInstance(() -> {
@@ -172,9 +199,9 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
         });
         LongTokenRange intersectingRange = new LongTokenRange(tokenRange.maxInclusive - 7, tokenRange.maxInclusive + 7);
 
-        NodeToolResult result = CLUSTER.get(2).nodetoolResult("repair", KEYSPACE, "intersectingrange",
-                                                              "--start-token", Long.toString(intersectingRange.minExclusive),
-                                                              "--end-token", Long.toString(intersectingRange.maxInclusive));
+        NodeToolResult result = repair(2, KEYSPACE, table,
+                                       "--start-token", Long.toString(intersectingRange.minExclusive),
+                                       "--end-token", Long.toString(intersectingRange.maxInclusive));
         result.asserts()
               .notOk()
               .errorContains("Requested range " + intersectingRange + " intersects a local range (" + tokenRange + ") but is not fully contained in one")
@@ -187,9 +214,10 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
     @Test(timeout = 1 * 60 * 1000)
     public void unknownHost()
     {
-        CLUSTER.schemaChange("CREATE TABLE " + KEYSPACE + ".unknownhost (key text, value text, PRIMARY KEY (key))");
+        String table = tableName("unknownhost");
+        CLUSTER.schemaChange(format("CREATE TABLE %s.%s (key text, value text, PRIMARY KEY (key))", KEYSPACE, table));
 
-        NodeToolResult result = CLUSTER.get(2).nodetoolResult("repair", KEYSPACE, "unknownhost", "--in-hosts", "thisreally.should.not.exist.apache.org");
+        NodeToolResult result = repair(2, KEYSPACE, table, "--in-hosts", "thisreally.should.not.exist.apache.org");
         result.asserts()
               .notOk()
               .errorContains("Unknown host specified thisreally.should.not.exist.apache.org")
@@ -204,9 +232,10 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
     {
         // current limitation is that the coordinator must be apart of the repair, so as long as that exists this test
         // verifies that the validation logic will termniate the repair properly
-        CLUSTER.schemaChange("CREATE TABLE " + KEYSPACE + ".desiredhostnotcoordinator (key text, value text, PRIMARY KEY (key))");
+        String table = tableName("desiredhostnotcoordinator");
+        CLUSTER.schemaChange(format("CREATE TABLE %s.%s (key text, value text, PRIMARY KEY (key))", KEYSPACE, table));
 
-        NodeToolResult result = CLUSTER.get(2).nodetoolResult("repair", KEYSPACE, "desiredhostnotcoordinator", "--in-hosts", "localhost");
+        NodeToolResult result = repair(2, KEYSPACE, table, "--in-hosts", "localhost");
         result.asserts()
               .notOk()
               .errorContains("The current host must be part of the repair")
@@ -221,9 +250,10 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
     {
         // this is very similar to ::desiredHostNotCoordinator but has the difference that the only host to do repair
         // is the coordinator
-        CLUSTER.schemaChange("CREATE TABLE " + KEYSPACE + ".onlycoordinator (key text, value text, PRIMARY KEY (key))");
+        String table = tableName("onlycoordinator");
+        CLUSTER.schemaChange(format("CREATE TABLE %s.%s (key text, value text, PRIMARY KEY (key))", KEYSPACE, table));
 
-        NodeToolResult result = CLUSTER.get(1).nodetoolResult("repair", KEYSPACE, "onlycoordinator", "--in-hosts", "localhost");
+        NodeToolResult result = repair(1, KEYSPACE, table, "--in-hosts", "localhost");
         result.asserts()
               .notOk()
               .errorContains("Specified hosts [localhost] do not share range")
@@ -237,10 +267,13 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
     public void replicationFactorOne()
     {
         // In the case of rf=1 repair fails to create a cmd handle so node tool exists early
-        CLUSTER.schemaChange("CREATE KEYSPACE replicationfactor WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};");
-        CLUSTER.schemaChange("CREATE TABLE replicationfactor.one (key text, value text, PRIMARY KEY (key))");
+        String table = tableName("one");
+        // since cluster is shared and this test gets called multiple times, need "IF NOT EXISTS" so the second+ attempt
+        // does not fail
+        CLUSTER.schemaChange("CREATE KEYSPACE IF NOT EXISTS replicationfactor WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};");
+        CLUSTER.schemaChange(format("CREATE TABLE replicationfactor.%s (key text, value text, PRIMARY KEY (key))", table));
 
-        NodeToolResult result = CLUSTER.get(1).nodetoolResult("repair", "replicationfactor", "one");
+        NodeToolResult result = repair(1, "replicationfactor", table);
         result.asserts()
               .ok();
     }
@@ -248,11 +281,12 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
     @Test(timeout = 1 * 60 * 1000)
     public void prepareRPCTimeout()
     {
-        CLUSTER.schemaChange("CREATE TABLE " + KEYSPACE + ".preparerpctimeout (key text, value text, PRIMARY KEY (key))");
+        String table = tableName("preparerpctimeout");
+        CLUSTER.schemaChange(format("CREATE TABLE %s.%s (key text, value text, PRIMARY KEY (key))", KEYSPACE, table));
         MessageFilters.Filter filter = CLUSTER.verbs(Verb.PREPARE_MSG).drop();
         try
         {
-            NodeToolResult result = CLUSTER.get(1).nodetoolResult("repair", KEYSPACE, "preparerpctimeout");
+            NodeToolResult result = repair(1, KEYSPACE, table);
             result.asserts()
                   .notOk()
                   .errorContains("Got negative replies from endpoints [127.0.0.2:7012]")
@@ -270,7 +304,8 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
     @Test(timeout = 1 * 60 * 1000)
     public void neighbourDown() throws InterruptedException, ExecutionException
     {
-        CLUSTER.schemaChange("CREATE TABLE " + KEYSPACE + ".neighbourdown (key text, value text, PRIMARY KEY (key))");
+        String table = tableName("neighbourdown");
+        CLUSTER.schemaChange(format("CREATE TABLE %s.%s (key text, value text, PRIMARY KEY (key))", KEYSPACE, table));
         Future<Void> shutdownFuture = CLUSTER.get(2).shutdown();
         String downNodeAddress = CLUSTER.get(2).callOnInstance(() -> FBUtilities.getBroadcastAddressAndPort().toString());
         try
@@ -292,7 +327,7 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
                     Uninterruptibles.sleepUninterruptibly(500, TimeUnit.MILLISECONDS);
             });
 
-            NodeToolResult result = CLUSTER.get(1).nodetoolResult("repair", KEYSPACE, "neighbourdown");
+            NodeToolResult result = repair(1, KEYSPACE, table);
             result.asserts()
                   .notOk()
                   .errorContains("Endpoint not alive")
@@ -310,13 +345,19 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
     @Test(timeout = 1 * 60 * 1000)
     public void prepareFailure()
     {
-        CLUSTER.schemaChange("CREATE TABLE " + KEYSPACE + ".preparefailure (key text, value text, PRIMARY KEY (key))");
-        IMessageFilters.Filter filter = CLUSTER.verbs(Verb.PREPARE_MSG).messagesMatching(of(m -> {
+        String table = tableName("preparefailure");
+        CLUSTER.schemaChange(format("CREATE TABLE %s.%s (key text, value text, PRIMARY KEY (key))", KEYSPACE, table));
+        // make sure exceptions are the same so in the future when we propgate failures to operators (living the dream here...)
+        // the test is easier
+        IMessageFilters.Filter prepareFilter = CLUSTER.verbs(Verb.PREPARE_MSG).messagesMatching(of(m -> {
+            throw new RuntimeException("prepare fail");
+        })).drop();
+        IMessageFilters.Filter consistentPrepareFilter = CLUSTER.verbs(Verb.PREPARE_CONSISTENT_REQ).messagesMatching(of(m -> {
             throw new RuntimeException("prepare fail");
         })).drop();
         try
         {
-            NodeToolResult result = CLUSTER.get(1).nodetoolResult("repair", KEYSPACE, "preparefailure", "--full");
+            NodeToolResult result = repair(1, KEYSPACE, table);
             result.asserts()
                   .notOk()
                   //TODO error message may be better to improve since its user facing
@@ -328,20 +369,23 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
         }
         finally
         {
-            filter.off();
+            consistentPrepareFilter.off();
+            prepareFilter.off();
         }
     }
 
     @Test(timeout = 1 * 60 * 1000)
     public void snapshotFailure()
     {
-        CLUSTER.schemaChange("CREATE TABLE " + KEYSPACE + ".snapshotfailure (key text, value text, PRIMARY KEY (key))");
+        // IR doesn't use snapshot message, so can ignore that case; mostly running it out of simplicity (and maybe one day it does)
+        String table = tableName("snapshotfailure");
+        CLUSTER.schemaChange(format("CREATE TABLE %s.%s (key text, value text, PRIMARY KEY (key))", KEYSPACE, table));
         IMessageFilters.Filter filter = CLUSTER.verbs(Verb.SNAPSHOT_MSG).messagesMatching(of(m -> {
             throw new RuntimeException("snapshot fail");
         })).drop();
         try
         {
-            NodeToolResult result = CLUSTER.get(1).nodetoolResult("repair", KEYSPACE, "snapshotfailure", "--full", "--sequential");
+            NodeToolResult result = repair(1, KEYSPACE, table, "--sequential");
             result.asserts()
                   .notOk()
                   .errorContains("Some repair failed")
@@ -356,5 +400,21 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
         }
     }
 
-    // IR doesn't use the snapshot message, so don't need to test it
+    public enum RepairType {
+        FULL {
+            public String[] append(String... args)
+            {
+                return ArrayUtils.add(args, "--full");
+            }
+        },
+        INCREMENTAL {
+            public String[] append(String... args)
+            {
+                // incremental is the default
+                return args;
+            }
+        }; //TODO preview?
+
+        public abstract String[] append(String... args);
+    }
 }
