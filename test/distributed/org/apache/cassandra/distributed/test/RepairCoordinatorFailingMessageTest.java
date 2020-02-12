@@ -20,14 +20,20 @@ package org.apache.cassandra.distributed.test;
 
 import java.io.IOException;
 import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.apache.commons.lang3.ArrayUtils;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.distributed.Cluster;
@@ -36,12 +42,32 @@ import org.apache.cassandra.distributed.api.IMessageFilters;
 import org.apache.cassandra.distributed.api.NodeToolResult;
 import org.apache.cassandra.net.Verb;
 
+import static java.lang.String.format;
 import static org.apache.cassandra.distributed.api.IMessageFilters.Matcher.of;
 
 //TODO paramaterized test for incremental or full
+@RunWith(Parameterized.class)
 public class RepairCoordinatorFailingMessageTest extends DistributedTestBase implements Serializable
 {
     private static Cluster CLUSTER;
+
+    private final RepairType repairType;
+
+    public RepairCoordinatorFailingMessageTest(RepairType repairType)
+    {
+        this.repairType = repairType;
+    }
+
+    @Parameterized.Parameters(name = "{0}")
+    public static Collection<Object[]> messages()
+    {
+        List<Object[]> tests = new ArrayList<>();
+        for (RepairType type : RepairType.values())
+        {
+            tests.add(new Object[] { type });
+        }
+        return tests;
+    }
 
     @BeforeClass
     public static void before()
@@ -67,6 +93,21 @@ public class RepairCoordinatorFailingMessageTest extends DistributedTestBase imp
             CLUSTER.close();
     }
 
+    private String tableName(String prefix) {
+        return prefix + "_" + postfix();
+    }
+
+    private String postfix()
+    {
+        return repairType.name().toLowerCase();
+    }
+
+    private NodeToolResult repair(int node, String... args) {
+        args = repairType.append(args);
+        args = ArrayUtils.addAll(new String[] { "repair" }, args);
+        return CLUSTER.get(node).nodetoolResult(args);
+    }
+
     //TODO failure reply murkle tree
     //TODO failure reply murkle tree IR
 
@@ -74,13 +115,14 @@ public class RepairCoordinatorFailingMessageTest extends DistributedTestBase imp
     @Test(timeout = 1 * 60 * 1000)
     public void validationFailure()
     {
-        CLUSTER.schemaChange("CREATE TABLE " + KEYSPACE + ".validationfailure (key text, value text, PRIMARY KEY (key))");
+        String table = tableName("validationfailure");
+        CLUSTER.schemaChange(format("CREATE TABLE %s.%s (key text, value text, PRIMARY KEY (key))", KEYSPACE, table));
         IMessageFilters.Filter filter = CLUSTER.verbs(Verb.VALIDATION_REQ).messagesMatching(of(m -> {
             throw new RuntimeException("validation fail");
         })).drop();
         try
         {
-            NodeToolResult result = CLUSTER.get(1).nodetoolResult("repair", KEYSPACE, "validationfailure", "--full");
+            NodeToolResult result = repair(1, KEYSPACE, "validationfailure");
             result.asserts()
                   .notOk()
                   .errorContains("Some repair failed")
@@ -99,7 +141,8 @@ public class RepairCoordinatorFailingMessageTest extends DistributedTestBase imp
         // Test what happens when a participant restarts in the middle of validation
         // Currently this isn't recoverable but could be.
         // TODO since this is a real restart, how would I test "long pause"? Can't send SIGSTOP since same procress
-        CLUSTER.schemaChange("CREATE TABLE " + KEYSPACE + ".validationparticipentcrashesandcomesback (key text, value text, PRIMARY KEY (key))");
+        String table = tableName("validationparticipentcrashesandcomesback");
+        CLUSTER.schemaChange(format("CREATE TABLE %s.%s (key text, value text, PRIMARY KEY (key))", KEYSPACE, table));
         AtomicReference<Future<Void>> participantShutdown = new AtomicReference<>();
         IMessageFilters.Filter filter = CLUSTER.verbs(Verb.VALIDATION_REQ).to(2).messagesMatching(of(m -> {
             // the nice thing about this is that this lambda is "capturing" and not "transfer", what this means is that
@@ -126,7 +169,7 @@ public class RepairCoordinatorFailingMessageTest extends DistributedTestBase imp
                     throw new RuntimeException(e);
                 }
             });
-            NodeToolResult result = CLUSTER.get(1).nodetoolResult("repair", KEYSPACE, "validationparticipentcrashesandcomesback", "--full");
+            NodeToolResult result = repair(1, KEYSPACE, table);
             recovered.join(); // if recovery didn't happen then the results are not what are being tested, so block here first
             result.asserts()
                   .notOk()
@@ -142,28 +185,6 @@ public class RepairCoordinatorFailingMessageTest extends DistributedTestBase imp
             } catch (Exception e) {
                 // if you call startup twice it is allowed to fail, so ignore it... hope this didn't brike the other tests =x
             }
-        }
-    }
-
-    @Test(timeout = 1 * 60 * 1000)
-    public void validationIrFailure()
-    {
-        CLUSTER.schemaChange("CREATE TABLE " + KEYSPACE + ".validationirfailure (key text, value text, PRIMARY KEY (key))");
-        IMessageFilters.Filter filter = CLUSTER.verbs(Verb.VALIDATION_REQ).messagesMatching(of(m -> {
-            throw new RuntimeException("validation fail");
-        })).drop();
-        try
-        {
-            NodeToolResult result = CLUSTER.get(1).nodetoolResult("repair", KEYSPACE, "validationirfailure");
-            result.asserts()
-                  .notOk()
-                  .errorContains("Some repair failed")
-                  .notificationContains(NodeToolResult.ProgressEventType.ERROR, "Some repair failed")
-                  .notificationContains(NodeToolResult.ProgressEventType.COMPLETE, "finished with error");
-        }
-        finally
-        {
-            filter.off();
         }
     }
 
@@ -235,5 +256,23 @@ public class RepairCoordinatorFailingMessageTest extends DistributedTestBase imp
         {
             filter.off();
         }
+    }
+
+    public enum RepairType {
+        FULL {
+            public String[] append(String... args)
+            {
+                return ArrayUtils.add(args, "--full");
+            }
+        },
+        INCREMENTAL {
+            public String[] append(String... args)
+            {
+                // incremental is the default
+                return args;
+            }
+        }; //TODO preview?
+
+        public abstract String[] append(String... args);
     }
 }
