@@ -152,9 +152,16 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
         @Override
         public synchronized void startup()
         {
+            startup(AbstractCluster.this);
+        }
+
+        public synchronized void startup(ICluster cluster)
+        {
+            if (cluster != AbstractCluster.this)
+                throw new IllegalArgumentException("Only the owning cluster can be used for startup"); //TODO why have this in the API?
             if (!isShutdown)
                 throw new IllegalStateException();
-            delegate().startup(AbstractCluster.this);
+            delegate().startup(cluster);
             isShutdown = false;
             updateMessagingVersions();
         }
