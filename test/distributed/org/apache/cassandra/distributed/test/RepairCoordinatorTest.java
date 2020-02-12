@@ -25,9 +25,11 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.Uninterruptibles;
@@ -347,12 +349,7 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
     {
         String table = tableName("preparefailure");
         CLUSTER.schemaChange(format("CREATE TABLE %s.%s (key text, value text, PRIMARY KEY (key))", KEYSPACE, table));
-        // make sure exceptions are the same so in the future when we propgate failures to operators (living the dream here...)
-        // the test is easier
-        IMessageFilters.Filter prepareFilter = CLUSTER.verbs(Verb.PREPARE_MSG).messagesMatching(of(m -> {
-            throw new RuntimeException("prepare fail");
-        })).drop();
-        IMessageFilters.Filter consistentPrepareFilter = CLUSTER.verbs(Verb.PREPARE_CONSISTENT_REQ).messagesMatching(of(m -> {
+        IMessageFilters.Filter filter = CLUSTER.verbs(Verb.PREPARE_MSG).messagesMatching(of(m -> {
             throw new RuntimeException("prepare fail");
         })).drop();
         try
@@ -369,8 +366,7 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
         }
         finally
         {
-            consistentPrepareFilter.off();
-            prepareFilter.off();
+            filter.off();
         }
     }
 
@@ -397,6 +393,59 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
         finally
         {
             filter.off();
+        }
+    }
+
+    @Test(timeout = 1 * 60 * 1000)
+    public void validationParticipentCrashesAndComesBack()
+    {
+        // Test what happens when a participant restarts in the middle of validation
+        // Currently this isn't recoverable but could be.
+        // TODO since this is a real restart, how would I test "long pause"? Can't send SIGSTOP since same procress
+        String table = tableName("validationparticipentcrashesandcomesback");
+        CLUSTER.schemaChange(format("CREATE TABLE %s.%s (key text, value text, PRIMARY KEY (key))", KEYSPACE, table));
+        AtomicReference<Future<Void>> participantShutdown = new AtomicReference<>();
+        IMessageFilters.Filter filter = CLUSTER.verbs(Verb.VALIDATION_REQ).to(2).messagesMatching(of(m -> {
+            // the nice thing about this is that this lambda is "capturing" and not "transfer", what this means is that
+            // this lambda isn't serialized and any object held isn't copied.
+            participantShutdown.set(CLUSTER.get(2).shutdown());
+            return true; // drop it so this node doesn't reply before shutdown.
+        })).drop();
+        try
+        {
+            // since nodetool is blocking, need to handle participantShutdown in the background
+            CompletableFuture<Void> recovered = CompletableFuture.runAsync(() -> {
+                try {
+                    while (participantShutdown.get() == null) {
+                        // event not happened, wait for it
+                        TimeUnit.MILLISECONDS.sleep(100);
+                    }
+                    Future<Void> f = participantShutdown.get();
+                    f.get(); // wait for shutdown to complete
+                    CLUSTER.get(2).startup(CLUSTER);
+                } catch (Exception e) {
+                    if (e instanceof RuntimeException) {
+                        throw (RuntimeException) e;
+                    }
+                    throw new RuntimeException(e);
+                }
+            });
+            NodeToolResult result = repair(1, KEYSPACE, table);
+            recovered.join(); // if recovery didn't happen then the results are not what are being tested, so block here first
+            result.asserts()
+                  .notOk()
+                  .errorContains("Some repair failed")
+                  .notificationContains(NodeToolResult.ProgressEventType.ERROR, "Some repair failed")
+                  .notificationContains(NodeToolResult.ProgressEventType.COMPLETE, "finished with error");
+        }
+        finally
+        {
+            filter.off();
+            try {
+                CLUSTER.get(2).startup(CLUSTER);
+            } catch (Exception e) {
+                // if you call startup twice it is allowed to fail, so ignore it... hope this didn't brike the other tests =x
+            }
         }
     }
 
