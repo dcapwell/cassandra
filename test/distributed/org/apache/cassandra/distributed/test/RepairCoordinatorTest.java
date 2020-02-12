@@ -55,6 +55,8 @@ import static org.apache.cassandra.distributed.api.IMessageFilters.Matcher.of;
 
 //TODO JMX to make sure no over counting
 //TODO check system tables
+//TODO test START event is seen; this is a regression with the patch
+//TODO paramaterized test for incremental or full
 public class RepairCoordinatorTest extends DistributedTestBase implements Serializable
 {
     private static Cluster CLUSTER;
@@ -91,6 +93,8 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
         NodeToolResult result = CLUSTER.get(2).nodetoolResult("repair", KEYSPACE, "simple", "--full");
         result.asserts()
               .ok()
+              .notificationContains(ProgressEventType.START, "Starting repair command")
+              .notificationContains(ProgressEventType.START, "repairing keyspace " + KEYSPACE + " with repair options")
               .notificationContains(ProgressEventType.SUCCESS, "Repair completed successfully")
               .notificationContains(ProgressEventType.COMPLETE, "finished");
     }

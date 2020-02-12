@@ -38,6 +38,7 @@ import org.apache.cassandra.net.Verb;
 
 import static org.apache.cassandra.distributed.api.IMessageFilters.Matcher.of;
 
+//TODO paramaterized test for incremental or full
 public class RepairCoordinatorFailingMessageTest extends DistributedTestBase implements Serializable
 {
     private static Cluster CLUSTER;
@@ -53,7 +54,7 @@ public class RepairCoordinatorFailingMessageTest extends DistributedTestBase imp
     {
         // streaming requires networking ATM
         // streaming also requires gossip or isn't setup properly
-        CLUSTER = init(Cluster.build(2)
+        CLUSTER = init(Cluster.build(3) // set to 3 so streaming hits non-local case
                               .withConfig(c -> c.with(Feature.NETWORK)
                                                 .with(Feature.GOSSIP))
                               .start());
@@ -171,13 +172,10 @@ public class RepairCoordinatorFailingMessageTest extends DistributedTestBase imp
     {
         CLUSTER.schemaChange("CREATE TABLE " + KEYSPACE + ".streamfailure (key text, value text, PRIMARY KEY (key))");
         // there needs to be a difference to cause streaming to happen, so add to one node
-        CLUSTER.get(1).executeInternal("INSERT INTO " + KEYSPACE + ".streamfailure (key) VALUES (?)", "some data");
+        CLUSTER.get(2).executeInternal("INSERT INTO " + KEYSPACE + ".streamfailure (key) VALUES (?)", "some data");
         IMessageFilters.Filter filter = CLUSTER.verbs(Verb.SYNC_REQ).messagesMatching(of(m -> {
             throw new RuntimeException("stream fail");
         })).drop();
-        CLUSTER.get(1).runOnInstance(() -> {
-            DatabaseDescriptor.repair_local_sync_enabled(false);
-        });
         try
         {
             NodeToolResult result = CLUSTER.get(1).nodetoolResult("repair", KEYSPACE, "streamfailure", "--full");
@@ -190,9 +188,6 @@ public class RepairCoordinatorFailingMessageTest extends DistributedTestBase imp
         finally
         {
             filter.off();
-            CLUSTER.get(1).runOnInstance(() -> {
-                DatabaseDescriptor.repair_local_sync_enabled(true);
-            });
         }
     }
 
@@ -201,13 +196,10 @@ public class RepairCoordinatorFailingMessageTest extends DistributedTestBase imp
     {
         CLUSTER.schemaChange("CREATE TABLE " + KEYSPACE + ".streamirfailure (key text, value text, PRIMARY KEY (key))");
         // there needs to be a difference to cause streaming to happen, so add to one node
-        CLUSTER.get(1).executeInternal("INSERT INTO " + KEYSPACE + ".streamirfailure (key) VALUES (?)", "some data");
+        CLUSTER.get(2).executeInternal("INSERT INTO " + KEYSPACE + ".streamirfailure (key) VALUES (?)", "some data");
         IMessageFilters.Filter filter = CLUSTER.verbs(Verb.SYNC_REQ).messagesMatching(of(m -> {
             throw new RuntimeException("stream fail");
         })).drop();
-        CLUSTER.get(1).runOnInstance(() -> {
-            DatabaseDescriptor.repair_local_sync_enabled(false);
-        });
         try
         {
             NodeToolResult result = CLUSTER.get(1).nodetoolResult("repair", KEYSPACE, "streamirfailure");
@@ -220,9 +212,6 @@ public class RepairCoordinatorFailingMessageTest extends DistributedTestBase imp
         finally
         {
             filter.off();
-            CLUSTER.get(1).runOnInstance(() -> {
-                DatabaseDescriptor.repair_local_sync_enabled(true);
-            });
         }
     }
 

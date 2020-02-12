@@ -206,7 +206,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
                     continue;
 
                 SyncTask task;
-                if (DatabaseDescriptor.repair_local_sync_enabled() && (r1.endpoint.equals(local) || r2.endpoint.equals(local)))
+                if (r1.endpoint.equals(local) || r2.endpoint.equals(local))
                 {
                     TreeResponse self = r1.endpoint.equals(local) ? r1 : r2;
                     TreeResponse remote = r2.endpoint.equals(local) ? r1 : r2;
