@@ -33,8 +33,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.Uninterruptibles;
-import org.apache.commons.lang3.ArrayUtils;
 import org.junit.AfterClass;
+import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -51,6 +51,7 @@ import org.apache.cassandra.distributed.api.LongTokenRange;
 import org.apache.cassandra.distributed.api.NodeToolResult;
 import org.apache.cassandra.distributed.api.NodeToolResult.ProgressEventType;
 import org.apache.cassandra.distributed.impl.MessageFilters;
+import org.apache.cassandra.distributed.test.DistributedRepairUtils.RepairType;
 import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.Verb;
@@ -59,9 +60,11 @@ import org.apache.cassandra.utils.FBUtilities;
 
 import static java.lang.String.format;
 import static org.apache.cassandra.distributed.api.IMessageFilters.Matcher.of;
+import static org.apache.cassandra.distributed.test.DistributedRepairUtils.assertParentRepairFailed;
+import static org.apache.cassandra.distributed.test.DistributedRepairUtils.assertParentRepairNotExist;
+import static org.apache.cassandra.distributed.test.DistributedRepairUtils.assertParentRepairSuccess;
+import static org.apache.cassandra.distributed.test.DistributedRepairUtils.getRepairExceptions;
 
-//TODO JMX to make sure no over counting
-//TODO check system tables
 @RunWith(Parameterized.class)
 public class RepairCoordinatorTest extends DistributedTestBase implements Serializable
 {
@@ -109,27 +112,13 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
             CLUSTER.close();
     }
 
-    private String tableName(String prefix) {
-        return prefix + "_" + postfix();
-    }
-
-    private String postfix()
-    {
-        return repairType.name().toLowerCase();
-    }
-
-    private NodeToolResult repair(int node, String... args) {
-        args = repairType.append(args);
-        args = ArrayUtils.addAll(new String[] { "repair" }, args);
-        return CLUSTER.get(node).nodetoolResult(args);
-    }
-
     @Test(timeout = 1 * 60 * 1000)
     public void simple() {
         String table = tableName("simple");
         CLUSTER.schemaChange(format("CREATE TABLE %s.%s (key text, PRIMARY KEY (key))", KEYSPACE, table));
         CLUSTER.coordinator(1).execute(format("INSERT INTO %s.%s (key) VALUES (?)", KEYSPACE, table), ConsistencyLevel.ANY, "some text");
 
+        long repairExceptions = getRepairExceptions(CLUSTER, 2);
         NodeToolResult result = repair(2, KEYSPACE, table);
         result.asserts()
               .ok()
@@ -137,21 +126,33 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
               .notificationContains(ProgressEventType.START, "repairing keyspace " + KEYSPACE + " with repair options")
               .notificationContains(ProgressEventType.SUCCESS, "Repair completed successfully")
               .notificationContains(ProgressEventType.COMPLETE, "finished");
+
+        assertParentRepairSuccess(CLUSTER, KEYSPACE, table);
+
+        Assert.assertEquals(repairExceptions, getRepairExceptions(CLUSTER, 2));
     }
 
     @Test(timeout = 1 * 60 * 1000)
     public void missingKeyspace()
     {
         // as of this moment the check is done in nodetool so the JMX notifications are not imporant
+        // nor is the history stored
+        long repairExceptions = getRepairExceptions(CLUSTER, 2);
         NodeToolResult result = repair(2, "doesnotexist");
         result.asserts()
               .notOk()
               .errorContains("Keyspace [doesnotexist] does not exist.");
+
+
+        Assert.assertEquals(repairExceptions, getRepairExceptions(CLUSTER, 2));
+
+        //TODO verify ParentRepair missing for keyspace
     }
 
     @Test(timeout = 1 * 60 * 1000)
     public void missingTable()
     {
+        long repairExceptions = getRepairExceptions(CLUSTER, 2);
         NodeToolResult result = repair(2, KEYSPACE, "doesnotexist");
         result.asserts()
               .notOk()
@@ -159,6 +160,10 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
               // Start notification is ignored since this is checked during setup (aka before start)
               .notificationContains(ProgressEventType.ERROR, "failed with error Unknown keyspace/cf pair (distributed_test_keyspace.doesnotexist)")
               .notificationContains(ProgressEventType.COMPLETE, "finished with error");
+
+        assertParentRepairNotExist(CLUSTER, KEYSPACE, "doesnotexist");
+
+        Assert.assertEquals(repairExceptions + 1, getRepairExceptions(CLUSTER, 2));
     }
 
     @Test(timeout = 1 * 60 * 1000)
@@ -170,6 +175,8 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
         String table = tableName("withindex");
         CLUSTER.schemaChange(format("CREATE TABLE %s.%s (key text, value text, PRIMARY KEY (key))", KEYSPACE, table));
         CLUSTER.schemaChange(format("CREATE INDEX value_%s ON %s.%s (value)", postfix(), KEYSPACE, table));
+
+        long repairExceptions = getRepairExceptions(CLUSTER, 2);
         // if CF has a . in it, it is assumed to be a 2i which rejects repairs
         NodeToolResult result = repair(2, KEYSPACE, table + ".value");
         result.asserts()
@@ -179,6 +186,12 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
               // Start notification is ignored since this is checked during setup (aka before start)
               .notificationContains(ProgressEventType.SUCCESS, "Empty keyspace") // will fail since success isn't returned; only complete
               .notificationContains(ProgressEventType.COMPLETE, "finished"); // will fail since it doesn't do this
+
+
+        assertParentRepairNotExist(CLUSTER, KEYSPACE, table + ".value");
+
+        // this is actually a SKIP and not a FAILURE, so shouldn't increment
+        Assert.assertEquals(repairExceptions, getRepairExceptions(CLUSTER, 2));
     }
 
     @Test(timeout = 1 * 60 * 1000)
@@ -201,6 +214,7 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
         });
         LongTokenRange intersectingRange = new LongTokenRange(tokenRange.maxInclusive - 7, tokenRange.maxInclusive + 7);
 
+        long repairExceptions = getRepairExceptions(CLUSTER, 2);
         NodeToolResult result = repair(2, KEYSPACE, table,
                                        "--start-token", Long.toString(intersectingRange.minExclusive),
                                        "--end-token", Long.toString(intersectingRange.maxInclusive));
@@ -211,6 +225,10 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
               .notificationContains(ProgressEventType.START, "repairing keyspace " + KEYSPACE + " with repair options")
               .notificationContains(ProgressEventType.ERROR, "Requested range " + intersectingRange + " intersects a local range (" + tokenRange + ") but is not fully contained in one")
               .notificationContains(ProgressEventType.COMPLETE, "finished with error");
+
+        assertParentRepairNotExist(CLUSTER, KEYSPACE, table);
+
+        Assert.assertEquals(repairExceptions + 1, getRepairExceptions(CLUSTER, 2));
     }
 
     @Test(timeout = 1 * 60 * 1000)
@@ -219,6 +237,7 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
         String table = tableName("unknownhost");
         CLUSTER.schemaChange(format("CREATE TABLE %s.%s (key text, value text, PRIMARY KEY (key))", KEYSPACE, table));
 
+        long repairExceptions = getRepairExceptions(CLUSTER, 2);
         NodeToolResult result = repair(2, KEYSPACE, table, "--in-hosts", "thisreally.should.not.exist.apache.org");
         result.asserts()
               .notOk()
@@ -227,6 +246,10 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
               .notificationContains(ProgressEventType.START, "repairing keyspace " + KEYSPACE + " with repair options")
               .notificationContains(ProgressEventType.ERROR, "Unknown host specified thisreally.should.not.exist.apache.org")
               .notificationContains(ProgressEventType.COMPLETE, "finished with error");
+
+        assertParentRepairNotExist(CLUSTER, KEYSPACE, table);
+
+        Assert.assertEquals(repairExceptions + 1, getRepairExceptions(CLUSTER, 2));
     }
 
     @Test(timeout = 1 * 60 * 1000)
@@ -237,6 +260,7 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
         String table = tableName("desiredhostnotcoordinator");
         CLUSTER.schemaChange(format("CREATE TABLE %s.%s (key text, value text, PRIMARY KEY (key))", KEYSPACE, table));
 
+        long repairExceptions = getRepairExceptions(CLUSTER, 2);
         NodeToolResult result = repair(2, KEYSPACE, table, "--in-hosts", "localhost");
         result.asserts()
               .notOk()
@@ -245,6 +269,10 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
               .notificationContains(ProgressEventType.START, "repairing keyspace " + KEYSPACE + " with repair options")
               .notificationContains(ProgressEventType.ERROR, "The current host must be part of the repair")
               .notificationContains(ProgressEventType.COMPLETE, "finished with error");
+
+        assertParentRepairNotExist(CLUSTER, KEYSPACE, table);
+
+        Assert.assertEquals(repairExceptions + 1, getRepairExceptions(CLUSTER, 2));
     }
 
     @Test(timeout = 1 * 60 * 1000)
@@ -255,6 +283,7 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
         String table = tableName("onlycoordinator");
         CLUSTER.schemaChange(format("CREATE TABLE %s.%s (key text, value text, PRIMARY KEY (key))", KEYSPACE, table));
 
+        long repairExceptions = getRepairExceptions(CLUSTER, 2);
         NodeToolResult result = repair(1, KEYSPACE, table, "--in-hosts", "localhost");
         result.asserts()
               .notOk()
@@ -263,6 +292,11 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
               .notificationContains(ProgressEventType.START, "repairing keyspace " + KEYSPACE + " with repair options")
               .notificationContains(ProgressEventType.ERROR, "Specified hosts [localhost] do not share range")
               .notificationContains(ProgressEventType.COMPLETE, "finished with error");
+
+        assertParentRepairNotExist(CLUSTER, KEYSPACE, table);
+
+        //TODO should this be marked as fail to match others?  Should they not be marked?
+        Assert.assertEquals(repairExceptions, getRepairExceptions(CLUSTER, 2));
     }
 
     @Test(timeout = 1 * 60 * 1000)
@@ -275,9 +309,14 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
         CLUSTER.schemaChange("CREATE KEYSPACE IF NOT EXISTS replicationfactor WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};");
         CLUSTER.schemaChange(format("CREATE TABLE replicationfactor.%s (key text, value text, PRIMARY KEY (key))", table));
 
+        long repairExceptions = getRepairExceptions(CLUSTER, 1);
         NodeToolResult result = repair(1, "replicationfactor", table);
         result.asserts()
               .ok();
+
+        assertParentRepairNotExist(CLUSTER, KEYSPACE, table);
+
+        Assert.assertEquals(repairExceptions, getRepairExceptions(CLUSTER, 1));
     }
 
     @Test(timeout = 1 * 60 * 1000)
@@ -288,6 +327,7 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
         MessageFilters.Filter filter = CLUSTER.verbs(Verb.PREPARE_MSG).drop();
         try
         {
+            long repairExceptions = getRepairExceptions(CLUSTER, 1);
             NodeToolResult result = repair(1, KEYSPACE, table);
             result.asserts()
                   .notOk()
@@ -296,6 +336,10 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
                   .notificationContains(ProgressEventType.START, "repairing keyspace " + KEYSPACE + " with repair options")
                   .notificationContains(ProgressEventType.ERROR, "Got negative replies from endpoints [127.0.0.2:7012]")
                   .notificationContains(ProgressEventType.COMPLETE, "finished with error");
+
+            assertParentRepairSuccess(CLUSTER, KEYSPACE, table);
+
+            Assert.assertEquals(repairExceptions + 1, getRepairExceptions(CLUSTER, 1));
         }
         finally
         {
@@ -329,6 +373,7 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
                     Uninterruptibles.sleepUninterruptibly(500, TimeUnit.MILLISECONDS);
             });
 
+            long repairExceptions = getRepairExceptions(CLUSTER, 1);
             NodeToolResult result = repair(1, KEYSPACE, table);
             result.asserts()
                   .notOk()
@@ -337,11 +382,16 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
                   .notificationContains(ProgressEventType.START, "repairing keyspace " + KEYSPACE + " with repair options")
                   .notificationContains(ProgressEventType.ERROR, "Endpoint not alive")
                   .notificationContains(ProgressEventType.COMPLETE, "finished with error");
+
+            Assert.assertEquals(repairExceptions + 1, getRepairExceptions(CLUSTER, 1));
         }
         finally
         {
             CLUSTER.get(2).startup(CLUSTER);
         }
+
+        // make sure to call outside of the try/finally so the node is up so we can actually query
+        assertParentRepairFailed(CLUSTER, KEYSPACE, table);
     }
 
     @Test(timeout = 1 * 60 * 1000)
@@ -354,6 +404,7 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
         })).drop();
         try
         {
+            long repairExceptions = getRepairExceptions(CLUSTER, 1);
             NodeToolResult result = repair(1, KEYSPACE, table);
             result.asserts()
                   .notOk()
@@ -363,6 +414,9 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
                   .notificationContains(ProgressEventType.START, "repairing keyspace " + KEYSPACE + " with repair options")
                   .notificationContains(ProgressEventType.ERROR, "Got negative replies from endpoints")
                   .notificationContains(ProgressEventType.COMPLETE, "finished with error");
+
+            Assert.assertEquals(repairExceptions + 1, getRepairExceptions(CLUSTER, 1));
+            assertParentRepairFailed(CLUSTER, KEYSPACE, table);
         }
         finally
         {
@@ -381,14 +435,19 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
         })).drop();
         try
         {
+            long repairExceptions = getRepairExceptions(CLUSTER, 1);
             NodeToolResult result = repair(1, KEYSPACE, table, "--sequential");
             result.asserts()
                   .notOk()
-                  .errorContains("Some repair failed")
-                  .notificationContains(ProgressEventType.START, "Starting repair command")
-                  .notificationContains(ProgressEventType.START, "repairing keyspace " + KEYSPACE + " with repair options")
-                  .notificationContains(ProgressEventType.ERROR, "Some repair failed")
-                  .notificationContains(ProgressEventType.COMPLETE, "finished with error");
+//                  .errorContains("Some repair failed")
+//                  .notificationContains(ProgressEventType.START, "Starting repair command")
+//                  .notificationContains(ProgressEventType.START, "repairing keyspace " + KEYSPACE + " with repair options")
+//                  .notificationContains(ProgressEventType.ERROR, "Some repair failed")
+//                  .notificationContains(ProgressEventType.COMPLETE, "finished with error");
+            ;
+
+            Assert.assertEquals(repairExceptions + 1, getRepairExceptions(CLUSTER, 1));
+            assertParentRepairFailed(CLUSTER, KEYSPACE, table);
         }
         finally
         {
@@ -430,6 +489,8 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
                     throw new RuntimeException(e);
                 }
             });
+
+            long repairExceptions = getRepairExceptions(CLUSTER, 1);
             NodeToolResult result = repair(1, KEYSPACE, table);
             recovered.join(); // if recovery didn't happen then the results are not what are being tested, so block here first
             result.asserts()
@@ -437,6 +498,8 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
                   .errorContains("Some repair failed")
                   .notificationContains(NodeToolResult.ProgressEventType.ERROR, "Some repair failed")
                   .notificationContains(NodeToolResult.ProgressEventType.COMPLETE, "finished with error");
+            Assert.assertEquals(repairExceptions + 1, getRepairExceptions(CLUSTER, 1));
+            assertParentRepairFailed(CLUSTER, KEYSPACE, table);
         }
         finally
         {
@@ -449,21 +512,16 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
         }
     }
 
-    public enum RepairType {
-        FULL {
-            public String[] append(String... args)
-            {
-                return ArrayUtils.add(args, "--full");
-            }
-        },
-        INCREMENTAL {
-            public String[] append(String... args)
-            {
-                // incremental is the default
-                return args;
-            }
-        }; //TODO preview?
+    private String tableName(String prefix) {
+        return prefix + "_" + postfix();
+    }
 
-        public abstract String[] append(String... args);
+    private String postfix()
+    {
+        return repairType.name().toLowerCase();
+    }
+
+    private NodeToolResult repair(int node, String... args) {
+        return DistributedRepairUtils.repair(CLUSTER, node, repairType, args);
     }
 }

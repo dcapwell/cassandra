@@ -32,6 +32,7 @@ import org.apache.commons.lang3.ArrayUtils;
 import org.junit.AfterClass;
 import org.junit.Assume;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -47,6 +48,7 @@ import static java.lang.String.format;
 import static org.apache.cassandra.distributed.api.IMessageFilters.Matcher.of;
 
 @RunWith(Parameterized.class)
+//@Ignore("Until CASSANDRA-15566 is in these tests all time out")
 public class RepairCoordinatorFailingMessageTest extends DistributedTestBase implements Serializable
 {
     private static Cluster CLUSTER;
