@@ -61,6 +61,7 @@ import org.apache.cassandra.utils.FBUtilities;
 import static java.lang.String.format;
 import static org.apache.cassandra.distributed.api.IMessageFilters.Matcher.of;
 import static org.apache.cassandra.distributed.test.DistributedRepairUtils.assertParentRepairFailed;
+import static org.apache.cassandra.distributed.test.DistributedRepairUtils.assertParentRepairFailedWithMessageContains;
 import static org.apache.cassandra.distributed.test.DistributedRepairUtils.assertParentRepairNotExist;
 import static org.apache.cassandra.distributed.test.DistributedRepairUtils.assertParentRepairSuccess;
 import static org.apache.cassandra.distributed.test.DistributedRepairUtils.getRepairExceptions;
@@ -337,7 +338,7 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
                   .notificationContains(ProgressEventType.ERROR, "Got negative replies from endpoints [127.0.0.2:7012]")
                   .notificationContains(ProgressEventType.COMPLETE, "finished with error");
 
-            assertParentRepairSuccess(CLUSTER, KEYSPACE, table);
+            assertParentRepairFailedWithMessageContains(CLUSTER, KEYSPACE, table, "Got negative replies from endpoints [127.0.0.2:7012]");
 
             Assert.assertEquals(repairExceptions + 1, getRepairExceptions(CLUSTER, 1));
         }
@@ -439,12 +440,11 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
             NodeToolResult result = repair(1, KEYSPACE, table, "--sequential");
             result.asserts()
                   .notOk()
-//                  .errorContains("Some repair failed")
-//                  .notificationContains(ProgressEventType.START, "Starting repair command")
-//                  .notificationContains(ProgressEventType.START, "repairing keyspace " + KEYSPACE + " with repair options")
-//                  .notificationContains(ProgressEventType.ERROR, "Some repair failed")
-//                  .notificationContains(ProgressEventType.COMPLETE, "finished with error");
-            ;
+                  .errorContains("Some repair failed")
+                  .notificationContains(ProgressEventType.START, "Starting repair command")
+                  .notificationContains(ProgressEventType.START, "repairing keyspace " + KEYSPACE + " with repair options")
+                  .notificationContains(ProgressEventType.ERROR, "Some repair failed")
+                  .notificationContains(ProgressEventType.COMPLETE, "finished with error");
 
             Assert.assertEquals(repairExceptions + 1, getRepairExceptions(CLUSTER, 1));
             assertParentRepairFailed(CLUSTER, KEYSPACE, table);
@@ -498,6 +498,7 @@ public class RepairCoordinatorTest extends DistributedTestBase implements Serial
                   .errorContains("Some repair failed")
                   .notificationContains(NodeToolResult.ProgressEventType.ERROR, "Some repair failed")
                   .notificationContains(NodeToolResult.ProgressEventType.COMPLETE, "finished with error");
+
             Assert.assertEquals(repairExceptions + 1, getRepairExceptions(CLUSTER, 1));
             assertParentRepairFailed(CLUSTER, KEYSPACE, table);
         }

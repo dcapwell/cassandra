@@ -157,6 +157,27 @@ public final class DistributedRepairUtils
         });
     }
 
+    public static void assertParentRepairFailedWithMessageContains(AbstractCluster<?> cluster, String ks, String table, String message)
+    {
+        assertParentRepairFailedWithMessageContains(cluster, DEFAULT_COORDINATOR, ks, table, message);
+    }
+
+    public static void assertParentRepairFailedWithMessageContains(AbstractCluster<?> cluster, int coordinator, String ks, String table, String message)
+    {
+        ResultSet rs = queryParentRepairHistory(cluster, coordinator, ks, table);
+        validateExistingParentRepair(rs, row -> {
+            // check completed
+            Assert.assertNotNull("finished_at not found, alears the repair is not complete?", rs.getTimestamp("finished_at"));
+
+            // check failed
+            Assert.assertNotNull("Exception not found", rs.getString("exception_stacktrace"));
+            String exceptionMessage = rs.getString("exception_message");
+            Assert.assertNotNull("Exception not found", exceptionMessage);
+
+            Assert.assertTrue("Unable to locate message '" + message + "' in repair error message: " + exceptionMessage, exceptionMessage.contains(message));
+        });
+    }
+
     private static void validateExistingParentRepair(ResultSet rs, Consumer<Row> fn)
     {
         Assert.assertTrue("No rows found", rs.hasNext());
