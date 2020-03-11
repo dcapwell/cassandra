@@ -388,8 +388,6 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 registerOutboundFilter(cluster);
                 JVMStabilityInspector.replaceKiller(new InstanceKiller());
 
-                ActiveRepairService.instance.start();
-
                 // TODO: this is more than just gossip
                 if (config.has(GOSSIP))
                 {
