@@ -1303,7 +1303,7 @@ public abstract class LegacyLayout
             long ts = in.readLong();
             ByteBuffer value = ByteBufferUtil.readWithLength(in);
             LegacyCellName name = decodeCellName(metadata, cellname, readAllAsDynamic);
-            if (metadata.isCompactTable() && name.column.equals(metadata.compactValueColumn()))
+            if (metadata.isCompactTable() && name.column.equals(metadata.compactValueColumn()) && name.column.cellValueType() == EmptyType.instance)
             {
                 value = COMPACT_STORAGE_NON_EMPTY_VALUE_HANDLER.handle(metadata, name, value);
             }
