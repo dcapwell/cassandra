@@ -59,6 +59,54 @@ public abstract class LegacyLayout
     private static final Logger logger = LoggerFactory.getLogger(LegacyLayout.class);
     private static final NoSpamLogger noSpamLogger = NoSpamLogger.getLogger(logger, 1L, TimeUnit.MINUTES);
 
+    private enum CompactStorageNonEmptyValueHandler
+    {
+        DATA_LOSS_LOG {
+            public ByteBuffer handle(CFMetaData metadata, LegacyCellName name, ByteBuffer value)
+            {
+                if (value.hasRemaining())
+                {
+                    String msg = "Table " + metadata.ksName + "." + metadata.cfName + " uses COMPACT STORAGE but while reading legacy data saw a cell with non-empty value (size={})";
+                    noSpamLogger.warn(msg, value.remaining());
+                }
+                return ByteBufferUtil.EMPTY_BYTE_BUFFER;
+            }
+        },
+        DATA_LOSS_SILENT
+        {
+            public ByteBuffer handle(CFMetaData metadata, LegacyCellName name, ByteBuffer value)
+            {
+                return ByteBufferUtil.EMPTY_BYTE_BUFFER;
+            }
+        },
+        FAIL
+        {
+            public ByteBuffer handle(CFMetaData metadata, LegacyCellName name, ByteBuffer value)
+            {
+                assert !value.hasRemaining() : "Table " + metadata.ksName + "." + metadata.cfName + " uses COMPACT STORAGE but while reading legacy data saw a cell with non-empty value (size=" + value.remaining() + ")";
+                return value;
+            }
+        };
+
+        public abstract ByteBuffer handle(CFMetaData metadata, LegacyCellName name, ByteBuffer value);
+    }
+    private static final CompactStorageNonEmptyValueHandler COMPACT_STORAGE_NON_EMPTY_VALUE_HANDLER = parse();
+    private static CompactStorageNonEmptyValueHandler parse()
+    {
+        String value = System.getProperty("cassandra.legacy_layout.compact_storage.nonempty_value_handler", null);
+        if (value == null)
+            return CompactStorageNonEmptyValueHandler.DATA_LOSS_LOG;
+        try
+        {
+            return CompactStorageNonEmptyValueHandler.valueOf(value.toUpperCase());
+        }
+        catch (Exception e)
+        {
+            logger.warn("Unable to parse system property cassandra.legacy_layout.compact_storage.nonempty_value_handler", e);
+            return CompactStorageNonEmptyValueHandler.DATA_LOSS_LOG;
+        }
+    }
+
     public final static int MAX_CELL_NAME_LENGTH = FBUtilities.MAX_UNSIGNED_SHORT;
 
     public final static int STATIC_PREFIX = 0xFFFF;
@@ -1255,6 +1303,10 @@ public abstract class LegacyLayout
             long ts = in.readLong();
             ByteBuffer value = ByteBufferUtil.readWithLength(in);
             LegacyCellName name = decodeCellName(metadata, cellname, readAllAsDynamic);
+            if (metadata.isCompactTable() && name.column.equals(metadata.compactValueColumn()))
+            {
+                value = COMPACT_STORAGE_NON_EMPTY_VALUE_HANDLER.handle(metadata, name, value);
+            }
             return (mask & COUNTER_UPDATE_MASK) != 0
                 ? new LegacyCell(LegacyCell.Kind.COUNTER, name, CounterContext.instance().createUpdate(ByteBufferUtil.toLong(value)), ts, Cell.NO_DELETION_TIME, Cell.NO_TTL)
                 : ((mask & DELETION_MASK) == 0
