@@ -307,7 +307,11 @@ public interface ClusteringPrefix extends IMeasurableMemory, Clusterable
                 {
                     ByteBuffer v = clustering.get(offset);
                     if (v != null && v.hasRemaining())
-                        types.get(offset).writeValue(v, out);
+                    {
+                        AbstractType<?> type = types.get(offset);
+                        type.validate(v);
+                        type.writeValue(v, out);
+                    }
                     offset++;
                 }
             }

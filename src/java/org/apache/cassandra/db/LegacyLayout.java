@@ -165,7 +165,10 @@ public abstract class LegacyLayout
             return decodeForSuperColumn(metadata, clustering, CompositeType.extractComponent(cellname, 1));
 
         if (metadata.isDense() || (metadata.isCompactTable() && readAllAsDynamic))
+        {
+            metadata.compactValueColumn().cellValueType().validate(cellname);
             return new LegacyCellName(clustering, metadata.compactValueColumn(), null);
+        }
 
         ByteBuffer column = metadata.isCompound() ? CompositeType.extractComponent(cellname, metadata.comparator.size()) : cellname;
         if (column == null)
