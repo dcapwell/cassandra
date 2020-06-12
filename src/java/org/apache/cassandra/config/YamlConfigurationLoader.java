@@ -126,18 +126,11 @@ public class YamlConfigurationLoader implements ConfigurationLoader
             Yaml yaml = new Yaml(constructor);
             Config result = loadConfig(yaml, configBytes);
             propertiesChecker.check();
-            //CASSANDRA-15234 - parse the properties for units and convert any values if needed
-            if(!isOldYAML)
-            {
-                Config.parseUnits(result, url);
-            }
-
             return result;
         }
-        catch (YAMLException | NoSuchFieldException | IllegalAccessException e)
+        catch (YAMLException e)
         {
-            throw new ConfigurationException("Invalid yaml: " + url + SystemUtils.LINE_SEPARATOR
-                                             +  " Error: " + e.getMessage(), false);
+            throw new ConfigurationException("Invalid yaml: " + url, e);
         }
     }
 

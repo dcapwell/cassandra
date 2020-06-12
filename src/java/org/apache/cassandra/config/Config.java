@@ -28,7 +28,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 import com.google.common.base.Joiner;
@@ -61,27 +60,15 @@ public class Config
     public String role_manager;
     public String network_authorizer;
 
-    public volatile String permissions_validity = "2000ms";
-    @Deprecated // replaced by permissions_validity, will be made private in future version
-    public volatile int permissions_validity_in_ms = 2000;
+    public volatile Duration permissions_validity = new Duration("2s");
     public volatile int permissions_cache_max_entries = 1000;
-    public volatile String permissions_update_interval = "-1";
-    @Deprecated // replaced by permissions_update_interval, will be made private in future version
-    public volatile int permissions_update_interval_in_ms = -1;
-    public volatile String roles_validity = "2000ms";
-    @Deprecated // replaced by roles_validity , will be made private in future version
-    public volatile int roles_validity_in_ms = 2000;
+    public volatile Duration permissions_update_interval;
+    public volatile Duration roles_validity = new Duration("2s");
     public volatile int roles_cache_max_entries = 1000;
-    public volatile String roles_update_interval = "-1";
-    @Deprecated // replaced by roles_update_interval, will be made private in future version
-    public volatile int roles_update_interval_in_ms = -1;
-    public volatile String credentials_validity = "2000ms";
-    @Deprecated // replaced by credentials_validity, will be made private in future version
-    public volatile int credentials_validity_in_ms = 2000;
+    public volatile Duration roles_update_interval;
+    public volatile Duration credentials_validity = new Duration("2s");
     public volatile int credentials_cache_max_entries = 1000;
-    public volatile String credentials_update_interval = "-1";
-    @Deprecated // replaced by credentials_update_interval, will be made private in future version
-    public volatile int credentials_update_interval_in_ms = -1;
+    public volatile Duration credentials_update_interval;
 
     /* Hashing strategy Random or OPHF */
     public String partitioner;
@@ -89,9 +76,7 @@ public class Config
     public boolean auto_bootstrap = true;
     public volatile boolean hinted_handoff_enabled = true;
     public Set<String> hinted_handoff_disabled_datacenters = Sets.newConcurrentHashSet();
-    public volatile String max_hint_window = "10800000ms";
-    @Deprecated // replaced by max_hint_window, will be made private in future version
-    public volatile int max_hint_window_in_ms = 3 * 3600 * 1000; // three hours
+    public volatile Duration max_hint_window = new Duration("3h");
     public String hints_directory;
 
     public ParameterizedClass seed_provider;
@@ -108,50 +93,30 @@ public class Config
     /** Triggers automatic allocation of tokens if set, based on the provided replica count for a datacenter */
     public Integer allocate_tokens_for_local_replication_factor = null;
 
-    public String native_transport_idle_timeout = "0ms";
-    @Deprecated // replaced by native_transport_idle_timeout, will be made private in future version
-    public long native_transport_idle_timeout_in_ms = 0L;
+    public volatile Duration native_transport_idle_timeout = new Duration("0ms");
 
-    public volatile String request_timeout = "10000ms";
-    @Deprecated // replaced by request_timeout, will be made private in future version
-    public volatile long request_timeout_in_ms = 10000L;
+    public volatile Duration request_timeout = new Duration("10s");
 
-    public volatile String read_request_timeout = "5000ms";
-    @Deprecated // replaced by read_request_timeout, will be made private in future version
-    public volatile long read_request_timeout_in_ms = 5000L;
+    public volatile Duration read_request_timeout = new Duration("5s");
 
-    public volatile String range_request_timeout = "10000ms";
-    @Deprecated // replaced by range_request_timeout, will be made private in future version
-    public volatile long range_request_timeout_in_ms = 10000L;
+    public volatile Duration range_request_timeout = new Duration("10s");
 
-    public volatile String write_request_timeout = "2000ms";
-    @Deprecated // replaced by write_request_timeout, will be made private in future version
-    public volatile long write_request_timeout_in_ms = 2000L;
+    public volatile Duration write_request_timeout = new Duration("2s");
 
-    public volatile String counter_write_request_timeout = "5000ms";
-    @Deprecated // replaced by counter_write_request_timeout, will be made private in future version
-    public volatile long counter_write_request_timeout_in_ms = 5000L;
+    public volatile Duration counter_write_request_timeout = new Duration("5s");
 
-    public volatile String cas_contention_timeout = "1000ms";
-    @Deprecated // replaced by cas_contention_timeout, will be made private in future version
-    public volatile long cas_contention_timeout_in_ms = 1000L;
+    public volatile Duration cas_contention_timeout = new Duration("1s");
 
-    public volatile String truncate_request_timeout = "60000ms";
-    @Deprecated // replaced by truncate_request_timeout, will be made private in future version
-    public volatile long truncate_request_timeout_in_ms = 60000L;
+    public volatile Duration truncate_request_timeout = new Duration("60s");
 
     public Integer streaming_connections_per_host = 1;
-    public String streaming_keep_alive_period = "300s";
-    @Deprecated // replaced by streaming_keep_alive_period, will be made private in future version
-    public Integer streaming_keep_alive_period_in_secs = 300; //5 minutes
+    public Duration streaming_keep_alive_period = new Duration("300s");
 
     //Effective cassandra.yaml v.2.0 cross_node_timeout is renamed to internode_timeout
     //Backward compatibility available in v4 - CASSANDRA-15234-3
     public boolean internode_timeout = true;
 
-    public volatile String slow_query_log_timeout = "500ms";
-    @Deprecated // replaced by slow_query_log_timeout, will be made private in future version
-    public volatile long slow_query_log_timeout_in_ms = 500L;
+    public volatile Duration slow_query_log_timeout = new Duration("500ms");
 
     public volatile double phi_convict_threshold = 8.0;
 
@@ -164,20 +129,14 @@ public class Config
     public Integer concurrent_replicates = null;
 
     public int memtable_flush_writers = 0;
-    public String memtable_heap_space;
-    @Deprecated // replaced by memtable_heap_space, will be made private in future version
-    public Integer memtable_heap_space_in_mb;
-    public String memtable_offheap_space;
-    @Deprecated // replaced by memtable_offheap_space, will be made private in future version
-    public Integer memtable_offheap_space_in_mb;
+    public DataStorage memtable_heap_space;
+    public DataStorage memtable_offheap_space;
     public Float memtable_cleanup_threshold = null;
 
     // Limit the maximum depth of repair session merkle trees
     @Deprecated
     public volatile Integer repair_session_max_tree_depth = null;
-    public volatile String repair_session_space = null;
-    @Deprecated // replaced by repair_session_space, will be made private in future version
-    public volatile Integer repair_session_space_in_mb = null;
+    public volatile DataStorage repair_session_space = null;
 
     public volatile boolean use_offheap_merkle_trees = true;
 
@@ -204,59 +163,39 @@ public class Config
     public boolean rpc_keepalive = true;
 
     //Below parameters not presented in cassandra.yaml so no need of string representation for them
-    public Integer internode_max_message_size_in_bytes;
+    public DataStorage internode_max_message_size;
 
     public int internode_socket_send_buffer_size_in_bytes = 0;
     public int internode_socket_receive_buffer_size_in_bytes = 0;
 
     // TODO: derive defaults from system memory settings?
-    public String internode_application_send_queue_capacity = "4194304B"; // 4MiB
-    @Deprecated // replaced by internode_application_send_queue_capacity, will be made private in future version
-    public int internode_application_send_queue_capacity_in_bytes = 1 << 22; // 4MiB
-    public String internode_application_send_queue_reserve_endpoint_capacity = "134217728B"; // 128MiB
-    @Deprecated // replaced by internode_application_send_queue_reserve_endpoint_capacity, will be made private in future version
-    public int internode_application_send_queue_reserve_endpoint_capacity_in_bytes = 1 << 27; // 128MiB
-    public String internode_application_send_queue_reserve_global_capacity = "536870912B"; // 512MiB
-    @Deprecated // replaced by internode_application_send_queue_reserve_global_capacity, will be made private in future version
-    public int internode_application_send_queue_reserve_global_capacity_in_bytes = 1 << 29; // 512MiB
+    public DataStorage internode_application_send_queue_capacity = new DataStorage("4MB");
+    public DataStorage internode_application_send_queue_reserve_endpoint_capacity = new DataStorage("128MB");
+    public DataStorage internode_application_send_queue_reserve_global_capacity = new DataStorage("512MB");
 
-    public String internode_application_receive_queue_capacity = "4194304B"; // 4MiB
-    @Deprecated // replaced by internode_application_receive_queue_capacity, will be made private in future version
-    public int internode_application_receive_queue_capacity_in_bytes = 1 << 22; // 4MiB
-    public String internode_application_receive_queue_reserve_endpoint_capacity = "134217728B"; // 128MiB
-    @Deprecated // replaced by internode_application_receive_queue_reserve_endpoint_capacity, will be made private in future version
-    public int internode_application_receive_queue_reserve_endpoint_capacity_in_bytes = 1 << 27; // 128MiB
-    public String internode_application_receive_queue_reserve_global_capacity = "536870912B"; // 512MiB
-    @Deprecated // replaced by internode_application_receive_queue_reserve_global_capacity, will be made private in future version
-    public int internode_application_receive_queue_reserve_global_capacity_in_bytes = 1 << 29; // 512MiB
+    public DataStorage internode_application_receive_queue_capacity = new DataStorage("4MB");
+    public DataStorage internode_application_receive_queue_reserve_endpoint_capacity = new DataStorage("128MB");
+    public DataStorage internode_application_receive_queue_reserve_global_capacity = new DataStorage("512MB");
 
     // Defensive settings for protecting Cassandra from true network partitions. See (CASSANDRA-14358) for details.
     // The amount of time to wait for internode tcp connections to establish.
-    public String internode_tcp_connect_timeout = "2000ms";
-    @Deprecated // replaced by internode_tcp_connect_timeout, will be made private in future version
-    public int internode_tcp_connect_timeout_in_ms = 2000;
+    public Duration internode_tcp_connect_timeout = new Duration("2s");
     // The amount of time unacknowledged data is allowed on a connection before we throw out the connection
     // Note this is only supported on Linux + epoll, and it appears to behave oddly above a setting of 30000
     // (it takes much longer than 30s) as of Linux 4.12. If you want something that high set this to 0
     // (which picks up the OS default) and configure the net.ipv4.tcp_retries2 sysctl to be ~8.
-    public String internode_tcp_user_timeout = "30000ms";
-    @Deprecated // replaced by internode_tcp_user_timeout, will be made private in future version
-    public int internode_tcp_user_timeout_in_ms = 30000;
+    public Duration internode_tcp_user_timeout = new Duration("30s");
 
     public boolean start_native_transport = true;
     public int native_transport_port = 9042;
     public Integer native_transport_port_ssl = null;
     public int max_native_transport_threads = 128;
-    public String max_native_transport_frame_size = "256MB";
-    @Deprecated // replaced by max_native_transport_frame_size, will be made private in future version
-    public int max_native_transport_frame_size_in_mb = 256;
+    public DataStorage max_native_transport_frame_size = new DataStorage("256MB");
     public volatile long max_native_transport_concurrent_connections = -1L;
     public volatile long max_native_transport_concurrent_connections_per_ip = -1L;
     public boolean native_transport_flush_in_batches_legacy = false;
     public volatile boolean native_transport_allow_older_protocols = true;
-    public String native_transport_frame_block_size = "32KB";
-    @Deprecated // replaced by native_transport_frame_block_size, will be made private in future version
-    public int native_transport_frame_block_size_in_kb = 32;
+    public DataStorage native_transport_frame_block_size = new DataStorage("32KB");
     public volatile long native_transport_max_concurrent_requests_in_bytes_per_ip = -1L;
     public volatile long native_transport_max_concurrent_requests_in_bytes = -1L;
     @Deprecated
@@ -267,53 +206,27 @@ public class Config
      * Default is the same as the native protocol frame limit: 256Mb.
      * See AbstractType for how it is used.
      */
-    public String max_value_size = "256MB";
-    @Deprecated // replaced by max_value_size, will be made private in future version
-    public int max_value_size_in_mb = 256;
-
+    public DataStorage max_value_size = new DataStorage("256MB");
 
     public boolean snapshot_before_compaction = false;
     public boolean auto_snapshot = true;
 
     /* if the size of columns or super-columns are more than this, indexing will kick in */
-    public String column_index_size = "64kb";
-    @Deprecated // replaced by column_index_size, will be made private in future version
-    public int column_index_size_in_kb = 64;
-    public String column_index_cache_size = "2KB";
-    @Deprecated // replaced by column_index_cache_size, will be made private in future version
-    public volatile int column_index_cache_size_in_kb = 2;
-    public String batch_size_warn_threshold = "5KB";
-    @Deprecated // replaced by batch_size_warn_threshold, will be made private in future version
-    public volatile int batch_size_warn_threshold_in_kb = 5;
-    public volatile String batch_size_fail_threshold = "50KB";
-    @Deprecated // replaced by batch_size_fail_threshold, will be made private in future version
-    public volatile int batch_size_fail_threshold_in_kb = 50;
+    public volatile DataStorage column_index_size = new DataStorage("64KB");
+    public DataStorage column_index_cache_size = new DataStorage("2KB");
+    public DataStorage batch_size_warn_threshold = new DataStorage("5KB");
+    public volatile DataStorage batch_size_fail_threshold = new DataStorage("50KB");
     public Integer unlogged_batch_across_partitions_warn_threshold = 10;
     public volatile Integer concurrent_compactors;
-    public String compaction_throughput = "16Mbps";
-    @Deprecated // replaced by compaction_throughput, will be made private in future version
-    public volatile int compaction_throughput_mb_per_sec = 16;
-    public String compaction_large_partition_warning_threshold = "100MB";
-    @Deprecated // replaced by compaction_large_partition_warning_threshold, will be made private in future version
-    public volatile int compaction_large_partition_warning_threshold_mb = 100;
-    //The below parameter is not presented in the cassandra.yaml. No need of string representation for it
-    public int min_free_space_per_drive_in_mb = 50;
+    public volatile BitRate compaction_throughput = new BitRate("16Mbps");
+    public DataStorage compaction_large_partition_warning_threshold = new DataStorage("100MB");
+    public DataStorage min_free_space_per_drive = new DataStorage("50MB");
 
     public volatile int concurrent_validations = Integer.MAX_VALUE;
     public volatile int concurrent_materialized_view_builders = 1;
 
-    /**
-     * @deprecated retry support removed on CASSANDRA-10992
-     */
-    @Deprecated
-    public int max_streaming_retries = 3;
-
-    public volatile String stream_throughput_outbound = "200Mbps";
-    @Deprecated // replaced by stream_throughput_outbound, will be made private in future version
-    public volatile int stream_throughput_outbound_megabits_per_sec = 200;
-    public volatile String inter_dc_stream_throughput_outbound = "200Mbps";
-    @Deprecated // replaced by inter_dc_stream_throughput_outbound, will be made private in future version
-    public volatile int inter_dc_stream_throughput_outbound_megabits_per_sec = 200;
+    public volatile BitRate stream_throughput_outbound = new BitRate("200Mbps");
+    public volatile BitRate inter_dc_stream_throughput_outbound = new BitRate("200Mbps");
 
     public String[] data_file_directories = new String[0];
 
@@ -321,58 +234,30 @@ public class Config
 
     // Commit Log
     public String commitlog_directory;
-    public String commitlog_total_space;
-    public Integer commitlog_total_space_in_mb;
+    public DataStorage commitlog_total_space;
     public CommitLogSync commitlog_sync;
 
-    /**
-     * @deprecated since 4.0 This value was near useless, and we're not using it anymore
-     */
-    public String commitlog_sync_batch_window;
-    @Deprecated // replaced by commitlog_sync_batch_window, will be made private in future version
-    public double commitlog_sync_batch_window_in_ms = Double.NaN;
-    public String commitlog_sync_group_window;
-    @Deprecated // replaced by commitlog_sync_group_window, will be made private in future version
-    public double commitlog_sync_group_window_in_ms = Double.NaN;
-    public String commitlog_sync_period;
-    @Deprecated // replaced by commitlog_sync_period, will be made private in future version
-    public int commitlog_sync_period_in_ms;
-    public String commitlog_segment_size = "32mb";
-    @Deprecated // replaced by commitlog_segment_size, will be made private in future version
-    public int commitlog_segment_size_in_mb = 32;
+    public Duration commitlog_sync_group_window;
+    public Duration commitlog_sync_period;
+    public DataStorage commitlog_segment_size = new DataStorage("32mb");
     public ParameterizedClass commitlog_compression;
     public FlushCompression flush_compression = FlushCompression.fast;
     public int commitlog_max_compression_buffers_in_pool = 3;
-    public String periodic_commitlog_sync_lag_block;
-    @Deprecated // replaced by periodic_commitlog_sync_lag_block, will be made private in future version
-    public Integer periodic_commitlog_sync_lag_block_in_ms;
+    public Duration periodic_commitlog_sync_lag_block;
     public TransparentDataEncryptionOptions transparent_data_encryption_options = new TransparentDataEncryptionOptions();
 
-    public String max_mutation_size;
-    @Deprecated // replaced by max_mutation_size, will be made private in future version
-    public Integer max_mutation_size_in_kb;
+    public DataStorage max_mutation_size;
 
     // Change-data-capture logs
     public boolean cdc_enabled = false;
     public String cdc_raw_directory;
-    public String cdc_total_space = "0MB";
-    @Deprecated // replaced by cdc_total_space, will be made private in future version
-    public int cdc_total_space_in_mb = 0;
-    public String cdc_free_space_check_interval = "250ms";
-    @Deprecated // replaced by cdc_free_space_check_interval, will be made private in future version
-    public int cdc_free_space_check_interval_ms = 250;
-
-    @Deprecated
-    public int commitlog_periodic_queue_size = -1;
+    public DataStorage cdc_total_space = new DataStorage("0MB");
+    public Duration cdc_free_space_check_interval = new Duration("250ms");
 
     public String endpoint_snitch;
     public boolean dynamic_snitch = true;
-    public String dynamic_snitch_update_interval = "100ms";
-    @Deprecated // replaced by dynamic_snitch_update_interval, will be made private in future version
-    public int dynamic_snitch_update_interval_in_ms = 100;
-    public String dynamic_snitch_reset_interval = "600000ms";
-    @Deprecated // replaced by dynamic_snitch_reset_interval, will be made private in future version
-    public int dynamic_snitch_reset_interval_in_ms = 600000;
+    public Duration dynamic_snitch_update_interval = new Duration("100ms");
+    public Duration dynamic_snitch_reset_interval = new Duration("10m");
     public double dynamic_snitch_badness_threshold = 0.1;
 
     public EncryptionOptions.ServerEncryptionOptions server_encryption_options = new EncryptionOptions.ServerEncryptionOptions();
@@ -380,57 +265,37 @@ public class Config
 
     public InternodeCompression internode_compression = InternodeCompression.none;
 
-    public String hinted_handoff_throttle = "1024kb";
-    @Deprecated // replaced by hinted_handoff_throttle, will be made private in future version
-    public int hinted_handoff_throttle_in_kb = 1024;
-    public String batchlog_replay_throttle = "1024KB";
-    @Deprecated // replaced by batchlog_replay_throttle, will be made private in future version
-    public int batchlog_replay_throttle_in_kb = 1024;
+    public volatile DataStorage hinted_handoff_throttle = new DataStorage("1024KB");
+    public volatile DataStorage batchlog_replay_throttle = new DataStorage("1024KB");
     public int max_hints_delivery_threads = 2;
-    public String hints_flush_period = "10000ms";
-    @Deprecated // replaced by hints_flush_period, will be made private in future version
-    public int hints_flush_period_in_ms = 10000;
-    public String max_hints_file_size = "128mb";
-    @Deprecated // replaced by max_hints_file_size, will be made private in future version
-    public int max_hints_file_size_in_mb = 128;
+    public Duration hints_flush_period = new Duration("10s");
+    public DataStorage max_hints_file_size = new DataStorage("128mb");
     public ParameterizedClass hints_compression;
 
     public volatile boolean incremental_backups = false;
     public boolean trickle_fsync = false;
-    public String trickle_fsync_interval = "10240KB";
-    @Deprecated // replaced by trickle_fsync_interval, will be made private in future version
-    public int trickle_fsync_interval_in_kb = 10240;
+    public DataStorage trickle_fsync_interval = new DataStorage("10240KB");
 
-    public String sstable_preemptive_open_interval = "50MB";
-    @Deprecated // replaced by sstable_preemptive_open_interval, will be made private in future version
-    public volatile int sstable_preemptive_open_interval_in_mb = 50;
+    public volatile DataStorage sstable_preemptive_open_interval = new DataStorage("50MB");
 
     public volatile boolean key_cache_migrate_during_compaction = true;
-    public String key_cache_size = null;
-    @Deprecated // replaced by key_cache_size, will be made private in future version
-    public Long key_cache_size_in_mb = null;
+    public DataStorage key_cache_size;
     public volatile int key_cache_save_period = 14400;
     public volatile int key_cache_keys_to_save = Integer.MAX_VALUE;
 
     public String row_cache_class_name = "org.apache.cassandra.cache.OHCProvider";
-    public String row_cache_size = "0MB";
-    @Deprecated // replaced by row_cache_size, will be made private in future version
-    public long row_cache_size_in_mb = 0;
+    public volatile DataStorage row_cache_size = new DataStorage("0MB");
     public volatile int row_cache_save_period = 0;
     public volatile int row_cache_keys_to_save = Integer.MAX_VALUE;
 
-    public String counter_cache_size = null;
-    @Deprecated // replaced by counter_cache_size, will be made private in future version
-    public Long counter_cache_size_in_mb = null;
+    public DataStorage counter_cache_size;
     public volatile int counter_cache_save_period = 7200;
     public volatile int counter_cache_keys_to_save = Integer.MAX_VALUE;
 
     private static boolean isClientMode = false;
     private static Supplier<Config> overrideLoadConfig = null;
 
-    public String file_cache_size;
-    @Deprecated // replaced by file_cache_size, will be made private in future version
-    public Integer file_cache_size_in_mb;
+    public DataStorage file_cache_size;
 
     /**
      * Because of the current {@link org.apache.cassandra.utils.memory.BufferPool} slab sizes of 64 kb, we
@@ -459,27 +324,15 @@ public class Config
     public volatile int tombstone_warn_threshold = 1000;
     public volatile int tombstone_failure_threshold = 100000;
 
-    public String index_summary_capacity;
-    @Deprecated // replaced by index_summary_capacity, will be made private in future version
-    public volatile Long index_summary_capacity_in_mb;
-    public volatile String index_summary_resize_interval = "60m";
-    @Deprecated // replaced by index_summary_resize_interval, will be made private in future version
-    public volatile int index_summary_resize_interval_in_minutes = 60;
+    public DataStorage index_summary_capacity;
+    public volatile Duration index_summary_resize_interval = new Duration("60m");
 
-    public String gc_log_threshold = "200ms";
-    @Deprecated // replaced by gc_log_threshold, will be made private in future version
-    public int gc_log_threshold_in_ms = 200;
-    public String gc_warn_threshold = "1000ms";
-    @Deprecated // replaced by gc_warn_threshold, will be made private in future version
-    public int gc_warn_threshold_in_ms = 1000;
+    public Duration gc_log_threshold = new Duration("200ms");
+    public Duration gc_warn_threshold = new Duration("1s");
 
     // TTL for different types of trace events.
-    public String tracetype_query_ttl = "86400s";
-    public String tracetype_repair_ttl = "604800s";
-    @Deprecated // replaced by tracetype_query_ttl, will be made private in future version
-    public int tracetype_query_ttl_in_s = (int) TimeUnit.DAYS.toSeconds(1);
-    @Deprecated // replaced by tracetype_repair_ttl, will be made private in future version
-    public int tracetype_repair_ttl_in_s = (int) TimeUnit.DAYS.toSeconds(7);
+    public Duration tracetype_query_ttl = new Duration("1d");
+    public Duration tracetype_repair_ttl = new Duration("7d");
 
     /**
      * Maintain statistics on whether writes achieve the ideal consistency level
@@ -521,9 +374,7 @@ public class Config
      * Size of the CQL prepared statements cache in MB.
      * Defaults to 1/256th of the heap size or 10MB, whichever is greater.
      */
-    public String prepared_statements_cache_size = null;
-    @Deprecated // replaced by prepared_statements_cache_size, will be made private in future version
-    public Long prepared_statements_cache_size_mb = null;
+    public DataStorage prepared_statements_cache_size;
 
     //Effective cassandra.yaml v.2.0 enable_user_defined_functions is renamed to
     //user_defined_functions_enabled
@@ -799,31 +650,6 @@ public class Config
         add("client_encryption_options");
         add("server_encryption_options");
     }};
-
-    public static void parseUnits(Config config, URL url) throws NoSuchFieldException, IllegalAccessException
-    {
-        String content = Config.readStorageConfig(url);
-        ParseAndConvertUnits.parseDurationUnits(config, content);
-        ParseAndConvertUnits.parseMemUnits(config, content);
-        ParseAndConvertUnits.parseRateUnits(config, content);
-    }
-
-    private static String readStorageConfig(URL url)
-     {
-         String content = "";
-
-         try
-         {
-             content = new String (Files.readAllBytes(Paths.get(String.valueOf(url).substring(5))));
-
-         }
-         catch (IOException e)
-         {
-             e.printStackTrace();
-         }
-
-         return content;
-     }
 
     public static void log(Config config)
     {
