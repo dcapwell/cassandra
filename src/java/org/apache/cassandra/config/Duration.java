@@ -24,7 +24,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-import com.google.monitoring.runtime.instrumentation.common.primitives.Ints;
+import com.google.common.primitives.Ints;
 
 /**
  * Represents a positive time duration.

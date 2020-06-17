@@ -331,7 +331,7 @@ public class DatabaseDescriptorTest
     {
         Config testConfig = new Config();
 
-        Duration greaterThanLowestTimeout = Duration.inMilliseconds(DatabaseDescriptor.LOWEST_ACCEPTED_TIMEOUT.toMilliseconds() + 1);
+        Duration greaterThanLowestTimeout = Duration.inMilliseconds(DatabaseDescriptor.LOWEST_ACCEPTED_TIMEOUT.toMilliseconds()+1);
 
         testConfig.read_request_timeout = greaterThanLowestTimeout;
         testConfig.range_request_timeout = greaterThanLowestTimeout;
@@ -341,13 +341,13 @@ public class DatabaseDescriptorTest
         testConfig.counter_write_request_timeout = greaterThanLowestTimeout;
         testConfig.request_timeout = greaterThanLowestTimeout;
 
-        assertEquals(testConfig.read_request_timeout, DatabaseDescriptor.LOWEST_ACCEPTED_TIMEOUT);
-        assertEquals(testConfig.range_request_timeout, DatabaseDescriptor.LOWEST_ACCEPTED_TIMEOUT);
-        assertEquals(testConfig.write_request_timeout, DatabaseDescriptor.LOWEST_ACCEPTED_TIMEOUT);
-        assertEquals(testConfig.truncate_request_timeout, DatabaseDescriptor.LOWEST_ACCEPTED_TIMEOUT);
-        assertEquals(testConfig.cas_contention_timeout, DatabaseDescriptor.LOWEST_ACCEPTED_TIMEOUT);
-        assertEquals(testConfig.counter_write_request_timeout, DatabaseDescriptor.LOWEST_ACCEPTED_TIMEOUT);
-        assertEquals(testConfig.request_timeout, DatabaseDescriptor.LOWEST_ACCEPTED_TIMEOUT);
+        assertEquals(testConfig.read_request_timeout, greaterThanLowestTimeout);
+        assertEquals(testConfig.range_request_timeout, greaterThanLowestTimeout);
+        assertEquals(testConfig.write_request_timeout, greaterThanLowestTimeout);
+        assertEquals(testConfig.truncate_request_timeout, greaterThanLowestTimeout);
+        assertEquals(testConfig.cas_contention_timeout, greaterThanLowestTimeout);
+        assertEquals(testConfig.counter_write_request_timeout, greaterThanLowestTimeout);
+        assertEquals(testConfig.request_timeout, greaterThanLowestTimeout);
 
         //set less than Lowest acceptable value
         Duration lowerThanLowestTimeout = Duration.inMilliseconds(DatabaseDescriptor.LOWEST_ACCEPTED_TIMEOUT.toMilliseconds() - 1);

@@ -37,7 +37,7 @@ public class ParseAndConvertUnitsTest
 
     // CASSANDRA-15234
     @Test
-    public void testConfigurationLoaderParser() throws Exception
+    public void testConfigurationLoaderParser()
     {
         Config config = DatabaseDescriptor.loadConfig();
 
