@@ -76,6 +76,7 @@ public class Config
     public boolean auto_bootstrap = true;
     public volatile boolean hinted_handoff_enabled = true;
     public Set<String> hinted_handoff_disabled_datacenters = Sets.newConcurrentHashSet();
+    @Replaces(oldName = "max_hint_window_in_ms", converter = Converter.MillisDurationConverter.class, scheduledRemoveBy = "5.0")
     public volatile Duration max_hint_window = new Duration("3h");
     public String hints_directory;
 
