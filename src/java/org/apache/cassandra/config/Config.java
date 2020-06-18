@@ -380,6 +380,7 @@ public class Config
     //Effective cassandra.yaml v.2.0 enable_user_defined_functions is renamed to
     //user_defined_functions_enabled
     //Backward compatibility available in v4 - CASSANDRA-15234-3
+    @Replaces(oldName = "enable_user_defined_functions")
     public boolean user_defined_functions_enabled = false;
 
     //Effective cassandra.yaml v.2.0 enable_scripted_user_defined_functions is renamed to

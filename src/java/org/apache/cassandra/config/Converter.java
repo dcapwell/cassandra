@@ -1,39 +1,36 @@
 package org.apache.cassandra.config;
 
-public interface Converter
+public interface Converter<Original, Current>
 {
-    Object apply(Object value);
+    Class<Original> getInputType();
 
-    public static final class IdentityConverter implements Converter
+    Current apply(Original value);
+
+    public static final class IdentityConverter implements Converter<Object, Object>
     {
+        public Class<Object> getInputType()
+        {
+            return null; // null means 'unchanged'  mostly used for renames
+        }
+
         public Object apply(Object value)
         {
             return value;
         }
     }
 
-    public static abstract class DurationConverter implements Converter
+    public static final class MillisDurationConverter implements Converter<Long, Duration>
     {
-        private final String unit;
-
-        protected DurationConverter(String unit)
+        public Class<Long> getInputType()
         {
-            this.unit = unit;
+            return Long.class;
         }
 
-        public Object apply(Object object)
+        public Duration apply(Long value)
         {
-            assert object instanceof String : "only strings allowed but given " + object;
-            String value = (String) object;
-            return Duration.inMilliseconds(Long.parseLong(value));
-        }
-    }
-
-    public static final class MillisDurationConverter extends DurationConverter
-    {
-        protected MillisDurationConverter()
-        {
-            super("ms");
+            if (value == null)
+                return null;
+            return Duration.inMilliseconds(value.longValue());
         }
     }
 }

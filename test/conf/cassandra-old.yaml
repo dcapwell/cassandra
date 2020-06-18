@@ -53,3 +53,4 @@
 
 
 max_hint_window_in_ms: 42
+user_defined_functions_enabled: true

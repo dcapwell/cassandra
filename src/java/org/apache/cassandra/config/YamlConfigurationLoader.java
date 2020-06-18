@@ -296,7 +296,7 @@ public class YamlConfigurationLoader implements ConfigurationLoader
                 Replacement replacement = typeReplacements.get(name);
                 Converter converter = replacement.converter;
                 Property newProperty = super.getProperty(type, replacement.newName);
-                result = new Property(replacement.oldName, String.class)
+                result = new Property(replacement.oldName, replacement.oldType)
                 {
                     public Class<?>[] getActualTypeArguments()
                     {
@@ -417,13 +417,14 @@ public class YamlConfigurationLoader implements ConfigurationLoader
         for (Field field : klass.getDeclaredFields())
         {
             String newName = field.getName();
+            Class<?> newType = field.getType();
             final ReplacesList[] byType = field.getAnnotationsByType(ReplacesList.class);
             if (byType == null || byType.length == 0)
             {
                 Replaces r = field.getAnnotation(Replaces.class);
                 if (r != null)
                 {
-                    addReplacement(converterCache, klass, replacements, newName, r);
+                    addReplacement(converterCache, klass, replacements, newName, newType, r);
                 }
             }
             else
@@ -432,7 +433,7 @@ public class YamlConfigurationLoader implements ConfigurationLoader
                 {
                     for (Replaces r : replacesList.value())
                     {
-                        addReplacement(converterCache, klass, replacements, newName, r);
+                        addReplacement(converterCache, klass, replacements, newName, newType, r);
                     }
                 }
             }
@@ -440,7 +441,11 @@ public class YamlConfigurationLoader implements ConfigurationLoader
         return replacements.isEmpty() ? Collections.emptyList() : replacements;
     }
 
-    private static void addReplacement(Map<Class<? extends Converter>, Converter> converterCache, Class<?> klass, List<Replacement> replacements, String newName, Replaces r)
+    private static void addReplacement(Map<Class<? extends Converter>, Converter> converterCache,
+                                       Class<?> klass,
+                                       List<Replacement> replacements,
+                                       String newName, Class<?> newType,
+                                       Replaces r)
     {
         String oldName = r.oldName();
         Converter converter = converterCache.computeIfAbsent(r.converter(), converterKlass -> {
@@ -457,21 +462,28 @@ public class YamlConfigurationLoader implements ConfigurationLoader
         if ("".equals(scheduledRemoveBy))
             scheduledRemoveBy = null;
 
-        replacements.add(new Replacement(klass, oldName, newName, converter, scheduledRemoveBy));
+        Class<?> oldType = converter.getInputType();
+        if (oldType == null)
+            oldType = newType;
+        replacements.add(new Replacement(klass, oldName, oldType, newName, converter, scheduledRemoveBy));
     }
 
     static final class Replacement
     {
         public final Class<? extends Object> parent;
         public final String oldName;
+        public final Class<?> oldType;
         public final String newName;
         public final Converter converter;
         public final String scheduledRemoveBy;
 
-        Replacement(Class<? extends Object> parent, String oldName, String newName, Converter converter, String scheduledRemoveBy)
+        Replacement(Class<? extends Object> parent,
+                    String oldName, Class<?> oldType,
+                    String newName, Converter converter, String scheduledRemoveBy)
         {
             this.parent = Objects.requireNonNull(parent);
             this.oldName = Objects.requireNonNull(oldName);
+            this.oldType = Objects.requireNonNull(oldType);
             this.newName = Objects.requireNonNull(newName);
             this.converter = Objects.requireNonNull(converter);
             this.scheduledRemoveBy = scheduledRemoveBy;
