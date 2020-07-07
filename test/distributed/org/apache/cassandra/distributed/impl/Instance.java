@@ -26,10 +26,13 @@ import java.io.PrintStream;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -37,7 +40,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
-
 import javax.management.ListenerNotFoundException;
 import javax.management.Notification;
 import javax.management.NotificationListener;
@@ -64,8 +66,7 @@ import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.SystemKeyspaceMigrator40;
 import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.db.compaction.CompactionManager;
-import org.apache.cassandra.dht.IPartitioner;
-import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.distributed.action.GossipHelper;
 import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.ICoordinator;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
@@ -80,7 +81,6 @@ import org.apache.cassandra.distributed.mock.nodetool.InternalNodeProbeFactory;
 import org.apache.cassandra.distributed.shared.InstanceClassLoader;
 import org.apache.cassandra.gms.ApplicationState;
 import org.apache.cassandra.gms.Gossiper;
-import org.apache.cassandra.gms.VersionedValue;
 import org.apache.cassandra.hints.HintsService;
 import org.apache.cassandra.index.SecondaryIndexManager;
 import org.apache.cassandra.io.sstable.IndexSummaryManager;
@@ -367,9 +367,11 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
     }
 
     @Override
-    public void startup(ICluster cluster)
+    public void startup(ICluster cluster, StartupOption... optionsArray)
     {
         sync(() -> {
+            Set<StartupOption> startupOptions = new HashSet<>(Arrays.asList(optionsArray));
+
             try
             {
                 if (config.has(GOSSIP))
@@ -443,16 +445,19 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 StorageService.instance.registerDaemon(CassandraDaemon.getInstanceForTesting());
                 if (config.has(GOSSIP))
                 {
-                    StorageService.instance.initServer();
+                    StorageService.instance.initServer(StorageService.RING_DELAY,
+                                                       !startupOptions.contains(StartupOption.SKIP_RING_JOIN));
                     StorageService.instance.removeShutdownHook();
                     Gossiper.waitToSettle();
                 }
-                else
+                else if (!startupOptions.contains(StartupOption.SKIP_RING_JOIN))
                 {
-                    initializeRing(cluster);
-                }
+                    cluster.stream().forEach(peer -> {
+                        // TODO: this can be improved by making ICluster generic above
+                        GossipHelper.statusToNormal((IInvokableInstance) peer).apply(cluster, this);
+                    });
 
-                StorageService.instance.ensureTraceKeyspace();
+                }
 
                 SystemKeyspace.finishStartup();
 
@@ -460,8 +465,13 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
 
                 if (config.has(NATIVE_PROTOCOL))
                 {
-                    CassandraDaemon.getInstanceForTesting().initializeClientTransports();
-                    CassandraDaemon.getInstanceForTesting().start();
+                    // Start up virtual table support
+                    CassandraDaemon.getInstanceForTesting().setupVirtualKeyspaces();
+                    CassandraDaemon.getInstanceForTesting().initializeNativeTransport();
+                    CassandraDaemon.getInstanceForTesting().startNativeTransport();
+                    StorageService.instance.setRpcReady(true);
+                    //CassandraDaemon.getInstanceForTesting().initializeClientTransports();
+                    //CassandraDaemon.getInstanceForTesting().start();
                 }
 
                 if (!FBUtilities.getBroadcastAddressAndPort().address.equals(broadcastAddress().getAddress()) ||
@@ -479,6 +489,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         }).run();
     }
 
+
     private void mkdirs()
     {
         new File(config.getString("saved_caches_directory")).mkdirs();
@@ -493,65 +504,6 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         Config config = new Config();
         overrides.propagate(config, mapper);
         return config;
-    }
-
-    private void initializeRing(ICluster cluster)
-    {
-        // This should be done outside instance in order to avoid serializing config
-        String partitionerName = config.getString("partitioner");
-        List<String> initialTokens = new ArrayList<>();
-        List<InetSocketAddress> hosts = new ArrayList<>();
-        List<UUID> hostIds = new ArrayList<>();
-        for (int i = 1 ; i <= cluster.size() ; ++i)
-        {
-            IInstanceConfig config = cluster.get(i).config();
-            initialTokens.add(config.getString("initial_token"));
-            hosts.add(config.broadcastAddress());
-            hostIds.add(config.hostId());
-        }
-
-        try
-        {
-            IPartitioner partitioner = FBUtilities.newPartitioner(partitionerName);
-            StorageService storageService = StorageService.instance;
-            List<Token> tokens = new ArrayList<>();
-            for (String token : initialTokens)
-                tokens.add(partitioner.getTokenFactory().fromString(token));
-
-            for (int i = 0; i < tokens.size(); i++)
-            {
-                InetSocketAddress ep = hosts.get(i);
-                InetAddressAndPort addressAndPort = toCassandraInetAddressAndPort(ep);
-                UUID hostId = hostIds.get(i);
-                Token token = tokens.get(i);
-                Gossiper.runInGossipStageBlocking(() -> {
-                    Gossiper.instance.initializeNodeUnsafe(addressAndPort, hostId, 1);
-                    Gossiper.instance.injectApplicationState(addressAndPort,
-                                                             ApplicationState.TOKENS,
-                                                             new VersionedValue.VersionedValueFactory(partitioner).tokens(Collections.singleton(token)));
-                    storageService.onChange(addressAndPort,
-                                            ApplicationState.STATUS_WITH_PORT,
-                                            new VersionedValue.VersionedValueFactory(partitioner).normal(Collections.singleton(token)));
-                    storageService.onChange(addressAndPort,
-                                            ApplicationState.STATUS,
-                                            new VersionedValue.VersionedValueFactory(partitioner).normal(Collections.singleton(token)));
-                    Gossiper.instance.realMarkAlive(addressAndPort, Gossiper.instance.getEndpointStateForEndpoint(addressAndPort));
-                });
-
-                int messagingVersion = cluster.get(ep).isShutdown()
-                                       ? MessagingService.current_version
-                                       : Math.min(MessagingService.current_version, cluster.get(ep).getMessagingVersion());
-                MessagingService.instance().versions.set(addressAndPort, messagingVersion);
-            }
-
-            // check that all nodes are in token metadata
-            for (int i = 0; i < tokens.size(); ++i)
-                assert storageService.getTokenMetadata().isMember(toCassandraInetAddressAndPort(hosts.get(i)));
-        }
-        catch (Throwable e) // UnknownHostException
-        {
-            throw new RuntimeException(e);
-        }
     }
 
     public Future<Void> shutdown()

@@ -44,8 +44,10 @@ import com.google.common.collect.Sets;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.github.luben.zstd.ZstdOutputStream;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.distributed.action.GossipHelper;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
@@ -66,6 +68,7 @@ import org.apache.cassandra.distributed.api.TokenSupplier;
 import org.apache.cassandra.distributed.shared.InstanceClassLoader;
 import org.apache.cassandra.distributed.shared.MessageFilters;
 import org.apache.cassandra.distributed.shared.NetworkTopology;
+import org.apache.cassandra.distributed.shared.VersionedApplicationState;
 import org.apache.cassandra.distributed.shared.Shared;
 import org.apache.cassandra.distributed.shared.ShutdownException;
 import org.apache.cassandra.distributed.shared.Versions;
@@ -162,7 +165,6 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
         }
     }
 
-
     protected class Wrapper extends DelegatingInvokableInstance implements IUpgradeableInstance
     {
         private final int generation;
@@ -216,16 +218,16 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
         @Override
         public synchronized void startup()
         {
-            startup(AbstractCluster.this);
+            startup(AbstractCluster.this, EMPTY);
         }
 
-        public synchronized void startup(ICluster cluster)
+        public synchronized void startup(ICluster cluster, StartupOption... options)
         {
             if (cluster != AbstractCluster.this)
                 throw new IllegalArgumentException("Only the owning cluster can be used for startup");
             if (!isShutdown)
                 throw new IllegalStateException();
-            delegateForStartup().startup(cluster);
+            delegateForStartup().startup(cluster, options);
             isShutdown = false;
             updateMessagingVersions();
         }
@@ -252,7 +254,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
             if (!isShutdown && delegate != null)
                 return delegate().liveMemberCount();
 
-            throw new IllegalStateException("Cannot get live member count on shutdown instance");
+            throw new IllegalStateException("Cannot get live member count on shutdown instance: " + config.num());
         }
 
         public NodeToolResult nodetoolResult(boolean withNotifications, String... commandAndArgs)
@@ -385,15 +387,10 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
         return newInstanceWrapper(generation, version, config);
     }
 
-    public I bootstrap(IInstanceConfig config)
+    public I initialize(IInstanceConfig config)
     {
-        if (!config.has(Feature.GOSSIP) || !config.has(Feature.NETWORK))
-            throw new IllegalStateException("New nodes can only be bootstrapped when gossip and networking is enabled.");
-
         I instance = newInstanceWrapperInternal(0, initialVersion, config);
-
         instances.add(instance);
-
         I prev = instanceMap.put(config.broadcastAddress(), instance);
 
         if (null != prev)

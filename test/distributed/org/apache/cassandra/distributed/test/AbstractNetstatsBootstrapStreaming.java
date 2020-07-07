@@ -69,7 +69,7 @@ public abstract class AbstractNetstatsBootstrapStreaming extends AbstractNetstat
             final IInstanceConfig config = cluster.newInstanceConfig();
             config.set("auto_bootstrap", true);
 
-            IInvokableInstance secondNode = cluster.bootstrap(config);
+            IInvokableInstance secondNode = cluster.initialize(config);
 
             final Future<?> startupRunnable = executorService.submit((Runnable) secondNode::startup);
             final Future<AbstractNetstatsStreaming.NetstatResults> netstatsFuture = executorService.submit(new NetstatsCallable(cluster.get(1)));

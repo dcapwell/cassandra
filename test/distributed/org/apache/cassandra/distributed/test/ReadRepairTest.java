@@ -242,7 +242,7 @@ public class ReadRepairTest extends TestBaseImpl
             readStarted.await();
             IInstanceConfig config = cluster.newInstanceConfig();
             config.set("auto_bootstrap", true);
-            cluster.bootstrap(config).startup();
+            cluster.initialize(config).startup();
             continueRead.signalAll();
             read.get();
         }
