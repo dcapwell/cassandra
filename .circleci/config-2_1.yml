@@ -65,37 +65,27 @@ j8_with_dtests_jobs: &j8_with_dtests_jobs
     # Java 11 unit tests (on request, currently not working)
     - start_j11_unit_tests:
         type: approval
-        requires:
-          - j8_build
     - j11_unit_tests:
         requires:
           - start_j11_unit_tests
     # specialized unit tests (all run on request using Java 8)
     - start_utests_long:
         type: approval
-        requires:
-          - j8_build
     - utests_long:
         requires:
           - start_utests_long
     - start_utests_compression:
         type: approval
-        requires:
-          - j8_build
     - utests_compression:
         requires:
           - start_utests_compression
     - start_utests_stress:
         type: approval
-        requires:
-          - j8_build
     - utests_stress:
         requires:
           - start_utests_stress
     - start_utests_fqltool:
         type: approval
-        requires:
-          - j8_build
     - utests_fqltool:
         requires:
           - start_utests_fqltool
@@ -111,8 +101,6 @@ j8_with_dtests_jobs: &j8_with_dtests_jobs
     # Java 8 dtests (on request)
     - start_j8_dtests:
         type: approval
-        requires:
-          - j8_build
     - j8_dtests-with-vnodes:
         requires:
           - start_j8_dtests
@@ -122,8 +110,6 @@ j8_with_dtests_jobs: &j8_with_dtests_jobs
     # Java 11 dtests (on request)
     - start_j11_dtests:
         type: approval
-        requires:
-          - j8_build
     - j11_dtests-with-vnodes:
         requires:
         - start_j11_dtests
@@ -133,15 +119,11 @@ j8_with_dtests_jobs: &j8_with_dtests_jobs
     # Java 8 upgrade tests
     - start_upgrade_tests:
         type: approval
-        requires:
-          - j8_build
     - j8_upgradetests-no-vnodes:
         requires:
           - start_upgrade_tests
     - start_j8_cqlsh_tests-with-vnodes:
         type: approval
-        requires:
-        - j8_build
     - j8_cqlsh-dtests-py2-with-vnodes:
         requires:
         - start_j8_cqlsh_tests-with-vnodes
@@ -153,8 +135,6 @@ j8_with_dtests_jobs: &j8_with_dtests_jobs
         - start_j8_cqlsh_tests-with-vnodes
     - start_j8_cqlsh_tests-no-vnodes:
         type: approval
-        requires:
-        - j8_build
     - j8_cqlsh-dtests-py2-no-vnodes:
         requires:
         - start_j8_cqlsh_tests-no-vnodes
@@ -166,8 +146,6 @@ j8_with_dtests_jobs: &j8_with_dtests_jobs
           - start_j8_cqlsh_tests-no-vnodes
     - start_j11_cqlsh_tests-with-vnodes:
         type: approval
-        requires:
-        - j8_build
     - j11_cqlsh-dtests-py2-with-vnodes:
         requires:
         - start_j11_cqlsh_tests-with-vnodes
@@ -179,8 +157,6 @@ j8_with_dtests_jobs: &j8_with_dtests_jobs
           - start_j11_cqlsh_tests-with-vnodes
     - start_j11_cqlsh_tests-no-vnodes:
         type: approval
-        requires:
-        - j8_build
     - j11_cqlsh-dtests-py2-no-vnodes:
         requires:
         - start_j11_cqlsh_tests-no-vnodes
@@ -197,8 +173,6 @@ j11_with_dtests_jobs: &j11_with_dtests_jobs
     # Java 11 unit tests (on request, currently not working)
     - start_j11_unit_tests:
         type: approval
-        requires:
-          - j11_build
     - j11_unit_tests:
         requires:
           - start_j11_unit_tests
@@ -208,8 +182,6 @@ j11_with_dtests_jobs: &j11_with_dtests_jobs
     # Java 11 dtests (on request)
     - start_j11_dtests:
         type: approval
-        requires:
-          - j11_build
     - j11_dtests-with-vnodes:
         requires:
           - start_j11_dtests
@@ -218,8 +190,6 @@ j11_with_dtests_jobs: &j11_with_dtests_jobs
           - start_j11_dtests
     - start_j11_cqlsh_tests-with-vnodes:
         type: approval
-        requires:
-        - j11_build
     - j11_cqlsh-dtests-py2-with-vnodes:
         requires:
         - start_j11_cqlsh_tests-with-vnodes
@@ -231,8 +201,6 @@ j11_with_dtests_jobs: &j11_with_dtests_jobs
           - start_j11_cqlsh_tests-with-vnodes
     - start_j11_cqlsh_tests-no-vnodes:
         type: approval
-        requires:
-        - j11_build
     - j11_cqlsh-dtests-py2-no-vnodes:
         requires:
         - start_j11_cqlsh_tests-no-vnodes

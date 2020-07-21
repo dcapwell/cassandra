@@ -2232,36 +2232,26 @@ workflows:
         - j8_build
     - start_j11_unit_tests:
         type: approval
-        requires:
-        - j8_build
     - j11_unit_tests:
         requires:
         - start_j11_unit_tests
     - start_utests_long:
         type: approval
-        requires:
-        - j8_build
     - utests_long:
         requires:
         - start_utests_long
     - start_utests_compression:
         type: approval
-        requires:
-        - j8_build
     - utests_compression:
         requires:
         - start_utests_compression
     - start_utests_stress:
         type: approval
-        requires:
-        - j8_build
     - utests_stress:
         requires:
         - start_utests_stress
     - start_utests_fqltool:
         type: approval
-        requires:
-        - j8_build
     - utests_fqltool:
         requires:
         - start_utests_fqltool
@@ -2276,8 +2266,6 @@ workflows:
         - j8_dtest_jars_build
     - start_j8_dtests:
         type: approval
-        requires:
-        - j8_build
     - j8_dtests-with-vnodes:
         requires:
         - start_j8_dtests
@@ -2286,8 +2274,6 @@ workflows:
         - start_j8_dtests
     - start_j11_dtests:
         type: approval
-        requires:
-        - j8_build
     - j11_dtests-with-vnodes:
         requires:
         - start_j11_dtests
@@ -2296,15 +2282,11 @@ workflows:
         - start_j11_dtests
     - start_upgrade_tests:
         type: approval
-        requires:
-        - j8_build
     - j8_upgradetests-no-vnodes:
         requires:
         - start_upgrade_tests
     - start_j8_cqlsh_tests-with-vnodes:
         type: approval
-        requires:
-        - j8_build
     - j8_cqlsh-dtests-py2-with-vnodes:
         requires:
         - start_j8_cqlsh_tests-with-vnodes
@@ -2316,8 +2298,6 @@ workflows:
         - start_j8_cqlsh_tests-with-vnodes
     - start_j8_cqlsh_tests-no-vnodes:
         type: approval
-        requires:
-        - j8_build
     - j8_cqlsh-dtests-py2-no-vnodes:
         requires:
         - start_j8_cqlsh_tests-no-vnodes
@@ -2329,8 +2309,6 @@ workflows:
         - start_j8_cqlsh_tests-no-vnodes
     - start_j11_cqlsh_tests-with-vnodes:
         type: approval
-        requires:
-        - j8_build
     - j11_cqlsh-dtests-py2-with-vnodes:
         requires:
         - start_j11_cqlsh_tests-with-vnodes
@@ -2342,8 +2320,6 @@ workflows:
         - start_j11_cqlsh_tests-with-vnodes
     - start_j11_cqlsh_tests-no-vnodes:
         type: approval
-        requires:
-        - j8_build
     - j11_cqlsh-dtests-py2-no-vnodes:
         requires:
         - start_j11_cqlsh_tests-no-vnodes
@@ -2358,8 +2334,6 @@ workflows:
     - j11_build
     - start_j11_unit_tests:
         type: approval
-        requires:
-        - j11_build
     - j11_unit_tests:
         requires:
         - start_j11_unit_tests
@@ -2368,8 +2342,6 @@ workflows:
         - j11_build
     - start_j11_dtests:
         type: approval
-        requires:
-        - j11_build
     - j11_dtests-with-vnodes:
         requires:
         - start_j11_dtests
@@ -2378,8 +2350,6 @@ workflows:
         - start_j11_dtests
     - start_j11_cqlsh_tests-with-vnodes:
         type: approval
-        requires:
-        - j11_build
     - j11_cqlsh-dtests-py2-with-vnodes:
         requires:
         - start_j11_cqlsh_tests-with-vnodes
@@ -2391,8 +2361,6 @@ workflows:
         - start_j11_cqlsh_tests-with-vnodes
     - start_j11_cqlsh_tests-no-vnodes:
         type: approval
-        requires:
-        - j11_build
     - j11_cqlsh-dtests-py2-no-vnodes:
         requires:
         - start_j11_cqlsh_tests-no-vnodes
