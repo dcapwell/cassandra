@@ -28,9 +28,9 @@ import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.distributed.Cluster;
-import org.apache.cassandra.distributed.impl.IInvokableInstance;
+import org.apache.cassandra.distributed.api.ConsistencyLevel;
+import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.concurrent.SimpleCondition;
 import org.apache.cassandra.utils.progress.ProgressEventType;
@@ -40,8 +40,9 @@ import static org.apache.cassandra.dht.Murmur3Partitioner.*;
 import static org.apache.cassandra.dht.Murmur3Partitioner.LongToken.keyForToken;
 import static org.apache.cassandra.distributed.api.Feature.GOSSIP;
 import static org.apache.cassandra.distributed.api.Feature.NETWORK;
+import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
 
-public class RepairBoundaryTest extends DistributedTestBase
+public class RepairBoundaryTest extends TestBaseImpl
 {
     private static Cluster cluster;
 
@@ -118,23 +119,7 @@ public class RepairBoundaryTest extends DistributedTestBase
         delete(cluster.get(3), 2999, 3000, 2001);
 
         cluster.forEach(i -> {
-            i.runOnInstance(() -> {
-                try
-                {
-                    Map<String, String> options = new HashMap<>();
-                    options.put("primaryRange", "true");
-                    options.put("incremental", "false");
-                    SimpleCondition await = new SimpleCondition();
-                    StorageService.instance.repair(KEYSPACE, options, ImmutableList.of((tag, event) -> {
-                        if (event.getType() == ProgressEventType.COMPLETE)
-                            await.signalAll();
-                    })).right.get();
-                    await.await(1L, MINUTES);
-                }
-                catch (Exception e)
-                {
-                }
-            });
+            i.nodetoolResult("repair", "-pr", "--full", KEYSPACE).asserts().success();
         });
 
         assertRows(c2Row(), cluster.get(1).executeInternal(ALL));
