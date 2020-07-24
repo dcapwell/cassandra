@@ -519,6 +519,7 @@ public final class MessagingService extends MessagingServiceMBeanImpl
     public void listen()
     {
         inboundSockets.open();
+        wasShutdown.set(false);
     }
 
     public void waitUntilListening() throws InterruptedException
