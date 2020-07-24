@@ -26,6 +26,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
@@ -472,6 +473,10 @@ public final class MessagingService implements MessagingServiceMBean
 
     // message sinks are a testing hook
     private final Set<IMessageSink> messageSinks = new CopyOnWriteArraySet<>();
+
+    // used to detect if shutdown happens twice
+    private enum ShutdownState { RUNNING, SHUTTING_DOWN, SHUTDOWN }
+    private final AtomicBoolean wasShutdown = new AtomicBoolean(false);
 
     // back-pressure implementation
     private final BackPressureStrategy backPressure = DatabaseDescriptor.getBackPressureStrategy();
@@ -982,6 +987,11 @@ public final class MessagingService implements MessagingServiceMBean
     }
     public void shutdown(boolean gracefully)
     {
+        if (!wasShutdown.compareAndSet(false, true))
+        {
+            logger.info("MessagingService was already shutdown, or being shutdown by another thread");
+            return;
+        }
         logger.info("Waiting for messaging service to quiesce");
         // We may need to schedule hints on the mutation stage, so it's erroneous to shut down the mutation stage first
         assert !StageManager.getStage(Stage.MUTATION).isShutdown();

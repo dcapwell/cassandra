@@ -21,6 +21,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 
@@ -81,8 +82,8 @@ public abstract class AbstractCommitLogSegmentManager
 
     private Thread managerThread;
     protected final CommitLog commitLog;
-    private volatile boolean shutdown;
-    private final BooleanSupplier managerThreadWaitCondition = () -> (availableSegment == null && !atSegmentBufferLimit()) || shutdown;
+    private final AtomicBoolean shutdown = new AtomicBoolean(false);
+    private final BooleanSupplier managerThreadWaitCondition = () -> (availableSegment == null && !atSegmentBufferLimit()) || shutdown.get();
     private final WaitQueue managerThreadWaitQueue = new WaitQueue();
 
     private static final SimpleCachedBufferPool bufferPool =
@@ -101,14 +102,14 @@ public abstract class AbstractCommitLogSegmentManager
         {
             public void runMayThrow() throws Exception
             {
-                while (!shutdown)
+                while (!shutdown.get())
                 {
                     try
                     {
                         assert availableSegment == null;
                         logger.trace("No segments in reserve; creating a fresh one");
                         availableSegment = createSegment();
-                        if (shutdown)
+                        if (shutdown.get())
                         {
                             // If shutdown() started and finished during segment creation, we are now left with a
                             // segment that no one will consume. Discard it.
@@ -145,7 +146,7 @@ public abstract class AbstractCommitLogSegmentManager
             }
         };
 
-        shutdown = false;
+        shutdown.set(false);
         managerThread = NamedThreadFactory.createThread(runnable, "COMMIT-LOG-ALLOCATOR");
         managerThread.start();
 
@@ -452,8 +453,11 @@ public abstract class AbstractCommitLogSegmentManager
      */
     public void shutdown()
     {
-        assert !shutdown;
-        shutdown = true;
+        if (!shutdown.compareAndSet(false, true))
+        {
+            logger.info("CommitLog SegmentManager was already shutdown, or being shutdown by another thread");
+            return;
+        }
 
         // Release the management thread and delete prepared segment.
         // Do not block as another thread may claim the segment (this can happen during unit test initialization).
@@ -478,6 +482,8 @@ public abstract class AbstractCommitLogSegmentManager
      */
     public void awaitTermination() throws InterruptedException
     {
+        if (managerThread == null)
+            return;
         managerThread.join();
         managerThread = null;
 
