@@ -475,7 +475,6 @@ public final class MessagingService implements MessagingServiceMBean
     private final Set<IMessageSink> messageSinks = new CopyOnWriteArraySet<>();
 
     // used to detect if shutdown happens twice
-    private enum ShutdownState { RUNNING, SHUTTING_DOWN, SHUTDOWN }
     private final AtomicBoolean wasShutdown = new AtomicBoolean(false);
 
     // back-pressure implementation
