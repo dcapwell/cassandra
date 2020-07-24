@@ -25,6 +25,7 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.google.common.annotations.VisibleForTesting;
 
@@ -239,6 +240,9 @@ public final class MessagingService extends MessagingServiceMBeanImpl
     // a public hook for filtering messages intended for delivery to another node
     public final OutboundSink outboundSink = new OutboundSink(this::doSend);
 
+    // used to detect if shutdown happens twice
+    private final AtomicBoolean wasShutdown = new AtomicBoolean(false);
+
     final ResourceLimits.Limit outboundGlobalReserveLimit =
         new ResourceLimits.Concurrent(DatabaseDescriptor.getInternodeApplicationSendQueueReserveGlobalCapacityInBytes());
 
@@ -420,6 +424,11 @@ public final class MessagingService extends MessagingServiceMBeanImpl
 
     public void shutdown(long timeout, TimeUnit units, boolean shutdownGracefully, boolean shutdownExecutors)
     {
+        if (!wasShutdown.compareAndSet(false, true))
+        {
+            logger.info("MessagingService was already shutdown, or being shutdown by another thread");
+            return;
+        }
         isShuttingDown = true;
         logger.info("Waiting for messaging service to quiesce");
         // We may need to schedule hints on the mutation stage, so it's erroneous to shut down the mutation stage first

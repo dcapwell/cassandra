@@ -21,6 +21,7 @@ import java.net.UnknownHostException;
 import java.util.*;
 import java.util.Map.Entry;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
@@ -186,6 +187,9 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
     };
 
     private final Supplier<Boolean> haveMajorVersion3NodesMemoized = Suppliers.memoizeWithExpiration(haveMajorVersion3NodesSupplier, 1, TimeUnit.MINUTES);
+
+    // used to detect if shutdown happens twice
+    private final AtomicBoolean wasShutdown = new AtomicBoolean(false);
 
     private static final boolean disableThreadValidation = Boolean.getBoolean(Props.DISABLE_THREAD_VALIDATION);
 
@@ -1807,6 +1811,11 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
 
     public void stop()
     {
+        if (!wasShutdown.compareAndSet(false, true))
+        {
+            logger.info("MessagingService was already shutdown, or being shutdown by another thread");
+            return;
+        }
         EndpointState mystate = endpointStateMap.get(FBUtilities.getBroadcastAddressAndPort());
         if (mystate != null && !isSilentShutdownState(mystate) && StorageService.instance.isJoined())
         {
