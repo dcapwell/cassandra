@@ -513,6 +513,7 @@ public final class MessagingService implements MessagingServiceMBean
             listen(FBUtilities.getBroadcastAddress());
         }
         listenGate.signalAll();
+        wasShutdown.set(false);
     }
 
     /**
