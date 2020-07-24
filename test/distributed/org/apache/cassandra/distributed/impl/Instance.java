@@ -546,6 +546,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 }
 
                 // TODO: this is more than just gossip
+                StorageService.instance.registerDaemon(CassandraDaemon.getInstanceForTesting());
                 if (config.has(GOSSIP))
                 {
                     StorageService.instance.initServer();
