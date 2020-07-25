@@ -21,6 +21,7 @@ import java.io.FileNotFoundException;
 import java.net.SocketException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 import com.google.common.annotations.VisibleForTesting;
 
@@ -32,6 +33,7 @@ import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.io.FSError;
 import org.apache.cassandra.io.sstable.CorruptSSTableException;
+import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.service.StorageService;
 
 /**
@@ -61,7 +63,25 @@ public final class JVMStabilityInspector
         inspectThrowable(t, true);
     }
 
-    public static void inspectThrowable(Throwable t, boolean propagateOutOfMemory) throws OutOfMemoryError
+    public static void inspectThrowable(Throwable t, boolean propagateOutOfMemory)
+    {
+        inspectThrowable0(t, propagateOutOfMemory, JVMStabilityInspector::inspectDiskError);
+    }
+
+    public static void inspectCommitLogThrowable(Throwable t)
+    {
+        inspectThrowable0(t, true, JVMStabilityInspector::inspectCommitLogError);
+    }
+
+    private static void inspectDiskError(Throwable t)
+    {
+        if (t instanceof CorruptSSTableException)
+            FileUtils.handleCorruptSSTable((CorruptSSTableException) t);
+        else if (t instanceof FSError)
+            FileUtils.handleFSError((FSError) t);
+    }
+
+    public static void inspectThrowable0(Throwable t, boolean propagateOutOfMemory, final Consumer<Throwable> fn) throws OutOfMemoryError
     {
         boolean isUnstable = false;
         if (t instanceof OutOfMemoryError)
@@ -94,6 +114,8 @@ public final class JVMStabilityInspector
             if (t instanceof FSError || t instanceof CorruptSSTableException)
             isUnstable = true;
 
+        fn.accept(t);
+
         // Check for file handle exhaustion
         if (t instanceof FileNotFoundException || t instanceof SocketException)
             if (t.getMessage().contains("Too many open files"))
@@ -103,10 +125,10 @@ public final class JVMStabilityInspector
             killer.killCurrentJVM(t);
 
         if (t.getCause() != null)
-            inspectThrowable(t.getCause());
+            inspectThrowable0(t.getCause(), propagateOutOfMemory, fn);
     }
 
-    public static void inspectCommitLogThrowable(Throwable t)
+    private static void inspectCommitLogError(Throwable t)
     {
         if (!StorageService.instance.isDaemonSetupCompleted())
         {
@@ -115,8 +137,6 @@ public final class JVMStabilityInspector
         }
         else if (DatabaseDescriptor.getCommitFailurePolicy() == Config.CommitFailurePolicy.die)
             killer.killCurrentJVM(t);
-        else
-            inspectThrowable(t);
     }
 
     public static void killCurrentJVM(Throwable t, boolean quiet)
