@@ -36,6 +36,7 @@ public class MigrateDropColumnsTest extends UpgradeTestBase
         new TestCase()
         .upgrade(Versions.Major.v22, Versions.Major.v30)
 //        .upgrade(Versions.Major.v22, Versions.Major.v3X)
+//        .upgrade(Versions.Major.v30, Versions.Major.v3X)
 //        .upgrade(Versions.Major.v22, Versions.Major.v30, Versions.Major.v3X)
         .withConfig(c -> c.with(Feature.NATIVE_PROTOCOL))
         .setup(cluster -> {
@@ -71,13 +72,6 @@ public class MigrateDropColumnsTest extends UpgradeTestBase
             cluster.forEach(inst -> inst.flush(KEYSPACE));
 
             cluster.schemaChange(withKeyspace("ALTER TABLE %s.tbl DROP tables"));
-
-            cluster.forEach(inst -> inst.flush("system"));
-            cluster.forEach(inst -> inst.forceCompact("system", "schema_columnfamilies"));
-
-            // For this JIRA leave this uncommented to hit commit log reply issue
-            // comment out to hit read path issue
-            cluster.forEach(inst -> inst.nodetoolResult("drain").asserts().success());
         })
         .runAfterClusterUpgrade(cluster -> {
             ICoordinator coordinator = cluster.coordinator(1);
@@ -88,27 +82,25 @@ public class MigrateDropColumnsTest extends UpgradeTestBase
                                                                  ConsistencyLevel.ALL, KEYSPACE, "tbl");
             Assert.assertEquals(ImmutableSet.of("tables"), Sets.newHashSet(qr.map(r -> r.getString("column_name"))));
 
-            // since only a RT was written to this row there is no liveness information, so the row will be skipped
-            AssertUtils.assertRows(
-            coordinator.executeWithResult(withKeyspace("SELECT * FROM %s.tbl WHERE pk=?"), ConsistencyLevel.ALL, 0),
-            QueryResults.empty());
-
-            AssertUtils.assertRows(
-            coordinator.executeWithResult(withKeyspace("SELECT * FROM %s.tbl WHERE pk=?"), ConsistencyLevel.ALL, 1),
-            QueryResults.builder().row(1).build());
+            assertRows(coordinator);
 
             // upgradesstables, make sure everything is still working
             cluster.forEach(n -> n.nodetoolResult("upgradesstables", KEYSPACE).asserts().success());
 
-            // since only a RT was written to this row there is no liveness information, so the row will be skipped
-            AssertUtils.assertRows(
-            coordinator.executeWithResult(withKeyspace("SELECT * FROM %s.tbl WHERE pk=?"), ConsistencyLevel.ALL, 0),
-            QueryResults.empty());
-
-            AssertUtils.assertRows(
-            coordinator.executeWithResult(withKeyspace("SELECT * FROM %s.tbl WHERE pk=?"), ConsistencyLevel.ALL, 1),
-            QueryResults.builder().row(1).build());
+            assertRows(coordinator);
         })
         .run();
+    }
+
+    private static void assertRows(ICoordinator coordinator)
+    {
+        // since only a RT was written to this row there is no liveness information, so the row will be skipped
+        AssertUtils.assertRows(
+        coordinator.executeWithResult(withKeyspace("SELECT * FROM %s.tbl WHERE pk=?"), ConsistencyLevel.ALL, 0),
+        QueryResults.empty());
+
+        AssertUtils.assertRows(
+        coordinator.executeWithResult(withKeyspace("SELECT * FROM %s.tbl WHERE pk=?"), ConsistencyLevel.ALL, 1),
+        QueryResults.builder().row(1).build());
     }
 }
