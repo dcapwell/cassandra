@@ -2,6 +2,7 @@ package org.apache.cassandra.distributed.upgrade;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Objects;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -26,18 +27,24 @@ import org.apache.cassandra.thrift.SlicePredicate;
 import org.apache.cassandra.thrift.SliceRange;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
-public class MigrateDropColumnsTest extends UpgradeTestBase
+public abstract class MigrateDropColumns extends UpgradeTestBase
 {
     private static final MapType MAP_TYPE = MapType.getInstance(Int32Type.instance, Int32Type.instance, true);
+
+    private final Versions.Major initial;
+    private final Versions.Major[] upgrade;
+
+    protected MigrateDropColumns(Versions.Major initial, Versions.Major... upgrade)
+    {
+        this.initial = Objects.requireNonNull(initial, "initial");
+        this.upgrade = Objects.requireNonNull(upgrade, "upgrade");
+    }
 
     @Test
     public void dropColumns() throws Throwable
     {
         new TestCase()
-//        .upgrade(Versions.Major.v22, Versions.Major.v30)
-        .upgrade(Versions.Major.v22, Versions.Major.v3X)
-        .upgrade(Versions.Major.v30, Versions.Major.v3X)
-        .upgrade(Versions.Major.v22, Versions.Major.v30, Versions.Major.v3X)
+        .upgrade(initial, upgrade)
         .withConfig(c -> c.with(Feature.NATIVE_PROTOCOL))
         .setup(cluster -> {
             cluster.schemaChange(withKeyspace("CREATE TABLE %s.tbl(pk int, tables map<int, int>, PRIMARY KEY (pk))"));
