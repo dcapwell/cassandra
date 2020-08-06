@@ -51,7 +51,7 @@ public class ToolRunner implements AutoCloseable
 {
     protected static final Logger logger = LoggerFactory.getLogger(ToolRunner.class);
 
-    public final ImmutableList<String> defaultCleanersList = ImmutableList.of("(?im)^picked up.*\\R");
+    private static final ImmutableList<String> DEFAULT_CLEANERS = ImmutableList.of("(?im)^picked up.*\\R");
     
     private final List<String> allArgs = new ArrayList<>();
     private Process process;
@@ -403,7 +403,7 @@ public class ToolRunner implements AutoCloseable
      */
     public String getCleanedStderr()
     {
-        return getCleanedStderr(defaultCleanersList);
+        return getCleanedStderr(DEFAULT_CLEANERS);
     }
 
     public void forceKill()
