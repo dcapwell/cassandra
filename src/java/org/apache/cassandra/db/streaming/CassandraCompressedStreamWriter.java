@@ -49,9 +49,12 @@ public class CassandraCompressedStreamWriter extends CassandraStreamWriter
 
     private final CompressionInfo compressionInfo;
 
-    public CassandraCompressedStreamWriter(SSTableReader sstable, Collection<SSTableReader.PartitionPositionBounds> sections, CompressionInfo compressionInfo, StreamSession session)
+    public CassandraCompressedStreamWriter(SSTableReader sstable,
+                                           Collection<SSTableReader.PartitionPositionBounds> sections,
+                                           CompressionInfo compressionInfo, StreamSession session,
+                                           long size)
     {
-        super(sstable, sections, session);
+        super(sstable, sections, session, size);
         this.compressionInfo = compressionInfo;
     }
 
@@ -59,9 +62,8 @@ public class CassandraCompressedStreamWriter extends CassandraStreamWriter
     public void write(DataOutputStreamPlus output) throws IOException
     {
         AsyncStreamingOutputPlus out = (AsyncStreamingOutputPlus) output;
-        long totalSize = totalSize();
         logger.debug("[Stream #{}] Start streaming file {} to {}, repairedAt = {}, totalSize = {}", session.planId(),
-                     sstable.getFilename(), session.peer, sstable.getSSTableMetadata().repairedAt, totalSize);
+                     sstable.getFilename(), session.peer, sstable.getSSTableMetadata().repairedAt, size);
         try (ChannelProxy fc = sstable.getDataChannel().newChannel())
         {
             long progress = 0L;
@@ -95,22 +97,12 @@ public class CassandraCompressedStreamWriter extends CassandraStreamWriter
 
                     bytesTransferred += toTransfer;
                     progress += toTransfer;
-                    session.progress(sstable.descriptor.filenameFor(Component.DATA), ProgressInfo.Direction.OUT, progress, totalSize);
+                    session.progress(sstable.descriptor.filenameFor(Component.DATA), ProgressInfo.Direction.OUT, progress, size);
                 }
             }
             logger.debug("[Stream #{}] Finished streaming file {} to {}, bytesTransferred = {}, totalSize = {}",
-                         session.planId(), sstable.getFilename(), session.peer, FBUtilities.prettyPrintMemory(progress), FBUtilities.prettyPrintMemory(totalSize));
+                         session.planId(), sstable.getFilename(), session.peer, FBUtilities.prettyPrintMemory(progress), FBUtilities.prettyPrintMemory(size));
         }
-    }
-
-    @Override
-    protected long totalSize()
-    {
-        long size = 0;
-        // calculate total length of transferring chunks
-        for (CompressionMetadata.Chunk chunk : compressionInfo.chunks)
-            size += chunk.length + 4; // 4 bytes for CRC
-        return size;
     }
 
     // chunks are assumed to be sorted by offset

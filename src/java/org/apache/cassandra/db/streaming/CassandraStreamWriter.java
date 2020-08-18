@@ -59,13 +59,18 @@ public class CassandraStreamWriter
     protected final Collection<SSTableReader.PartitionPositionBounds> sections;
     protected final StreamRateLimiter limiter;
     protected final StreamSession session;
+    protected final long size;
 
-    public CassandraStreamWriter(SSTableReader sstable, Collection<SSTableReader.PartitionPositionBounds> sections, StreamSession session)
+    public CassandraStreamWriter(SSTableReader sstable,
+                                 Collection<SSTableReader.PartitionPositionBounds> sections,
+                                 StreamSession session,
+                                 long size)
     {
         this.session = session;
         this.sstable = sstable;
         this.sections = sections;
         this.limiter =  StreamManager.getRateLimiter(session.peer);
+        this.size = size;
     }
 
     /**
@@ -78,9 +83,8 @@ public class CassandraStreamWriter
      */
     public void write(DataOutputStreamPlus output) throws IOException
     {
-        long totalSize = totalSize();
         logger.debug("[Stream #{}] Start streaming file {} to {}, repairedAt = {}, totalSize = {}", session.planId(),
-                     sstable.getFilename(), session.peer, sstable.getSSTableMetadata().repairedAt, totalSize);
+                     sstable.getFilename(), session.peer, sstable.getSSTableMetadata().repairedAt, size);
 
         AsyncStreamingOutputPlus out = (AsyncStreamingOutputPlus) output;
         try(ChannelProxy proxy = sstable.getDataChannel().newChannel();
@@ -113,7 +117,7 @@ public class CassandraStreamWriter
                     start += lastBytesRead;
                     bytesRead += lastBytesRead;
                     progress += (lastBytesRead - transferOffset);
-                    session.progress(sstable.descriptor.filenameFor(Component.DATA), ProgressInfo.Direction.OUT, progress, totalSize);
+                    session.progress(sstable.descriptor.filenameFor(Component.DATA), ProgressInfo.Direction.OUT, progress, size);
                     transferOffset = 0;
                 }
 
@@ -121,15 +125,12 @@ public class CassandraStreamWriter
                 out.flush();
             }
             logger.debug("[Stream #{}] Finished streaming file {} to {}, bytesTransferred = {}, totalSize = {}",
-                         session.planId(), sstable.getFilename(), session.peer, FBUtilities.prettyPrintMemory(progress), FBUtilities.prettyPrintMemory(totalSize));
+                         session.planId(), sstable.getFilename(), session.peer, FBUtilities.prettyPrintMemory(progress), FBUtilities.prettyPrintMemory(size));
         }
     }
 
     protected long totalSize()
     {
-        long size = 0;
-        for (SSTableReader.PartitionPositionBounds section : sections)
-            size += section.upperPosition - section.lowerPosition;
         return size;
     }
 

@@ -70,7 +70,7 @@ public class CassandraStreamHeader
     public final ComponentManifest componentManifest;
 
     /* cached size value */
-    private transient final long size;
+    private final long size;
 
     private CassandraStreamHeader(Builder builder)
     {
@@ -86,6 +86,10 @@ public class CassandraStreamHeader
         isEntireSSTable = builder.isEntireSSTable;
         componentManifest = builder.componentManifest;
         firstKey = builder.firstKey;
+
+        if (compressionMetadata != null && compressionInfo == null)
+            compressionInfo = CompressionInfo.fromCompressionMetadata(compressionMetadata, sections);
+
         size = calculateSize();
     }
 
@@ -125,12 +129,6 @@ public class CassandraStreamHeader
                 transferSize += section.upperPosition - section.lowerPosition;
         }
         return transferSize;
-    }
-
-    public synchronized void calculateCompressionInfo()
-    {
-        if (compressionMetadata != null && compressionInfo == null)
-            compressionInfo = CompressionInfo.fromCompressionMetadata(compressionMetadata, sections);
     }
 
     @Override
@@ -189,7 +187,6 @@ public class CassandraStreamHeader
                 out.writeLong(section.lowerPosition);
                 out.writeLong(section.upperPosition);
             }
-            header.calculateCompressionInfo();
             CompressionInfo.serializer.serialize(header.compressionInfo, out, version);
             out.writeInt(header.sstableLevel);
 
@@ -274,8 +271,6 @@ public class CassandraStreamHeader
                 size += TypeSizes.sizeof(section.lowerPosition);
                 size += TypeSizes.sizeof(section.upperPosition);
             }
-
-            header.calculateCompressionInfo();
             size += CompressionInfo.serializer.serializedSize(header.compressionInfo, version);
             size += TypeSizes.sizeof(header.sstableLevel);
 

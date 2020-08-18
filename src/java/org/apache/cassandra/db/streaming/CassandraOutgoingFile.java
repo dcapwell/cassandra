@@ -166,7 +166,7 @@ public class CassandraOutgoingFile implements OutgoingStream
         CassandraStreamHeader.serializer.serialize(header, out, version);
         out.flush();
 
-        if (shouldStreamEntireSSTable && out instanceof AsyncStreamingOutputPlus)
+        if (shouldStreamEntireSSTable)
         {
             CassandraEntireSSTableStreamWriter writer = new CassandraEntireSSTableStreamWriter(sstable, session, manifest);
             writer.write((AsyncStreamingOutputPlus) out);
@@ -174,9 +174,9 @@ public class CassandraOutgoingFile implements OutgoingStream
         else
         {
             CassandraStreamWriter writer = (header.compressionInfo == null) ?
-                     new CassandraStreamWriter(sstable, header.sections, session) :
+                     new CassandraStreamWriter(sstable, header.sections, session, header.size()) :
                      new CassandraCompressedStreamWriter(sstable, header.sections,
-                                                         header.compressionInfo, session);
+                                                         header.compressionInfo, session, header.size());
             writer.write(out);
         }
     }
