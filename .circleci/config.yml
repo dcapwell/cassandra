@@ -91,8 +91,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
@@ -111,6 +111,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/jonmeredith/ccm.git@CASSANDRA-15937;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -168,8 +169,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
@@ -259,8 +260,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
@@ -280,6 +281,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/jonmeredith/ccm.git@CASSANDRA-15937;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -337,8 +339,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
@@ -357,6 +359,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/jonmeredith/ccm.git@CASSANDRA-15937;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -414,8 +417,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
@@ -435,6 +438,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/jonmeredith/ccm.git@CASSANDRA-15937;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -492,8 +496,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
@@ -513,6 +517,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/jonmeredith/ccm.git@CASSANDRA-15937;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -570,8 +575,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
@@ -591,6 +596,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/jonmeredith/ccm.git@CASSANDRA-15937;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -648,8 +654,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
@@ -668,6 +674,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/jonmeredith/ccm.git@CASSANDRA-15937;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -725,8 +732,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
@@ -745,6 +752,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/jonmeredith/ccm.git@CASSANDRA-15937;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -802,8 +810,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
@@ -845,6 +853,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/jonmeredith/ccm.git@CASSANDRA-15937;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -883,8 +892,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
@@ -904,6 +913,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/jonmeredith/ccm.git@CASSANDRA-15937;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -942,8 +952,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
@@ -962,6 +972,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/jonmeredith/ccm.git@CASSANDRA-15937;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -1041,8 +1052,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
@@ -1086,8 +1097,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
@@ -1177,8 +1188,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
@@ -1268,8 +1279,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
@@ -1349,8 +1360,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
@@ -1370,6 +1381,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/jonmeredith/ccm.git@CASSANDRA-15937;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -1427,8 +1439,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
@@ -1448,6 +1460,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/jonmeredith/ccm.git@CASSANDRA-15937;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -1486,8 +1499,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
@@ -1506,6 +1519,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/jonmeredith/ccm.git@CASSANDRA-15937;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -1563,8 +1577,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
@@ -1655,8 +1669,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
@@ -1735,8 +1749,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
@@ -1755,6 +1769,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/jonmeredith/ccm.git@CASSANDRA-15937;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -1812,8 +1827,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
@@ -1832,6 +1847,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/jonmeredith/ccm.git@CASSANDRA-15937;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -1889,8 +1905,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
@@ -1934,8 +1950,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
@@ -1979,8 +1995,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
@@ -2021,6 +2037,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/jonmeredith/ccm.git@CASSANDRA-15937;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -2059,8 +2076,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
@@ -2151,8 +2168,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
@@ -2225,8 +2242,8 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
+    - DTEST_REPO: https://github.com/jonmeredith/cassandra-dtest.git
+    - DTEST_BRANCH: CASSANDRA-15937
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
