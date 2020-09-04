@@ -18,6 +18,7 @@
 package org.apache.cassandra.db.rows;
 
 import java.nio.ByteBuffer;
+import java.util.List;
 import java.util.Set;
 
 import org.junit.After;
@@ -85,8 +86,8 @@ public class ColumnMetadataVersionComparatorTest
     {
         for (boolean isMultiCell : new boolean[]{false, true})
         {
-            SetType<ByteBuffer> set1 = SetType.getInstance(udtWith2Fields, isMultiCell);
-            SetType<ByteBuffer> set2 = SetType.getInstance(udtWith3Fields, isMultiCell);
+            SetType<TupleType.Tuple> set1 = SetType.getInstance(udtWith2Fields, isMultiCell);
+            SetType<TupleType.Tuple> set2 = SetType.getInstance(udtWith3Fields, isMultiCell);
             checkComparisonResults(set1, set2);
         }
     }
@@ -96,8 +97,8 @@ public class ColumnMetadataVersionComparatorTest
     {
         for (boolean isMultiCell : new boolean[]{false, true})
         {
-            ListType<ByteBuffer> list1 = ListType.getInstance(udtWith2Fields, isMultiCell);
-            ListType<ByteBuffer> list2 = ListType.getInstance(udtWith3Fields, isMultiCell);
+            ListType<TupleType.Tuple> list1 = ListType.getInstance(udtWith2Fields, isMultiCell);
+            ListType<TupleType.Tuple> list2 = ListType.getInstance(udtWith3Fields, isMultiCell);
             checkComparisonResults(list1, list2);
         }
     }
@@ -107,15 +108,15 @@ public class ColumnMetadataVersionComparatorTest
     {
         for (boolean isMultiCell : new boolean[]{false, true})
         {
-            MapType<ByteBuffer, Integer> map1 = MapType.getInstance(udtWith2Fields, Int32Type.instance, isMultiCell);
-            MapType<ByteBuffer, Integer> map2 = MapType.getInstance(udtWith3Fields, Int32Type.instance, isMultiCell);
+            MapType<TupleType.Tuple, Integer> map1 = MapType.getInstance(udtWith2Fields, Int32Type.instance, isMultiCell);
+            MapType<TupleType.Tuple, Integer> map2 = MapType.getInstance(udtWith3Fields, Int32Type.instance, isMultiCell);
             checkComparisonResults(map1, map2);
         }
 
         for (boolean isMultiCell : new boolean[]{false, true})
         {
-            MapType<Integer, ByteBuffer> map1 = MapType.getInstance(Int32Type.instance, udtWith2Fields, isMultiCell);
-            MapType<Integer, ByteBuffer> map2 = MapType.getInstance(Int32Type.instance, udtWith3Fields, isMultiCell);
+            MapType<Integer, TupleType.Tuple> map1 = MapType.getInstance(Int32Type.instance, udtWith2Fields, isMultiCell);
+            MapType<Integer, TupleType.Tuple> map2 = MapType.getInstance(Int32Type.instance, udtWith3Fields, isMultiCell);
             checkComparisonResults(map1, map2);
         }
     }
@@ -141,8 +142,8 @@ public class ColumnMetadataVersionComparatorTest
     {
         for (boolean isMultiCell : new boolean[]{false, true})
         {
-            ListType<Set<ByteBuffer>> list1 = ListType.getInstance(SetType.getInstance(new TupleType(asList(udtWith2Fields, Int32Type.instance)), isMultiCell), isMultiCell);
-            ListType<Set<ByteBuffer>> list2 = ListType.getInstance(SetType.getInstance(new TupleType(asList(udtWith3Fields, Int32Type.instance)), isMultiCell), isMultiCell);
+            ListType<Set<TupleType.Tuple>> list1 = ListType.getInstance(SetType.getInstance(new TupleType(asList(udtWith2Fields, Int32Type.instance)), isMultiCell), isMultiCell);
+            ListType<Set<TupleType.Tuple>> list2 = ListType.getInstance(SetType.getInstance(new TupleType(asList(udtWith3Fields, Int32Type.instance)), isMultiCell), isMultiCell);
             checkComparisonResults(list1, list2);
         }
     }

@@ -93,6 +93,7 @@ import org.apache.cassandra.utils.JMXServerUtils;
 import org.apache.cassandra.security.ThreadAwareSecurityManager;
 
 import static junit.framework.Assert.assertNotNull;
+import static junit.framework.Assert.fail;
 
 /**
  * Base class for CQL tests.
@@ -1794,7 +1795,10 @@ public abstract class CQLTester
     // Will work as long as we use types we know of, which is good enough for testing
     private static AbstractType typeFor(Object value)
     {
-        if (value instanceof ByteBuffer || value instanceof TupleValue || value == null)
+        if (value == null)
+            return EmptyType.instance;
+
+        if (value instanceof ByteBuffer || value instanceof TupleValue)
             return BytesType.instance;
 
         if (value instanceof Byte)
@@ -1869,6 +1873,12 @@ public abstract class CQLTester
                 values = typeFor(entry.getValue());
             }
             return MapType.getInstance(keys, values, true);
+        }
+        if (value instanceof TupleType.Tuple)
+        {
+            TupleType.Tuple tuple = (TupleType.Tuple) value;
+            List<AbstractType<?>> types = tuple.values.stream().map(CQLTester::typeFor).map(a -> (AbstractType<?>) a).collect(Collectors.toList());
+            return new TupleType(types);
         }
 
         throw new IllegalArgumentException("Unsupported value type (value is " + value + ")");

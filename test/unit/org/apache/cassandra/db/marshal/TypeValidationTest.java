@@ -32,6 +32,7 @@ import org.junit.Test;
 import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
+import java.util.List;
 import java.util.UUID;
 
 import static org.apache.cassandra.utils.AbstractTypeGenerators.getTypeSupport;
@@ -183,8 +184,8 @@ public class TypeValidationTest
     {
         qt().forAll(tupleWithValueGen(baseGen)).checkAssert(pair -> {
             TupleType tuple = pair.left;
-            ByteBuffer value = pair.right;
-            Assertions.assertThat(TupleType.buildValue(tuple.split(value)))
+            TupleType.Tuple value = pair.right;
+            Assertions.assertThat(tuple.compose(tuple.decompose(value)))
                       .as("TupleType.buildValue(split(value)) == value")
                       .isEqualTo(value);
         });
@@ -206,14 +207,14 @@ public class TypeValidationTest
     {
         qt().forAll(tupleWithValueGen(baseGen)).checkAssert(pair -> {
             TupleType tuple = pair.left;
-            ByteBuffer value = pair.right;
-            tuple.validate(value);
+            TupleType.Tuple value = pair.right;
+            tuple.validate(tuple.decompose(value));
         });
     }
 
-    private static Gen<Pair<TupleType, ByteBuffer>> tupleWithValueGen(Gen<? extends TupleType> baseGen)
+    private static Gen<Pair<TupleType, TupleType.Tuple>> tupleWithValueGen(Gen<? extends TupleType> baseGen)
     {
-        Gen<Pair<TupleType, ByteBuffer>> gen = rnd -> {
+        Gen<Pair<TupleType, TupleType.Tuple>> gen = rnd -> {
             TupleType type = baseGen.generate(rnd);
             return Pair.create(type, getTypeSupport(type).valueGen.generate(rnd));
         };

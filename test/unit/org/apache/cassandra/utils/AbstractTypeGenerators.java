@@ -58,6 +58,7 @@ import org.quicktheories.core.RandomnessSource;
 import org.quicktheories.generators.SourceDSL;
 
 import static org.apache.cassandra.utils.Generators.IDENTIFIER_GEN;
+import static org.apache.cassandra.utils.Generators.regexWord;
 
 public final class AbstractTypeGenerators
 {
@@ -321,7 +322,7 @@ public final class AbstractTypeGenerators
         throw new UnsupportedOperationException("Unsupported type: " + type);
     }
 
-    private static final class TupleGen implements Gen<ByteBuffer>
+    private static final class TupleGen implements Gen<TupleType.Tuple>
     {
         private final List<TypeSupport<Object>> elementsSupport;
 
@@ -331,16 +332,17 @@ public final class AbstractTypeGenerators
             this.elementsSupport = tupleType.allTypes().stream().map(t -> getTypeSupport((AbstractType<Object>) t, sizeGen)).collect(Collectors.toList());
         }
 
-        public ByteBuffer generate(RandomnessSource rnd)
+        public TupleType.Tuple generate(RandomnessSource rnd)
         {
             List<TypeSupport<Object>> eSupport = this.elementsSupport;
-            ByteBuffer[] elements = new ByteBuffer[eSupport.size()];
-            for (int i = 0; i < eSupport.size(); i++)
-            {
-                TypeSupport<Object> support = eSupport.get(i);
-                elements[i] = support.type.decompose(support.valueGen.generate(rnd));
-            }
-            return TupleType.buildValue(elements);
+            return new TupleType.Tuple(eSupport.stream().map(s -> s.valueGen.generate(rnd)).collect(Collectors.toList()));
+//            ByteBuffer[] elements = new ByteBuffer[eSupport.size()];
+//            for (int i = 0; i < eSupport.size(); i++)
+//            {
+//                TypeSupport<Object> support = eSupport.get(i);
+//                elements[i] = support.type.decompose(support.valueGen.generate(rnd));
+//            }
+//            return TupleType.buildValue(elements);
         }
     }
 

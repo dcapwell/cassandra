@@ -448,7 +448,7 @@ public class UserType extends TupleType implements SchemaElement
     }
 
     @Override
-    public TypeSerializer<ByteBuffer> getSerializer()
+    public TypeSerializer<TupleType.Tuple> getSerializer()
     {
         return serializer;
     }

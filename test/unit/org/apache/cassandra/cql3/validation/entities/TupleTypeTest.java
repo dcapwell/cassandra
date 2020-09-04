@@ -306,13 +306,13 @@ public class TupleTypeTest extends CQLTester
             for (ByteBuffer value : testcase.uniqueRows)
             {
                 map.put(value, count);
-                ByteBuffer[] tupleBuffers = tupleType.split(value);
+                TupleType.Tuple tupleBuffers = tupleType.compose(value);
 
                 // use cast to avoid warning
-                execute("INSERT INTO %s (pk, ck, value) VALUES (?, ?, ?)", 1, tuple((Object[]) tupleBuffers), count);
+                execute("INSERT INTO %s (pk, ck, value) VALUES (?, ?, ?)", 1, tupleBuffers, count);
 
-                assertRows(execute("SELECT * FROM %s WHERE pk = ? AND ck = ?", 1, tuple((Object[]) tupleBuffers)),
-                           row(1, tuple((Object[]) tupleBuffers), count));
+                assertRows(execute("SELECT * FROM %s WHERE pk = ? AND ck = ?", 1, tupleBuffers),
+                           row(1, tupleBuffers, count));
                 count++;
             }
             UntypedResultSet results = execute("SELECT * FROM %s LIMIT 100");
@@ -339,8 +339,8 @@ public class TupleTypeTest extends CQLTester
         Gen<TypeAndRows> gen = rnd -> {
             TypeAndRows c = new TypeAndRows();
             c.type = typeGen.generate(rnd);
-            TypeSupport<ByteBuffer> support = getTypeSupport(c.type);
-            Gen<ByteBuffer> valueGen = filter(support.valueGen, b -> b.remaining() <= Short.MAX_VALUE);
+            TypeSupport<TupleType.Tuple> support = getTypeSupport(c.type);
+            Gen<ByteBuffer> valueGen = filter(support.bytesGen(), b -> b.remaining() <= Short.MAX_VALUE);
             valueGen = filter(valueGen, 20, v -> !distinctRows.contains(v));
 
             distinctRows.clear();

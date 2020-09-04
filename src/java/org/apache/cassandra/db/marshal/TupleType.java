@@ -27,11 +27,18 @@ import java.util.regex.Pattern;
 import com.google.common.base.Objects;
 import com.google.common.collect.Lists;
 
-import org.apache.cassandra.cql3.*;
+import org.apache.cassandra.cql3.CQL3Type;
+import org.apache.cassandra.cql3.Constants;
+import org.apache.cassandra.cql3.Json;
+import org.apache.cassandra.cql3.Term;
+import org.apache.cassandra.cql3.Tuples;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.exceptions.SyntaxException;
-import org.apache.cassandra.serializers.*;
+import org.apache.cassandra.serializers.CollectionSerializer;
+import org.apache.cassandra.serializers.MarshalException;
+import org.apache.cassandra.serializers.TupleSerializer;
+import org.apache.cassandra.serializers.TypeSerializer;
 import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
@@ -42,7 +49,7 @@ import static com.google.common.collect.Iterables.transform;
  * This is essentially like a CompositeType, but it's not primarily meant for comparison, just
  * to pack multiple values together so has a more friendly encoding.
  */
-public class TupleType extends AbstractType<ByteBuffer>
+public class TupleType extends AbstractType<TupleType.Tuple>
 {
     private static final String COLON = ":";
     private static final Pattern COLON_PAT = Pattern.compile(COLON);
@@ -359,7 +366,7 @@ public class TupleType extends AbstractType<ByteBuffer>
         return sb.append("]").toString();
     }
 
-    public TypeSerializer<ByteBuffer> getSerializer()
+    public TypeSerializer<TupleType.Tuple> getSerializer()
     {
         return serializer;
     }
@@ -432,5 +439,17 @@ public class TupleType extends AbstractType<ByteBuffer>
     public String toString()
     {
         return getClass().getName() + TypeParser.stringifyTypeParameters(types, true);
+    }
+
+    public static final class Tuple
+    {
+        public final List<Object> values;
+
+        public Tuple(List<Object> values)
+        {
+            if (values == null)
+                throw new NullPointerException("values");
+            this.values = values;
+        }
     }
 }

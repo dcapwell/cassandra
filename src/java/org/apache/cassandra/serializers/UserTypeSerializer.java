@@ -18,17 +18,19 @@
 package org.apache.cassandra.serializers;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map.Entry;
 
 import org.apache.cassandra.utils.ByteBufferUtil;
 
-public class UserTypeSerializer extends BytesSerializer
+public class UserTypeSerializer extends TupleSerializer
 {
     public final LinkedHashMap<String, TypeSerializer<?>> fields;
 
     public UserTypeSerializer(LinkedHashMap<String, TypeSerializer<?>> fields)
     {
+        super(new ArrayList<>(fields.values()));
         this.fields = fields;
     }
 
