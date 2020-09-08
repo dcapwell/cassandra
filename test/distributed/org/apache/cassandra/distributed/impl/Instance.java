@@ -263,10 +263,10 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
             int version = MessagingService.instance().versions.get(to);
             Message.serializer.serialize(messageOut, out, version);
             byte[] bytes = out.toByteArray();
-            if (messageOut.serializedSize(version) + 12 != bytes.length)
+            if (messageOut.serializedSize(version) != bytes.length)
                 throw new IllegalStateException(String.format("Message serializedSize(%s) does not match what was written with serialize(out, %s) for verb %s and serializer %s; " +
                                                               "expected %s, actual %s, contents %s", version, version, messageOut.verb(), messageOut.serializer.getClass(),
-                                                              messageOut.serializedSize(version) + 12, bytes.length, Arrays.toString(bytes)));
+                                                              messageOut.serializedSize(version), bytes.length, Arrays.toString(bytes)));
             return new MessageImpl(messageOut.verb().id, bytes, messageOut.id(), version, fromCassandraInetAddressAndPort(from));
         }
         catch (IOException e)
