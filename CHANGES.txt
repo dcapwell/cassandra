@@ -10,6 +10,7 @@
  * Forbid altering UDTs used in partition keys (CASSANDRA-15933)
  * Fix empty/null json string representation (CASSANDRA-15896)
  * Handle difference in timestamp precision between java8 and java11 in LogFIle.java (CASSANDRA-16050)
+ * Add flag to ignore unreplicated keyspaces during repair (CASSANDRA-15160)
 Merged from 2.2:
  * Fix CQL parsing of collections when the column type is reversed (CASSANDRA-15814)
 Merged from 2.1:
