@@ -389,7 +389,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             }
         }
 
-        daemon.thriftServer.start();
+        daemon.startThriftServer();
     }
 
     public void stopRPCServer()
@@ -398,17 +398,16 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         {
             throw new IllegalStateException("No configured daemon");
         }
-        if (daemon.thriftServer != null)
-            daemon.thriftServer.stop();
+        daemon.stopThriftServer();
     }
 
     public boolean isRPCServerRunning()
     {
-        if ((daemon == null) || (daemon.thriftServer == null))
+        if (daemon == null)
         {
             return false;
         }
-        return daemon.thriftServer.isRunning();
+        return daemon.isThriftServerRunning();
     }
 
     public synchronized void startNativeTransport()
@@ -1338,7 +1337,9 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                         }
                         progressSupport.progress("bootstrap", new ProgressEvent(ProgressEventType.COMPLETE, 1, 1, "Resume bootstrap complete"));
                         if (!isNativeTransportRunning())
-                            daemon.initializeNativeTransport();
+                            daemon.startNativeTransport();
+                        if (!isRPCServerRunning())
+                            daemon.startThriftServer();
                         daemon.start();
                         logger.info("Resume complete");
                     }
