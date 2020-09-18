@@ -530,6 +530,8 @@ public class CassandraDaemon
             startThriftServer();
         else
             logger.info("Not starting RPC server as requested. Use JMX (StorageService->startRPCServer()) or nodetool (enablethrift) to start it");
+
+        logger.info("Startup complete");
     }
 
     /**
