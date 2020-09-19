@@ -38,14 +38,14 @@ public class ClientNetworkStopStartTest extends TestBaseImpl
         try (Cluster cluster = init(Cluster.build(1).withConfig(c -> c.with(Feature.NATIVE_PROTOCOL)).start()))
         {
             IInvokableInstance node = cluster.get(1);
-            assertBinaryRunning(node);
-            assertThriftRunning(node);
+            assertTransportStatus(node, "binary", true);
+            assertTransportStatus(node, "thrift", true);
             node.nodetoolResult("disablethrift").asserts().success();
-            assertBinaryRunning(node);
-            assertThriftNotRunning(node);
+            assertTransportStatus(node, "binary", true);
+            assertTransportStatus(node, "thrift", false);
             node.nodetoolResult("enablethrift").asserts().success();
-            assertBinaryRunning(node);
-            assertThriftRunning(node);
+            assertTransportStatus(node, "binary", true);
+            assertTransportStatus(node, "thrift", true);
 
             // now use it to make sure it still works!
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, value int, PRIMARY KEY (pk))");
@@ -80,14 +80,14 @@ public class ClientNetworkStopStartTest extends TestBaseImpl
         try (Cluster cluster = init(Cluster.build(1).withConfig(c -> c.with(Feature.NATIVE_PROTOCOL)).start()))
         {
             IInvokableInstance node = cluster.get(1);
-            assertBinaryRunning(node);
-            assertThriftRunning(node);
+            assertTransportStatus(node, "binary", true);
+            assertTransportStatus(node, "thrift", true);
             node.nodetoolResult("disablebinary").asserts().success();
-            assertBinaryNotRunning(node);
-            assertThriftRunning(node);
+            assertTransportStatus(node, "binary", false);
+            assertTransportStatus(node, "thrift", true);
             node.nodetoolResult("enablebinary").asserts().success();
-            assertBinaryRunning(node);
-            assertThriftRunning(node);
+            assertTransportStatus(node, "binary", true);
+            assertTransportStatus(node, "thrift", true);
 
             // now use it to make sure it still works!
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, value int, PRIMARY KEY (pk))");
@@ -103,24 +103,9 @@ public class ClientNetworkStopStartTest extends TestBaseImpl
         }
     }
 
-    private static void assertBinaryRunning(IInvokableInstance node)
+    private static void assertTransportStatus(IInvokableInstance node, String transport, boolean running)
     {
-        assertNodetoolStdout(node, "running", "not running", "statusbinary");
-    }
-
-    private static void assertBinaryNotRunning(IInvokableInstance node)
-    {
-        assertNodetoolStdout(node, "not running", null, "statusbinary");
-    }
-
-    private static void assertThriftRunning(IInvokableInstance node)
-    {
-        assertNodetoolStdout(node, "running", "not running", "statusthrift");
-    }
-
-    private static void assertThriftNotRunning(IInvokableInstance node)
-    {
-        assertNodetoolStdout(node, "not running", null, "statusthrift");
+        assertNodetoolStdout(node, running ? "running" : "not running", running ? "not running" : null, "status" + transport);
     }
 
     private static void assertNodetoolStdout(IInvokableInstance node, String expectedStatus, String notExpected, String... nodetool)
