@@ -1337,9 +1337,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                         }
                         progressSupport.progress("bootstrap", new ProgressEvent(ProgressEventType.COMPLETE, 1, 1, "Resume bootstrap complete"));
                         if (!isNativeTransportRunning())
-                            daemon.startNativeTransport();
-                        if (!isRPCServerRunning())
-                            daemon.startThriftServer();
+                            daemon.initializeClientTransports();
                         daemon.start();
                         logger.info("Resume complete");
                     }

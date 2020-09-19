@@ -164,8 +164,8 @@ public class CassandraDaemon
 
     private static final CassandraDaemon instance = new CassandraDaemon();
 
-    private Server thriftServer;
-    private NativeTransportService nativeTransportService;
+    private volatile Server thriftServer;
+    private volatile NativeTransportService nativeTransportService;
 
     private final boolean runManaged;
     protected final StartupChecks startupChecks;
@@ -412,7 +412,7 @@ public class CassandraDaemon
         completeSetup();
     }
 
-    public void initializeClientTransports()
+    public synchronized void initializeClientTransports()
     {
         // Thrift
         InetAddress rpcAddr = DatabaseDescriptor.getRpcAddress();
