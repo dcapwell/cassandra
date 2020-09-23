@@ -500,16 +500,6 @@ public class CassandraDaemon
      */
     public void start()
     {
-        try
-        {
-            validateTransportsCanStart();
-        }
-        catch (IllegalStateException isx)
-        {
-            // If there are any errors, we just log and return in this case
-            logger.info(isx.getMessage());
-            return;
-        }
         startClientTransports();
     }
 
@@ -530,8 +520,6 @@ public class CassandraDaemon
             startThriftServer();
         else
             logger.info("Not starting RPC server as requested. Use JMX (StorageService->startRPCServer()) or nodetool (enablethrift) to start it");
-
-        logger.info("Startup complete");
     }
 
     /**
@@ -624,6 +612,8 @@ public class CassandraDaemon
             }
 
             start();
+
+            logger.info("Startup complete");
         }
         catch (Throwable e)
         {
