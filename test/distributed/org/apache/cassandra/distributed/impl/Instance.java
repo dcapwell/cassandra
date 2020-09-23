@@ -736,7 +736,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
             );
             error = parallelRun(error, executor,
                                 () -> ScheduledExecutors.shutdownAndWait(1L, MINUTES),
-                                IgnoreThrowingRunnable.ignore(MessagingService.instance()::shutdown)
+                                (IgnoreThrowingRunnable) MessagingService.instance()::shutdown
             );
             error = parallelRun(error, executor,
                                 () -> StageManager.shutdownAndWait(1L, MINUTES),
@@ -891,11 +891,6 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
             {
                 JVMStabilityInspector.inspectThrowable(e);
             }
-        }
-
-        static IgnoreThrowingRunnable ignore(IgnoreThrowingRunnable fn)
-        {
-            return fn;
         }
     }
 }
