@@ -687,7 +687,7 @@ public class CassandraDaemon
 
     public boolean isNativeTransportRunning()
     {
-        return nativeTransportService != null ? nativeTransportService.isRunning() : false;
+        return nativeTransportService != null && nativeTransportService.isRunning();
     }
 
     public void startThriftServer()
@@ -709,7 +709,7 @@ public class CassandraDaemon
 
     public boolean isThriftServerRunning()
     {
-        return thriftServer != null ? thriftServer.isRunning() : false;
+        return thriftServer != null && thriftServer.isRunning();
     }
 
     public int getMaxNativeProtocolVersion()
