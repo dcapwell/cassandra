@@ -445,6 +445,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 StorageService.instance.registerDaemon(CassandraDaemon.getInstanceForTesting());
                 if (config.has(GOSSIP))
                 {
+                    StorageService.instance.registerDaemon(CassandraDaemon.getInstanceForTesting());
                     StorageService.instance.initServer(StorageService.RING_DELAY,
                                                        !startupOptions.contains(StartupOption.SKIP_RING_JOIN));
                     StorageService.instance.removeShutdownHook();
