@@ -23,6 +23,7 @@ jobs:
           # so the goal here is to get the circleci script to return the tests *this* container will run
           # which we do via the `circleci` cli tool.
 
+          set -x
           rm -fr ~/cassandra-dtest/upgrade_tests
           echo "***java tests***"
 
@@ -1210,6 +1211,8 @@ jobs:
           # reminder: this code (along with all the steps) is independently executed on every circle container
           # so the goal here is to get the circleci script to return the tests *this* container will run
           # which we do via the `circleci` cli tool.
+          
+          set -x
 
           rm -fr ~/cassandra-dtest/upgrade_tests
           echo "***java tests***"
@@ -1601,6 +1604,7 @@ jobs:
           # so the goal here is to get the circleci script to return the tests *this* container will run
           # which we do via the `circleci` cli tool.
 
+          set -x
           rm -fr ~/cassandra-dtest/upgrade_tests
           echo "***java tests***"
 
