@@ -56,6 +56,7 @@ import org.apache.cassandra.distributed.api.IListen;
 import org.apache.cassandra.distributed.api.IMessage;
 import org.apache.cassandra.distributed.api.IMessageFilters;
 import org.apache.cassandra.distributed.api.IUpgradeableInstance;
+import org.apache.cassandra.distributed.api.LogAction;
 import org.apache.cassandra.distributed.api.NodeToolResult;
 import org.apache.cassandra.distributed.api.TokenSupplier;
 import org.apache.cassandra.distributed.shared.InstanceClassLoader;
@@ -177,10 +178,10 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
 
         private IInvokableInstance newInstance(int generation)
         {
-            ClassLoader classLoader = new InstanceClassLoader(generation, config.num(), version.classpath, sharedClassLoader);
+            InstanceClassLoader classLoader = new InstanceClassLoader(generation, config.num(), version.classpath, sharedClassLoader);
             if (instanceInitializer != null)
                 instanceInitializer.accept(classLoader, config.num());
-            return Instance.transferAdhoc((SerializableBiFunction<IInstanceConfig, ClassLoader, Instance>)Instance::new, classLoader)
+            return Instance.transferAdhoc((SerializableBiFunction<IInstanceConfig, InstanceClassLoader, Instance>)Instance::new, classLoader)
                                         .apply(config.forVersion(version.major), classLoader);
         }
 
@@ -256,6 +257,18 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
             IInvokableInstance delegate = this.delegate;
             if (!isShutdown && delegate != null) // since we sync directly on the other node, we drop messages immediately if we are shutdown
                 delegate.receiveMessage(message);
+        }
+
+        @Override
+        public boolean getLogsEnabled()
+        {
+            return delegate().getLogsEnabled();
+        }
+
+        @Override
+        public LogAction logs()
+        {
+            return delegate().logs();
         }
 
         @Override
