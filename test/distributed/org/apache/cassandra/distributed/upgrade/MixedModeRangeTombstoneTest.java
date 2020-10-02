@@ -57,6 +57,7 @@ public class MixedModeRangeTombstoneTest extends UpgradeTestBase
         .nodes(2)
         .upgrade(Versions.Major.v22, Versions.Major.v30)
         .setup(cluster -> {
+            cluster.setUncaughtExceptionsFilter(t -> t.getMessage().contains("ThreadPoolExecutor has shut down"));
             cluster.schemaChange(schema);
             cluster.coordinator(1).execute(format("DELETE FROM %s USING TIMESTAMP 1 WHERE k = 0 AND c1 = 'A'", tableName), ConsistencyLevel.ALL);
             cluster.coordinator(1).execute(format("INSERT INTO %s(k, c1, c2, a, b, c) VALUES (0, 'A', 'X', 'foo', {'whatever'}, 'bar') USING TIMESTAMP 2", tableName), ConsistencyLevel.ALL);
