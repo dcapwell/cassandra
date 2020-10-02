@@ -45,6 +45,8 @@ public class NativeProtocolTest extends TestBaseImpl
                                               .withConfig(config -> config.with(GOSSIP, NETWORK, NATIVE_PROTOCOL))
                                               .start()))
         {
+            ignored.setUncaughtExceptionsFilter((throwable) ->
+                                                throwable instanceof AssertionError && throwable.getCause() != null && throwable.getCause() instanceof InterruptedException);
 
             try (com.datastax.driver.core.Cluster cluster = com.datastax.driver.core.Cluster.builder().addContactPoint("127.0.0.1").build();
                  Session session = cluster.connect())
