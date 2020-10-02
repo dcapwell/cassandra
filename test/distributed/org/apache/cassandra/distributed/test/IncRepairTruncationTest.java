@@ -25,6 +25,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import com.google.common.base.Throwables;
 import com.google.common.util.concurrent.Uninterruptibles;
 import org.junit.Test;
 
@@ -54,6 +55,7 @@ public class IncRepairTruncationTest extends TestBaseImpl
                                                                       .with(NETWORK))
                                           .start()))
         {
+            cluster.setUncaughtExceptionsFilter(t -> Throwables.getRootCause(t) instanceof InterruptedException);
             cluster.schemaChange("create table " + KEYSPACE + ".tbl (id int primary key, t int)");
 
             insert(cluster.coordinator(1), 0, 100);
