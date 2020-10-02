@@ -39,6 +39,7 @@ public class CompactStorage2to3UpgradeTest extends UpgradeTestBase
         new TestCase()
         .upgrade(Versions.Major.v22, Versions.Major.v3X)
         .setup(cluster -> {
+            cluster.setUncaughtExceptionsFilter(t -> t.getMessage().contains("ThreadPoolExecutor has shut down"));
             assert cluster.size() == 3;
             int rf = cluster.size() - 1;
             assert rf == 2;
@@ -73,6 +74,7 @@ public class CompactStorage2to3UpgradeTest extends UpgradeTestBase
         new TestCase()
         .upgrade(Versions.Major.v22, Versions.Major.v3X)
         .setup(cluster -> {
+            cluster.setUncaughtExceptionsFilter(t -> t.getMessage().contains("ThreadPoolExecutor has shut down"));
             assert cluster.size() == 3;
             int rf = cluster.size() - 1;
             assert rf == 2;

@@ -55,6 +55,7 @@ public class MixedModeReadTest extends UpgradeTestBase
         .upgrade(Versions.Major.v30, Versions.Major.v3X)
         .withConfig(config -> config.with(Feature.GOSSIP, Feature.NETWORK))
         .setup(cluster -> {
+            cluster.setUncaughtExceptionsFilter(t -> t.getMessage().contains("Unknown column cdc during deserialization"));
             cluster.schemaChange(CREATE_TABLE);
             cluster.coordinator(1).execute(INSERT, ConsistencyLevel.ALL, 1, "foo", "bar", "baz");
             cluster.coordinator(1).execute(INSERT, ConsistencyLevel.ALL, 2, "foo", "bar", "baz");
