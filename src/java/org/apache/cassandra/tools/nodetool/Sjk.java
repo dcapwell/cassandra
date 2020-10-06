@@ -1,4 +1,20 @@
-
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.apache.cassandra.tools.nodetool;
 
 import java.io.File;
@@ -41,6 +57,7 @@ import com.beust.jcommander.ParameterDescription;
 import com.beust.jcommander.Parameterized;
 import io.airlift.airline.Arguments;
 import io.airlift.airline.Command;
+import org.apache.cassandra.tools.Output;
 import org.gridkit.jvmtool.JmxConnectionInfo;
 import org.gridkit.jvmtool.cli.CommandLauncher;
 
@@ -63,7 +80,7 @@ public class Sjk extends NodeToolCmd
         if (!wrapper.requiresMbeanServerConn())
         {
             // SJK command does not require an MBeanServerConnection, so just invoke it
-            wrapper.run(null);
+            wrapper.run(null, output);
         }
         else
         {
@@ -75,13 +92,13 @@ public class Sjk extends NodeToolCmd
     public void sequenceRun(NodeProbe probe)
     {
         wrapper.prepare(args != null ? args.toArray(new String[0]) : new String[]{"help"}, probe.output().out, probe.output().err);
-        if (!wrapper.run(probe))
+        if (!wrapper.run(probe, probe.output()))
             probe.failed();
     }
 
     protected void execute(NodeProbe probe)
     {
-        if (!wrapper.run(probe))
+        if (!wrapper.run(probe, probe.output()))
             probe.failed();
     }
 
@@ -190,10 +207,10 @@ public class Sjk extends NodeToolCmd
             out.println(sb.toString());
         }
 
-        public boolean run(final NodeProbe probe)
+        public boolean run(final NodeProbe probe, final Output output)
         {
-            PrintStream out = probe.output().out;
-            PrintStream err = probe.output().err;
+            PrintStream out = output.out;
+            PrintStream err = output.err;
             try
             {
                 setJmxConnInfo(probe);
