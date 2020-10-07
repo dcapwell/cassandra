@@ -1212,7 +1212,6 @@
             <not>
               <resourcecontains resource="${build.dir}/src.rat.txt" substring="0 Unknown Licenses" casesensitive="false" />
             </not>
-              <!-- <equals arg1="${rat.failOnError}" arg2="true" /> -->
           </and>
         </condition>
       </fail>
