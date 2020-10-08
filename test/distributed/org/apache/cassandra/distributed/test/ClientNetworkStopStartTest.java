@@ -18,12 +18,8 @@
 
 package org.apache.cassandra.distributed.test;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.PrintStream;
-import java.util.Objects;
 
-import org.junit.Assert;
 import org.junit.Test;
 
 import com.datastax.driver.core.Session;
@@ -31,11 +27,10 @@ import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
+import org.apache.cassandra.distributed.api.NodeToolResult;
 import org.apache.cassandra.distributed.api.QueryResults;
 import org.apache.cassandra.distributed.api.SimpleQueryResult;
 import org.apache.cassandra.distributed.shared.AssertUtils;
-import org.hamcrest.BaseMatcher;
-import org.hamcrest.Description;
 
 public class ClientNetworkStopStartTest extends TestBaseImpl
 {
@@ -76,65 +71,9 @@ public class ClientNetworkStopStartTest extends TestBaseImpl
 
     private static void assertNodetoolStdout(IInvokableInstance node, String expectedStatus, String notExpected, String... nodetool)
     {
-        // without CASSANDRA-16057 need this hack
-        PrintStream previousStdout = System.out;
-        try
-        {
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            PrintStream stdout = new PrintStream(out, true);
-            System.setOut(stdout);
-
-            node.nodetoolResult(nodetool).asserts().success();
-
-            stdout.flush();
-            String output = out.toString();
-            Assert.assertThat(output, new StringContains(expectedStatus));
-            if (notExpected != null)
-                Assert.assertThat(output, new StringNotContains(notExpected));
-        }
-        finally
-        {
-            System.setOut(previousStdout);
-        }
-    }
-
-    private static final class StringContains extends BaseMatcher<String>
-    {
-        private final String expected;
-
-        private StringContains(String expected)
-        {
-            this.expected = Objects.requireNonNull(expected);
-        }
-
-        public boolean matches(Object o)
-        {
-            return o.toString().contains(expected);
-        }
-
-        public void describeTo(Description description)
-        {
-            description.appendText("Expected to find '" + expected + "', but did not");
-        }
-    }
-
-    private static final class StringNotContains extends BaseMatcher<String>
-    {
-        private final String notExpected;
-
-        private StringNotContains(String expected)
-        {
-            this.notExpected = Objects.requireNonNull(expected);
-        }
-
-        public boolean matches(Object o)
-        {
-            return !o.toString().contains(notExpected);
-        }
-
-        public void describeTo(Description description)
-        {
-            description.appendText("Expected not to find '" + notExpected + "', but did");
-        }
+        NodeToolResult result = node.nodetoolResult(nodetool);
+        result.asserts().success().stdoutContains(expectedStatus);
+        if (notExpected != null)
+            result.asserts().stdoutNotContains(notExpected);
     }
 }
