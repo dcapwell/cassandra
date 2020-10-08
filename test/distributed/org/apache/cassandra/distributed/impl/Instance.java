@@ -460,7 +460,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 if (config.has(NATIVE_PROTOCOL))
                 {
                     CassandraDaemon.getInstanceForTesting().initializeClientTransports();
-                    CassandraDaemon.getInstanceForTesting().startClientTransports();
+                    CassandraDaemon.getInstanceForTesting().start();
                 }
 
                 if (!FBUtilities.getBroadcastAddressAndPort().address.equals(broadcastAddress().getAddress()) ||

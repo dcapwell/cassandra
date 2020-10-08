@@ -575,11 +575,23 @@ public class CassandraDaemon
                                                                                                          DatabaseDescriptor.getBlockForPeersInRemoteDatacenters());
         connectivityChecker.execute(Gossiper.instance.getEndpoints(), DatabaseDescriptor.getEndpointSnitch()::getDatacenter);
 
+        // check to see if transports may start else return without starting.  This is needed when in survey mode or
+        // when bootstrap has not completed.
+        try
+        {
+            validateTransportsCanStart();
+        }
+        catch (IllegalStateException isx)
+        {
+            // If there are any errors, we just log and return in this case
+            logger.warn(isx.getMessage());
+            return;
+        }
+
         startClientTransports();
     }
 
-    @VisibleForTesting
-    public void startClientTransports()
+    private void startClientTransports()
     {
         String nativeFlag = System.getProperty("cassandra.start_native_transport");
         if ((nativeFlag != null && Boolean.parseBoolean(nativeFlag)) || (nativeFlag == null && DatabaseDescriptor.startNativeTransport()))
