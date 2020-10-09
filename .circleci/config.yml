@@ -1,6 +1,12 @@
 version: 2
 jobs:
-  build:
+  start_j8_dtests:
+    docker: [ {image: "alpine:latest" } ]
+    steps: [ { run: "echo skipping" } ]
+  start_jvm_upgrade_dtest:
+    docker: [ {image: "alpine:latest" } ]
+    steps: [ { run: "echo skipping" } ]
+  j8_build:
     docker:
     - image: spod/cassandra-testing-ubuntu1810-java11-w-dependencies:20190306
     resource_class: medium
@@ -69,19 +75,19 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
-    - CCM_MAX_HEAP_SIZE: 1024M
-    - CCM_HEAP_NEWSIZE: 256M
+    - DTEST_REPO: https://github.com/dcapwell/cassandra-dtest.git
+    - DTEST_BRANCH: commit_remote_branch/CASSANDRA-16127-master-806833FE-D6C3-4556-A63B-8E1E7AC387F0
+    - CCM_MAX_HEAP_SIZE: 2048M
+    - CCM_HEAP_NEWSIZE: 512M
     - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
     - JDK_HOME: /usr/lib/jvm/java-8-openjdk-amd64
   j8_unit_tests:
     docker:
     - image: spod/cassandra-testing-ubuntu1810-java11-w-dependencies:20190306
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 4
+    parallelism: 35
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -158,19 +164,19 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
-    - CCM_MAX_HEAP_SIZE: 1024M
-    - CCM_HEAP_NEWSIZE: 256M
+    - DTEST_REPO: https://github.com/dcapwell/cassandra-dtest.git
+    - DTEST_BRANCH: commit_remote_branch/CASSANDRA-16127-master-806833FE-D6C3-4556-A63B-8E1E7AC387F0
+    - CCM_MAX_HEAP_SIZE: 2048M
+    - CCM_HEAP_NEWSIZE: 512M
     - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
     - JDK_HOME: /usr/lib/jvm/java-8-openjdk-amd64
   j8_jvm_dtests:
     docker:
     - image: spod/cassandra-testing-ubuntu1810-java11-w-dependencies:20190306
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 1
+    parallelism: 10
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -247,16 +253,16 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
-    - CCM_MAX_HEAP_SIZE: 1024M
-    - CCM_HEAP_NEWSIZE: 256M
+    - DTEST_REPO: https://github.com/dcapwell/cassandra-dtest.git
+    - DTEST_BRANCH: commit_remote_branch/CASSANDRA-16127-master-806833FE-D6C3-4556-A63B-8E1E7AC387F0
+    - CCM_MAX_HEAP_SIZE: 2048M
+    - CCM_HEAP_NEWSIZE: 512M
     - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
     - JDK_HOME: /usr/lib/jvm/java-8-openjdk-amd64
   utests_long:
     docker:
     - image: spod/cassandra-testing-ubuntu1810-java11-w-dependencies:20190306
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
     parallelism: 1
@@ -290,19 +296,19 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
-    - CCM_MAX_HEAP_SIZE: 1024M
-    - CCM_HEAP_NEWSIZE: 256M
+    - DTEST_REPO: https://github.com/dcapwell/cassandra-dtest.git
+    - DTEST_BRANCH: commit_remote_branch/CASSANDRA-16127-master-806833FE-D6C3-4556-A63B-8E1E7AC387F0
+    - CCM_MAX_HEAP_SIZE: 2048M
+    - CCM_HEAP_NEWSIZE: 512M
     - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
     - JDK_HOME: /usr/lib/jvm/java-8-openjdk-amd64
   utests_compression:
     docker:
     - image: spod/cassandra-testing-ubuntu1810-java11-w-dependencies:20190306
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 4
+    parallelism: 20
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -379,19 +385,19 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
-    - CCM_MAX_HEAP_SIZE: 1024M
-    - CCM_HEAP_NEWSIZE: 256M
+    - DTEST_REPO: https://github.com/dcapwell/cassandra-dtest.git
+    - DTEST_BRANCH: commit_remote_branch/CASSANDRA-16127-master-806833FE-D6C3-4556-A63B-8E1E7AC387F0
+    - CCM_MAX_HEAP_SIZE: 2048M
+    - CCM_HEAP_NEWSIZE: 512M
     - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
     - JDK_HOME: /usr/lib/jvm/java-8-openjdk-amd64
   j8_dtests-with-vnodes:
     docker:
     - image: spod/cassandra-testing-ubuntu1810-java11-w-dependencies:20190306
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 4
+    parallelism: 25
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -399,6 +405,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/dcapwell/ccm.git@bug/CASSANDRA-16127;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -408,7 +415,7 @@ jobs:
           # rebuild the docker image! (it automatically pulls the latest requirements.txt on build)
           source ~/env/bin/activate
           export PATH=$JAVA_HOME/bin:$PATH
-          pip3 install --upgrade -r ~/cassandra-dtest/requirements.txt
+          pip3 install --exists-action w --upgrade -r ~/cassandra-dtest/requirements.txt
           pip3 freeze
     - run:
         name: Determine Tests to Run (j8_with_vnodes)
@@ -437,19 +444,19 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
-    - CCM_MAX_HEAP_SIZE: 1024M
-    - CCM_HEAP_NEWSIZE: 256M
+    - DTEST_REPO: https://github.com/dcapwell/cassandra-dtest.git
+    - DTEST_BRANCH: commit_remote_branch/CASSANDRA-16127-master-806833FE-D6C3-4556-A63B-8E1E7AC387F0
+    - CCM_MAX_HEAP_SIZE: 2048M
+    - CCM_HEAP_NEWSIZE: 512M
     - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
     - JDK_HOME: /usr/lib/jvm/java-8-openjdk-amd64
   j8_dtests-no-vnodes:
     docker:
     - image: spod/cassandra-testing-ubuntu1810-java11-w-dependencies:20190306
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 4
+    parallelism: 25
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -457,6 +464,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/dcapwell/ccm.git@bug/CASSANDRA-16127;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -466,7 +474,7 @@ jobs:
           # rebuild the docker image! (it automatically pulls the latest requirements.txt on build)
           source ~/env/bin/activate
           export PATH=$JAVA_HOME/bin:$PATH
-          pip3 install --upgrade -r ~/cassandra-dtest/requirements.txt
+          pip3 install --exists-action w --upgrade -r ~/cassandra-dtest/requirements.txt
           pip3 freeze
     - run:
         name: Determine Tests to Run (j8_without_vnodes)
@@ -495,19 +503,19 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
-    - CCM_MAX_HEAP_SIZE: 1024M
-    - CCM_HEAP_NEWSIZE: 256M
+    - DTEST_REPO: https://github.com/dcapwell/cassandra-dtest.git
+    - DTEST_BRANCH: commit_remote_branch/CASSANDRA-16127-master-806833FE-D6C3-4556-A63B-8E1E7AC387F0
+    - CCM_MAX_HEAP_SIZE: 2048M
+    - CCM_HEAP_NEWSIZE: 512M
     - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
     - JDK_HOME: /usr/lib/jvm/java-8-openjdk-amd64
   j8_upgradetests-no-vnodes:
     docker:
     - image: spod/cassandra-testing-ubuntu1810-java11-w-dependencies:20190306
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 4
+    parallelism: 20
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -515,6 +523,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/dcapwell/ccm.git@bug/CASSANDRA-16127;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -524,7 +533,7 @@ jobs:
           # rebuild the docker image! (it automatically pulls the latest requirements.txt on build)
           source ~/env/bin/activate
           export PATH=$JAVA_HOME/bin:$PATH
-          pip3 install --upgrade -r ~/cassandra-dtest/requirements.txt
+          pip3 install --exists-action w --upgrade -r ~/cassandra-dtest/requirements.txt
           pip3 freeze
     - run:
         name: Determine Tests to Run (j8_upgradetests_without_vnodes)
@@ -594,41 +603,38 @@ jobs:
     - CASS_DRIVER_NO_EXTENSIONS: true
     - CASS_DRIVER_NO_CYTHON: true
     - CASSANDRA_SKIP_SYNC: true
-    - DTEST_REPO: git://github.com/apache/cassandra-dtest.git
-    - DTEST_BRANCH: master
-    - CCM_MAX_HEAP_SIZE: 1024M
-    - CCM_HEAP_NEWSIZE: 256M
+    - DTEST_REPO: https://github.com/dcapwell/cassandra-dtest.git
+    - DTEST_BRANCH: commit_remote_branch/CASSANDRA-16127-master-806833FE-D6C3-4556-A63B-8E1E7AC387F0
+    - CCM_MAX_HEAP_SIZE: 2048M
+    - CCM_HEAP_NEWSIZE: 512M
     - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
     - JDK_HOME: /usr/lib/jvm/java-8-openjdk-amd64
 workflows:
   version: 2
   build_and_run_tests:
     jobs:
-    - build
+    - j8_build
     - j8_unit_tests:
         requires:
-        - build
+        - j8_build
     - j8_jvm_dtests:
         requires:
-        - build
+        - j8_build
     - start_utests_long:
         type: approval
         requires:
-        - build
+        - j8_build
     - utests_long:
         requires:
         - start_utests_long
     - start_utests_compression:
         type: approval
         requires:
-        - build
+        - j8_build
     - utests_compression:
         requires:
         - start_utests_compression
-    - start_j8_dtests:
-        type: approval
-        requires:
-        - build
+    - start_j8_dtests: { requires: [ "j8_build" ]}
     - j8_dtests-with-vnodes:
         requires:
         - start_j8_dtests
@@ -638,7 +644,7 @@ workflows:
     - start_upgrade_tests:
         type: approval
         requires:
-        - build
+        - j8_build
     - j8_upgradetests-no-vnodes:
         requires:
         - start_upgrade_tests
