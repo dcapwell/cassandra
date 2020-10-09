@@ -152,7 +152,8 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         // Set the config at instance creation, possibly before startup() has run on all other instances.
         // setMessagingVersions below will call runOnInstance which will instantiate
         // the MessagingService and dependencies preventing later changes to network parameters.
-        Config.setOverrideLoadConfig(() -> loadConfig(config));
+        Config single = loadConfig(config);
+        Config.setOverrideLoadConfig(() -> single);
 
         // Enable streaming inbound handler tracking so they can be closed properly without leaking
         // the blocking IO thread.
