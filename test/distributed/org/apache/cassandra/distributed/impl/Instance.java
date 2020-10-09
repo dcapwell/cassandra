@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -345,6 +346,11 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
     public void setMessagingVersion(InetSocketAddress endpoint, int version)
     {
         MessagingService.instance().versions.set(toCassandraInetAddressAndPort(endpoint), version);
+    }
+
+    public String getReleaseVersionString()
+    {
+        return callsOnInstance(FBUtilities::getReleaseVersionString).call();
     }
 
     public void flush(String keyspace)

@@ -279,6 +279,11 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
                 delegate.receiveMessage(message);
         }
 
+        public String getReleaseVersionString()
+        {
+            return delegate.getReleaseVersionString();
+        }
+
         @Override
         public boolean getLogsEnabled()
         {
