@@ -385,7 +385,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
         return newInstanceWrapper(generation, version, config);
     }
 
-    public I initialize(IInstanceConfig config)
+    public I bootstrap(IInstanceConfig config)
     {
         I instance = newInstanceWrapperInternal(0, initialVersion, config);
         instances.add(instance);

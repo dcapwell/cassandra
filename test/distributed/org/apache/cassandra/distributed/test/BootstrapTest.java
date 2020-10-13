@@ -83,7 +83,7 @@ public class BootstrapTest extends TestBaseImpl
             populate(cluster,0, 100);
 
             IInstanceConfig config = cluster.newInstanceConfig();
-            IInvokableInstance newInstance = cluster.initialize(config);
+            IInvokableInstance newInstance = cluster.bootstrap(config);
             withJoinRing(false, () -> newInstance.startup(cluster));
 
             cluster.run(statusToBootstrap(newInstance));
@@ -109,7 +109,7 @@ public class BootstrapTest extends TestBaseImpl
         {
             populate(cluster, 0, 100);
             IInstanceConfig config = cluster.newInstanceConfig();
-            IInvokableInstance newInstance = cluster.initialize(config);
+            IInvokableInstance newInstance = cluster.bootstrap(config);
             withJoinRing(false, () -> newInstance.startup(cluster));
 
             cluster.run(statusToBootstrap(newInstance));
