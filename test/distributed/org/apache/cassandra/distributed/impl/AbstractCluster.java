@@ -35,6 +35,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 import java.util.function.BiPredicate;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -44,10 +45,8 @@ import com.google.common.collect.Sets;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.github.luben.zstd.ZstdOutputStream;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
-import org.apache.cassandra.distributed.action.GossipHelper;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
@@ -68,7 +67,6 @@ import org.apache.cassandra.distributed.api.TokenSupplier;
 import org.apache.cassandra.distributed.shared.InstanceClassLoader;
 import org.apache.cassandra.distributed.shared.MessageFilters;
 import org.apache.cassandra.distributed.shared.NetworkTopology;
-import org.apache.cassandra.distributed.shared.VersionedApplicationState;
 import org.apache.cassandra.distributed.shared.Shared;
 import org.apache.cassandra.distributed.shared.ShutdownException;
 import org.apache.cassandra.distributed.shared.Versions;
@@ -218,16 +216,16 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
         @Override
         public synchronized void startup()
         {
-            startup(AbstractCluster.this, EMPTY);
+            startup(AbstractCluster.this);
         }
 
-        public synchronized void startup(ICluster cluster, StartupOption... options)
+        public synchronized void startup(ICluster cluster)
         {
             if (cluster != AbstractCluster.this)
                 throw new IllegalArgumentException("Only the owning cluster can be used for startup");
             if (!isShutdown)
                 throw new IllegalStateException();
-            delegateForStartup().startup(cluster, options);
+            delegateForStartup().startup(cluster);
             isShutdown = false;
             updateMessagingVersions();
         }
@@ -277,11 +275,6 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
             IInvokableInstance delegate = this.delegate;
             if (!isShutdown && delegate != null) // since we sync directly on the other node, we drop messages immediately if we are shutdown
                 delegate.receiveMessage(message);
-        }
-
-        public String getReleaseVersionString()
-        {
-            return delegate.getReleaseVersionString();
         }
 
         @Override
@@ -448,6 +441,22 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
     {
         return instances.stream().filter(i -> i.config().localDatacenter().equals(dcName) &&
                                               i.config().localRack().equals(rackName));
+    }
+
+    public void run(Consumer<I> action) {
+        stream().forEach(action::accept);
+    }
+
+    public void run(Consumer<I> action,  Predicate<I> filter) {
+        stream().forEach(instance -> {
+            if (filter.test(instance))
+                action.accept(instance);
+        });
+    }
+
+    public void run(Consumer<I> action,  int... instanceIds) {
+        for (int idx : instanceIds)
+            action.accept(this.get(idx));
     }
 
     public void forEach(IIsolatedExecutor.SerializableRunnable runnable)

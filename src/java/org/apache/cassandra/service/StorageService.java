@@ -627,6 +627,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     {
         initServer(delay, joinRing);
     }
+
     public synchronized void initServer(int delay, boolean joinRing) throws ConfigurationException
     {
         logger.info("Cassandra version: {}", FBUtilities.getReleaseVersionString());

@@ -33,7 +33,8 @@ public class TestBaseImpl extends DistributedTestBase
     }
 
     @BeforeClass
-    public static void beforeClass() throws Throwable {
+    public static void beforeClass() throws Throwable
+    {
         ICluster.setup();
     }
 

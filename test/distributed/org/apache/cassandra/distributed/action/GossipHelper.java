@@ -38,6 +38,7 @@ import net.openhft.chronicle.core.util.SerializableConsumer;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.IInstance;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
@@ -63,57 +64,39 @@ import static org.apache.cassandra.distributed.impl.DistributedTestSnitch.toCass
 
 public class GossipHelper
 {
-
-    public static ClusterAction clusterAction(InstanceAction action)
-    {
-        return cluster -> cluster.stream().forEach(instance -> {
-            action.apply(cluster, instance);
-        });
-    }
-
-    public static ClusterAction clusterAction(InstanceAction action, Predicate<IInvokableInstance> filter)
-    {
-        return cluster -> cluster.stream().forEach(instance -> {
-            if (filter.test(instance))
-                action.apply(cluster, instance);
-        });
-    }
-
-    public static ClusterAction clusterAction(InstanceAction action, int... instanceIds)
-    {
-        return cluster -> {
-            for (int idx : instanceIds)
-                action.apply(cluster, cluster.get(idx));
-        };
-
-    }
-
     public static InstanceAction statusToBootstrap(IInvokableInstance newNode)
     {
-        return new StatusToBootstrap(newNode);
-    }
-
-    public static ClusterAction statusToNormal()
-    {
-        return new ClusterAction()
+        return (instance) ->
         {
-            public void apply(ICluster<IInvokableInstance> cluster)
-            {
-                cluster.stream().forEach((peer) -> {
-                    clusterAction(statusToNormal(peer)).apply(cluster);
-                });
-            }
+            changeGossipState(instance,
+                              newNode,
+                              Arrays.asList(tokens(newNode),
+                                            statusBootstrapping(newNode),
+                                            statusWithPortBootstrapping(newNode)));
         };
     }
 
-    public static InstanceAction statusToNormal(IInvokableInstance newNode)
+    public static InstanceAction statusToNormal(IInvokableInstance peer)
     {
-        return new StatusToBootstrap(newNode);
+        return (target) ->
+        {
+            changeGossipState(target,
+                              peer,
+                              Arrays.asList(tokens(peer),
+                                            statusNormal(peer),
+                                            statusWithPortNormal(peer)));
+        };
     }
 
     public static InstanceAction statusToLeaving(IInvokableInstance newNode)
     {
-        return new StatusToLeaving(newNode);
+        return (instance) -> {
+            changeGossipState(instance,
+                              newNode,
+                              Arrays.asList(tokens(newNode),
+                                            statusLeaving(newNode),
+                                            statusWithPortLeaving(newNode)));
+        };
     }
 
     public static InstanceAction bootstrap()
@@ -136,54 +119,14 @@ public class GossipHelper
         return new PullSchemaFrom(pullFrom);
     }
 
-    private static class StatusToBootstrap implements InstanceAction
+    private static InstanceAction disableBinary()
     {
-        final IInvokableInstance newNode;
-
-        public StatusToBootstrap(IInvokableInstance newNode)
-        {
-            this.newNode = newNode;
-        }
-
-        public void apply(ICluster<IInvokableInstance> cluster, IInvokableInstance instance)
-        {
-            changeGossipState(instance,
-                              newNode,
-                              Arrays.asList(tokens(newNode),
-                                            statusBootstrapping(newNode),
-                                            statusWithPortBootstrapping(newNode)));
-        }
-    }
-
-    private static class StatusToLeaving implements InstanceAction
-    {
-        final IInvokableInstance newNode;
-
-        public StatusToLeaving(IInvokableInstance newNode)
-        {
-            this.newNode = newNode;
-        }
-
-        public void apply(ICluster<IInvokableInstance> cluster, IInvokableInstance instance)
-        {
-            changeGossipState(instance,
-                              newNode,
-                              Arrays.asList(tokens(newNode),
-                                            statusLeaving(newNode),
-                                            statusWithPortLeaving(newNode)));
-        }
-    }
-
-    private static InstanceAction disableBinary = (cluster, instance) -> {
-        instance.runOnInstance(() -> {
-            StorageService.instance.stopNativeTransport();
-        });
+        return (instance) -> {
+            instance.runOnInstance(() -> {
+                StorageService.instance.stopNativeTransport();
+            });
+        };
     };
-
-    public static InstanceAction disableBinary()
-    {
-        return disableBinary;
-    }
 
     private static class DisseminateGossipState implements InstanceAction
     {
@@ -194,7 +137,7 @@ public class GossipHelper
             this.from = from;
         }
 
-        public void apply(ICluster<IInvokableInstance> cluster, IInvokableInstance instance)
+        public void accept(IInvokableInstance instance)
         {
             Map<InetSocketAddress, byte[]> m = new HashMap<>();
             for (IInvokableInstance node : from)
@@ -254,7 +197,7 @@ public class GossipHelper
             this.pullFrom = pullFrom;
         }
 
-        public void apply(ICluster<IInvokableInstance> cluster, IInvokableInstance pullTo)
+        public void accept(IInvokableInstance pullTo)
         {
             InetSocketAddress addr = pullFrom.broadcastAddress();
 
@@ -267,7 +210,7 @@ public class GossipHelper
         }
     }
 
-    public static class BootstrapAction implements InstanceAction
+    private static class BootstrapAction implements InstanceAction
     {
         private final boolean joinRing;
         private final Duration waitForBootstrap;
@@ -285,7 +228,7 @@ public class GossipHelper
             this.waitForSchema = waitForSchema;
         }
 
-        public void apply(ICluster<IInvokableInstance> cluster, IInvokableInstance instance)
+        public void accept(IInvokableInstance instance)
         {
             instance.appliesOnInstance((String partitionerString, String tokenString) -> {
                 IPartitioner partitioner = FBUtilities.newPartitioner(partitionerString);
@@ -309,10 +252,9 @@ public class GossipHelper
         }
     }
 
-    public static class DecomissionAction implements InstanceAction
+    public static InstanceAction decomission()
     {
-        public void apply(ICluster<IInvokableInstance> cluster, IInvokableInstance target)
-        {
+        return (target) -> {
             target.runOnInstance(() -> {
                 try
                 {
@@ -323,27 +265,9 @@ public class GossipHelper
                     throw new RuntimeException();
                 }
             });
-        }
+        };
     }
 
-    private static class StatusToNormal implements InstanceAction
-    {
-        final IInvokableInstance peer;
-
-        public StatusToNormal(IInvokableInstance peer)
-        {
-            this.peer = peer;
-        }
-
-        public void apply(ICluster<IInvokableInstance> cluster, IInvokableInstance target)
-        {
-            changeGossipState(target,
-                              peer,
-                              Arrays.asList(tokens(peer),
-                                            statusNormal(peer),
-                                            statusWithPortNormal(peer)));
-        }
-    }
 
     public static VersionedApplicationState tokens(IInvokableInstance instance)
     {
@@ -418,7 +342,6 @@ public class GossipHelper
         PendingRangeCalculatorService.instance.update();
         PendingRangeCalculatorService.instance.blockUntilFinished();
     }
-
 
     public static void changeGossipState(Stream<IInvokableInstance> targets, Instance peer, List<VersionedApplicationState> newState)
     {

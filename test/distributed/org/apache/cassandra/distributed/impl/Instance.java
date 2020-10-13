@@ -25,15 +25,11 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
-import java.util.EnumSet;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -79,8 +75,6 @@ import org.apache.cassandra.distributed.api.NodeToolResult;
 import org.apache.cassandra.distributed.api.SimpleQueryResult;
 import org.apache.cassandra.distributed.mock.nodetool.InternalNodeProbe;
 import org.apache.cassandra.distributed.mock.nodetool.InternalNodeProbeFactory;
-import org.apache.cassandra.distributed.shared.InstanceClassLoader;
-import org.apache.cassandra.gms.ApplicationState;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.hints.HintsService;
 import org.apache.cassandra.index.SecondaryIndexManager;
@@ -95,6 +89,7 @@ import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.net.NoPayload;
 import org.apache.cassandra.net.Verb;
+import org.apache.cassandra.schema.MigrationManager;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.service.ActiveRepairService;
@@ -108,8 +103,8 @@ import org.apache.cassandra.service.StorageServiceMBean;
 import org.apache.cassandra.streaming.StreamReceiveTask;
 import org.apache.cassandra.streaming.StreamTransferTask;
 import org.apache.cassandra.streaming.async.StreamingInboundHandler;
-import org.apache.cassandra.tools.Output;
 import org.apache.cassandra.tools.NodeTool;
+import org.apache.cassandra.tools.Output;
 import org.apache.cassandra.tracing.TraceState;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.transport.messages.ResultMessage;
@@ -140,6 +135,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
     }};
 
     public final IInstanceConfig config;
+    private final long startedAt = System.currentTimeMillis();
 
     // should never be invoked directly, so that it is instantiated on other class loader;
     // only visible for inheritance
@@ -385,11 +381,9 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
     }
 
     @Override
-    public void startup(ICluster cluster, StartupOption... optionsArray)
+    public void startup(ICluster cluster)
     {
         sync(() -> {
-            Set<StartupOption> startupOptions = new HashSet<>(Arrays.asList(optionsArray));
-
             try
             {
                 if (config.has(GOSSIP))
@@ -463,17 +457,16 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 StorageService.instance.registerDaemon(CassandraDaemon.getInstanceForTesting());
                 if (config.has(GOSSIP))
                 {
-                    StorageService.instance.registerDaemon(CassandraDaemon.getInstanceForTesting());
-                    StorageService.instance.initServer(StorageService.RING_DELAY,
-                                                       !startupOptions.contains(StartupOption.SKIP_RING_JOIN));
+                    MigrationManager.setUptimeFn(() -> System.currentTimeMillis() - startedAt);
+                    StorageService.instance.initServer();
                     StorageService.instance.removeShutdownHook();
                     Gossiper.waitToSettle();
                 }
-                else if (!startupOptions.contains(StartupOption.SKIP_RING_JOIN))
+                else
                 {
                     cluster.stream().forEach(peer -> {
-                        // TODO: this can be improved by making ICluster generic above
-                        GossipHelper.statusToNormal((IInvokableInstance) peer).apply(cluster, this);
+                        // TODO: this isn't going to work for UpgradableCluster
+                        GossipHelper.statusToNormal((IInvokableInstance) peer).accept(this);
                     });
 
                 }

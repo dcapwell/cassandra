@@ -20,11 +20,8 @@ package org.apache.cassandra.distributed.test;
 
 import java.net.InetSocketAddress;
 import java.time.Duration;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -43,31 +40,26 @@ import com.datastax.driver.core.Session;
 import com.datastax.driver.core.SimpleStatement;
 import com.datastax.driver.core.Statement;
 import com.datastax.driver.core.policies.RoundRobinPolicy;
-import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.distributed.Cluster;
-import org.apache.cassandra.distributed.action.GossipHelper;
-import org.apache.cassandra.distributed.action.InstanceAction;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.ICluster;
-import org.apache.cassandra.distributed.api.IInstance;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
-import org.apache.cassandra.distributed.api.IMessage;
-import org.apache.cassandra.distributed.api.IMessageFilters;
 import org.apache.cassandra.distributed.api.TokenSupplier;
 import org.apache.cassandra.distributed.impl.DistributedTestSnitch;
 import org.apache.cassandra.distributed.impl.RowUtil;
 import org.apache.cassandra.distributed.shared.NetworkTopology;
 import org.apache.cassandra.locator.EndpointsForRange;
 import org.apache.cassandra.locator.InetAddressAndPort;
-import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.StorageService;
-import org.apache.cassandra.utils.AssertUtil;
-import org.apache.cassandra.utils.FBUtilities;
 
-import static org.apache.cassandra.distributed.action.GossipHelper.*;
+import static org.apache.cassandra.distributed.action.GossipHelper.bootstrap;
+import static org.apache.cassandra.distributed.action.GossipHelper.decomission;
+import static org.apache.cassandra.distributed.action.GossipHelper.disseminateGossipState;
+import static org.apache.cassandra.distributed.action.GossipHelper.pullSchemaFrom;
+import static org.apache.cassandra.distributed.action.GossipHelper.statusToBootstrap;
 import static org.apache.cassandra.distributed.api.Feature.GOSSIP;
 import static org.apache.cassandra.distributed.api.Feature.NATIVE_PROTOCOL;
 import static org.apache.cassandra.distributed.api.Feature.NETWORK;
@@ -92,10 +84,11 @@ public class BootstrapTest extends TestBaseImpl
 
             IInstanceConfig config = cluster.newInstanceConfig();
             IInvokableInstance newInstance = cluster.initialize(config);
-            newInstance.startup(cluster, IInstance.StartupOption.SKIP_RING_JOIN);
-            clusterAction(statusToBootstrap(newInstance)).apply(cluster);
-            pullSchemaFrom(cluster.get(1)).apply(cluster, newInstance);
-            GossipHelper.bootstrap().apply(cluster, newInstance);
+            withJoinRing(false, () -> newInstance.startup(cluster));
+
+            cluster.run(statusToBootstrap(newInstance));
+            cluster.run(pullSchemaFrom(cluster.get(1)), newInstance.config().num());
+            cluster.run(bootstrap(), newInstance.config().num());
 
             for (Map.Entry<Integer, Long> e : count(cluster).entrySet())
                 Assert.assertEquals(e.getValue().longValue(), 100L);
@@ -115,13 +108,12 @@ public class BootstrapTest extends TestBaseImpl
                                         .start())
         {
             populate(cluster, 0, 100);
-
             IInstanceConfig config = cluster.newInstanceConfig();
             IInvokableInstance newInstance = cluster.initialize(config);
-            newInstance.startup(cluster, IInstance.StartupOption.SKIP_RING_JOIN);
-            clusterAction(statusToBootstrap(newInstance)).apply(cluster);
+            withJoinRing(false, () -> newInstance.startup(cluster));
 
-            bootstrap(false, Duration.ofSeconds(60), Duration.ofSeconds(10)).apply(cluster, newInstance);
+            cluster.run(statusToBootstrap(newInstance));
+            cluster.run(bootstrap(false, Duration.ofSeconds(60), Duration.ofSeconds(60)), newInstance.config().num());
 
             cluster.get(1).acceptsOnInstance((InetSocketAddress ip) -> {
                 Set<InetAddressAndPort> set = new HashSet<>();
@@ -136,8 +128,9 @@ public class BootstrapTest extends TestBaseImpl
 
             populate(cluster, 100, 150);
 
-            joinRing().apply(cluster, newInstance);
-            clusterAction(disseminateGossipState(newInstance),1, 2).apply(cluster);
+            newInstance.nodetoolResult("join").asserts().success();
+
+            cluster.run(disseminateGossipState(newInstance),1, 2);
 
             cluster.get(1).acceptsOnInstance((InetSocketAddress ip) -> {
                 Set<InetAddressAndPort> set = new HashSet<>();
@@ -160,7 +153,7 @@ public class BootstrapTest extends TestBaseImpl
         {
             populate(cluster, 0, 100);
 
-            new DecomissionAction().apply(cluster, cluster.get(1));
+            cluster.run(decomission(), 1);
 
             cluster.filters().allVerbs().from(1).messagesMatching((i, i1, iMessage) -> {
                 throw new AssertionError("Decomissioned node should not send any messages");
@@ -213,7 +206,7 @@ public class BootstrapTest extends TestBaseImpl
                     }
                 }, executor).get(1, TimeUnit.MINUTES);
 
-                new DecomissionAction().apply(cluster, cluster.get(1));
+                cluster.run(decomission(), 1);
 
                 Assert.assertEquals(cluster.size() - 1, client.getMetadata().getAllHosts().size());
                 for (int i = 0; i < 100; i++)
@@ -224,31 +217,6 @@ public class BootstrapTest extends TestBaseImpl
                 }
                 Assert.assertEquals(cluster.size() - 1, client.getMetadata().getAllHosts().size());
             }
-        }
-    }
-
-    public static InstanceAction joinRing()
-    {
-        return new JoinRing();
-    }
-
-    private static class JoinRing implements InstanceAction
-    {
-        public void apply(ICluster<IInvokableInstance> cluster, IInvokableInstance instance)
-        {
-            instance.appliesOnInstance((String partitionerString, String tokenString) -> {
-                IPartitioner partitioner = FBUtilities.newPartitioner(partitionerString);
-                List<Token> tokens = Collections.singletonList(partitioner.getTokenFactory().fromString(tokenString));
-                try
-                {
-                    StorageService.instance.finishJoiningRing(true, tokens);
-                }
-                catch (Throwable t)
-                {
-                    throw new RuntimeException(t);
-                }
-                return null;
-            }).apply(instance.config().getString("partitioner"), instance.config().getString("initial_token"));
         }
     }
 
@@ -270,5 +238,21 @@ public class BootstrapTest extends TestBaseImpl
                         .boxed()
                         .collect(Collectors.toMap(nodeId -> nodeId,
                                                   nodeId -> (Long) cluster.get(nodeId).executeInternal("SELECT count(*) FROM " + KEYSPACE + ".tbl")[0][0]));
+    }
+
+
+    public static void withJoinRing(boolean value, Runnable r)
+    {
+        String prop = "cassandra.join_ring";
+        String before = System.getProperty(prop);
+        try
+        {
+            System.setProperty(prop, Boolean.toString(value));
+            r.run();
+        }
+        finally
+        {
+            System.setProperty(prop, before == null ? "true" : before);
+        }
     }
 }

@@ -19,11 +19,12 @@
 package org.apache.cassandra.distributed.action;
 
 import java.io.Serializable;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
 
-public interface InstanceAction extends Serializable
+public interface InstanceAction extends Consumer<IInvokableInstance>, Serializable
 {
-    void apply(ICluster<IInvokableInstance> cluster, IInvokableInstance target);
 }

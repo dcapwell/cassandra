@@ -21,7 +21,7 @@ import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.*;
 import java.lang.management.ManagementFactory;
-import java.lang.management.RuntimeMXBean;
+import java.util.function.LongSupplier;
 
 import com.google.common.util.concurrent.Futures;
 import org.slf4j.Logger;
@@ -40,6 +40,7 @@ import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.schema.Keyspaces.KeyspacesDiff;
 import org.apache.cassandra.utils.FBUtilities;
+import org.assertj.core.util.VisibleForTesting;
 
 import static org.apache.cassandra.concurrent.Stage.MIGRATION;
 import static org.apache.cassandra.net.Verb.SCHEMA_PUSH_REQ;
@@ -50,9 +51,15 @@ public class MigrationManager
 
     public static final MigrationManager instance = new MigrationManager();
 
-    private static final RuntimeMXBean runtimeMXBean = ManagementFactory.getRuntimeMXBean();
+    private static LongSupplier getUptimeFn = () -> ManagementFactory.getRuntimeMXBean().getUptime();
 
-    private static final int MIGRATION_DELAY_IN_MS = 10000000; // TODO: FIXME!
+    @VisibleForTesting
+    public static void setUptimeFn(LongSupplier supplier)
+    {
+        getUptimeFn = supplier;
+    }
+
+    private static final int MIGRATION_DELAY_IN_MS = 60000;
 
     private static final int MIGRATION_TASK_WAIT_IN_SECONDS = Integer.parseInt(System.getProperty("cassandra.migration_task_wait_in_seconds", "1"));
 
@@ -100,7 +107,7 @@ public class MigrationManager
             return;
         }
 
-        if (Schema.instance.isEmpty() || runtimeMXBean.getUptime() < MIGRATION_DELAY_IN_MS)
+        if (Schema.instance.isEmpty() || getUptimeFn.getAsLong() < MIGRATION_DELAY_IN_MS)
         {
             // If we think we may be bootstrapping or have recently started, submit MigrationTask immediately
             logger.debug("Immediately submitting migration task for {}, " +
