@@ -154,7 +154,6 @@ public class BootstrapTest extends TestBaseImpl
     @Test
     public void internodeConnectionsDuringDecom() throws Throwable
     {
-        ExecutorService executor = Executors.newFixedThreadPool(1);
         try (Cluster cluster = builder().withNodes(4)
                                         .withConfig(config -> config.with(NETWORK, GOSSIP, NATIVE_PROTOCOL))
                                         .start())

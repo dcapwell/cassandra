@@ -97,7 +97,7 @@ public class BootstrapBinaryDisabledTest extends TestBaseImpl
             System.setProperty("cassandra.write_survey", "true");
 
         RewriteEnabled.enable();
-        cluster.bootstrap(nodeConfig).startup();
+        cluster.initialize(nodeConfig).startup();
         IInvokableInstance node = cluster.get(cluster.size());
         assertLogHas(node, "Some data streaming failed");
         assertLogHas(node, isWriteSurvey ?

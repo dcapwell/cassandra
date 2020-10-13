@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -485,11 +486,9 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 {
                     // Start up virtual table support
                     CassandraDaemon.getInstanceForTesting().setupVirtualKeyspaces();
-                    CassandraDaemon.getInstanceForTesting().initializeNativeTransport();
-                    CassandraDaemon.getInstanceForTesting().startNativeTransport();
+                    CassandraDaemon.getInstanceForTesting().initializeClientTransports();
+                    CassandraDaemon.getInstanceForTesting().start();
                     StorageService.instance.setRpcReady(true);
-                    //CassandraDaemon.getInstanceForTesting().initializeClientTransports();
-                    //CassandraDaemon.getInstanceForTesting().start();
                 }
 
                 if (!FBUtilities.getBroadcastAddressAndPort().address.equals(broadcastAddress().getAddress()) ||
