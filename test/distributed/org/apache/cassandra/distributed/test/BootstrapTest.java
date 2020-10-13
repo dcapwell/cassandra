@@ -66,6 +66,8 @@ import static org.apache.cassandra.distributed.api.Feature.NETWORK;
 import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
 import static org.apache.cassandra.distributed.shared.AssertUtils.row;
 
+//TODO class is slow, so starts to push the limits of the 6m timeout, might be best to split it =(
+//TODO would be great if we could split CI based off test function rather than class, would solve the above problem (how python dtest works)
 public class BootstrapTest extends TestBaseImpl
 {
     @Test
@@ -86,15 +88,16 @@ public class BootstrapTest extends TestBaseImpl
             IInvokableInstance newInstance = cluster.bootstrap(config);
             withJoinRing(false, () -> newInstance.startup(cluster));
 
-            cluster.run(statusToBootstrap(newInstance));
-            cluster.run(pullSchemaFrom(cluster.get(1)), newInstance.config().num());
-            cluster.run(bootstrap(), newInstance.config().num());
+            cluster.forEach(i -> statusToBootstrap(newInstance, i));
+            pullSchemaFrom(cluster.get(1), newInstance);
+            bootstrap(newInstance);
 
             for (Map.Entry<Integer, Long> e : count(cluster).entrySet())
                 Assert.assertEquals(e.getValue().longValue(), 100L);
         }
     }
 
+    //TODO failed because `StorageService.instance.getTokenMetadata().getPendingRanges(KEYSPACE)` returned empty
     @Test
     public void testPendingWrites() throws Throwable
     {
@@ -112,8 +115,8 @@ public class BootstrapTest extends TestBaseImpl
             IInvokableInstance newInstance = cluster.bootstrap(config);
             withJoinRing(false, () -> newInstance.startup(cluster));
 
-            cluster.run(statusToBootstrap(newInstance));
-            cluster.run(bootstrap(false, Duration.ofSeconds(60), Duration.ofSeconds(60)), newInstance.config().num());
+            cluster.forEach(i -> statusToBootstrap(newInstance, i));
+            bootstrap(newInstance, false, Duration.ofSeconds(60), Duration.ofSeconds(60));
 
             cluster.get(1).acceptsOnInstance((InetSocketAddress ip) -> {
                 Set<InetAddressAndPort> set = new HashSet<>();
@@ -129,8 +132,8 @@ public class BootstrapTest extends TestBaseImpl
             populate(cluster, 100, 150);
 
             newInstance.nodetoolResult("join").asserts().success();
-
-            cluster.run(disseminateGossipState(newInstance),1, 2);
+            
+            IntStream.of(1, 2).forEach(i -> disseminateGossipState(cluster.get(i), newInstance));
 
             cluster.get(1).acceptsOnInstance((InetSocketAddress ip) -> {
                 Set<InetAddressAndPort> set = new HashSet<>();
@@ -153,7 +156,7 @@ public class BootstrapTest extends TestBaseImpl
         {
             populate(cluster, 0, 100);
 
-            cluster.run(decomission(), 1);
+            decomission(cluster.get(1));
 
             cluster.filters().allVerbs().from(1).messagesMatching((i, i1, iMessage) -> {
                 throw new AssertionError("Decomissioned node should not send any messages");
@@ -206,7 +209,7 @@ public class BootstrapTest extends TestBaseImpl
                     }
                 }, executor).get(1, TimeUnit.MINUTES);
 
-                cluster.run(decomission(), 1);
+                decomission(cluster.get(1));
 
                 Assert.assertEquals(cluster.size() - 1, client.getMetadata().getAllHosts().size());
                 for (int i = 0; i < 100; i++)

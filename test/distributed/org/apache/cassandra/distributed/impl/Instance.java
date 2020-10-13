@@ -464,9 +464,10 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 }
                 else
                 {
+                    //TODO why does iCluster not have forEach?
                     cluster.stream().forEach(peer -> {
                         // TODO: this isn't going to work for UpgradableCluster
-                        GossipHelper.statusToNormal((IInvokableInstance) peer).accept(this);
+                        GossipHelper.statusToNormal((IInvokableInstance) peer, this);
                     });
 
                 }

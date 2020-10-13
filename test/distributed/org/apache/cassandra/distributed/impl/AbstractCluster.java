@@ -442,23 +442,6 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
         return instances.stream().filter(i -> i.config().localDatacenter().equals(dcName) &&
                                               i.config().localRack().equals(rackName));
     }
-
-    public void run(Consumer<I> action) {
-        stream().forEach(action::accept);
-    }
-
-    public void run(Consumer<I> action,  Predicate<I> filter) {
-        stream().forEach(instance -> {
-            if (filter.test(instance))
-                action.accept(instance);
-        });
-    }
-
-    public void run(Consumer<I> action,  int... instanceIds) {
-        for (int idx : instanceIds)
-            action.accept(this.get(idx));
-    }
-
     public void forEach(IIsolatedExecutor.SerializableRunnable runnable)
     {
         forEach(i -> i.sync(runnable));

@@ -20,6 +20,7 @@ package org.apache.cassandra.distributed.action;
 
 
 import java.io.IOException;
+import java.io.Serializable;
 import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.Arrays;
@@ -30,16 +31,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Predicate;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 import net.openhft.chronicle.core.util.SerializableBiFunction;
-import net.openhft.chronicle.core.util.SerializableConsumer;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.distributed.Cluster;
-import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.IInstance;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.api.IIsolatedExecutor;
@@ -64,106 +62,104 @@ import static org.apache.cassandra.distributed.impl.DistributedTestSnitch.toCass
 
 public class GossipHelper
 {
-    public static InstanceAction statusToBootstrap(IInvokableInstance newNode)
+    public static void statusToBootstrap(IInvokableInstance newNode, IInvokableInstance instance)
     {
-        return (instance) ->
-        {
-            changeGossipState(instance,
-                              newNode,
-                              Arrays.asList(tokens(newNode),
-                                            statusBootstrapping(newNode),
-                                            statusWithPortBootstrapping(newNode)));
-        };
+        changeGossipState(instance,
+                          newNode,
+                          Arrays.asList(tokens(newNode),
+                                        statusBootstrapping(newNode),
+                                        statusWithPortBootstrapping(newNode)));
     }
 
-    public static InstanceAction statusToNormal(IInvokableInstance peer)
+    public static void statusToNormal(IInvokableInstance peer, IInvokableInstance target)
     {
-        return (target) ->
-        {
-            changeGossipState(target,
-                              peer,
-                              Arrays.asList(tokens(peer),
-                                            statusNormal(peer),
-                                            statusWithPortNormal(peer)));
-        };
+        changeGossipState(target,
+                          peer,
+                          Arrays.asList(tokens(peer),
+                                        statusNormal(peer),
+                                        statusWithPortNormal(peer)));
     }
 
-    public static InstanceAction statusToLeaving(IInvokableInstance newNode)
+    public static void statusToLeaving(IInvokableInstance newNode, IInvokableInstance instance)
     {
-        return (instance) -> {
-            changeGossipState(instance,
-                              newNode,
-                              Arrays.asList(tokens(newNode),
-                                            statusLeaving(newNode),
-                                            statusWithPortLeaving(newNode)));
-        };
+        changeGossipState(instance,
+                          newNode,
+                          Arrays.asList(tokens(newNode),
+                                        statusLeaving(newNode),
+                                        statusWithPortLeaving(newNode)));
     }
 
-    public static InstanceAction bootstrap()
+    public static void bootstrap(IInvokableInstance instance)
     {
-        return new BootstrapAction();
+        bootstrap(instance, true, Duration.ofMinutes(10), Duration.ofSeconds(10));
     }
 
-    public static InstanceAction bootstrap(boolean joinRing, Duration waitForBootstrap, Duration waitForSchema)
+    public static void bootstrap(IInvokableInstance instance, boolean joinRing, Duration waitForBootstrap, Duration waitForSchema)
     {
-        return new BootstrapAction(joinRing, waitForBootstrap, waitForSchema);
-    }
-
-    public static InstanceAction disseminateGossipState(IInvokableInstance newNode)
-    {
-        return new DisseminateGossipState(newNode);
-    }
-
-    public static InstanceAction pullSchemaFrom(IInvokableInstance pullFrom)
-    {
-        return new PullSchemaFrom(pullFrom);
-    }
-
-    private static InstanceAction disableBinary()
-    {
-        return (instance) -> {
-            instance.runOnInstance(() -> {
-                StorageService.instance.stopNativeTransport();
-            });
-        };
-    };
-
-    private static class DisseminateGossipState implements InstanceAction
-    {
-        final IInvokableInstance[] from;
-
-        public DisseminateGossipState(IInvokableInstance... from)
-        {
-            this.from = from;
-        }
-
-        public void accept(IInvokableInstance instance)
-        {
-            Map<InetSocketAddress, byte[]> m = new HashMap<>();
-            for (IInvokableInstance node : from)
+        instance.appliesOnInstance((String partitionerString, String tokenString) -> {
+            IPartitioner partitioner = FBUtilities.newPartitioner(partitionerString);
+            List<Token> tokens = Collections.singletonList(partitioner.getTokenFactory().fromString(tokenString));
+            try
             {
-                byte[] epBytes = node.callsOnInstance(() -> {
-                    EndpointState epState = Gossiper.instance.getEndpointStateForEndpoint(FBUtilities.getBroadcastAddressAndPort());
-                    return toBytes(epState);
-                }).call();
-                m.put(node.broadcastAddress(), epBytes);
+                StorageService.instance.waitForSchema((int) waitForSchema.toMillis());
+                PendingRangeCalculatorService.instance.blockUntilFinished();
+                StorageService.instance.startBootstrap(tokens).get(waitForBootstrap.toMillis(), TimeUnit.MILLISECONDS);
+                StorageService.instance.setUpDistributedSystemKeyspaces();
+                if (joinRing)
+                    StorageService.instance.finishJoiningRing(true, tokens);
+            }
+            catch (Throwable t)
+            {
+                throw new RuntimeException(t);
             }
 
-            instance.appliesOnInstance((IIsolatedExecutor.SerializableFunction<Map<InetSocketAddress, byte[]>, Void>)
-                                       (map) -> {
-                                           Map<InetAddressAndPort, EndpointState> newState = new HashMap<>();
-                                           for (Map.Entry<InetSocketAddress, byte[]> e : map.entrySet())
-                                               newState.put(toCassandraInetAddressAndPort(e.getKey()), fromBytes(e.getValue()));
-
-                                           Gossiper.runInGossipStageBlocking(() -> {
-                                               Gossiper.instance.applyStateLocally(newState);
-                                           });
-                                           return null;
-                                       }).apply(m);
-        }
+            return null;
+        }).apply(instance.config().getString("partitioner"), instance.config().getString("initial_token"));
     }
 
-    public static byte[] toBytes(EndpointState epState)
+    public static void disseminateGossipState(IInvokableInstance instance, IInvokableInstance... from)
+    {
+        Map<InetSocketAddress, byte[]> m = new HashMap<>();
+        for (IInvokableInstance node : from)
+        {
+            byte[] epBytes = node.callsOnInstance(() -> {
+                EndpointState epState = Gossiper.instance.getEndpointStateForEndpoint(FBUtilities.getBroadcastAddressAndPort());
+                return toBytes(epState);
+            }).call();
+            m.put(node.broadcastAddress(), epBytes);
+        }
+
+        instance.appliesOnInstance((IIsolatedExecutor.SerializableFunction<Map<InetSocketAddress, byte[]>, Void>)
+                                   (map) -> {
+                                       Map<InetAddressAndPort, EndpointState> newState = new HashMap<>();
+                                       for (Map.Entry<InetSocketAddress, byte[]> e : map.entrySet())
+                                           newState.put(toCassandraInetAddressAndPort(e.getKey()), fromBytes(e.getValue()));
+
+                                       Gossiper.runInGossipStageBlocking(() -> {
+                                           Gossiper.instance.applyStateLocally(newState);
+                                       });
+                                       return null;
+                                   }).apply(m);
+    }
+
+    public static void pullSchemaFrom(IInvokableInstance pullFrom, IInvokableInstance pullTo)
+    {
+        InetSocketAddress addr = pullFrom.broadcastAddress();
+
+        pullTo.runOnInstance(() -> {
+            InetAddressAndPort endpoint = toCassandraInetAddressAndPort(addr);
+            EndpointState state = Gossiper.instance.getEndpointStateForEndpoint(endpoint);
+            MigrationManager.scheduleSchemaPull(endpoint, state);
+            MigrationManager.waitUntilReadyForBootstrap();
+        });
+    }
+
+    private static void disableBinary(IInvokableInstance instance)
+    {
+        instance.runOnInstance(() -> StorageService.instance.stopNativeTransport());
+    }
+
+    private static byte[] toBytes(EndpointState epState)
     {
         try (DataOutputBuffer out = new DataOutputBuffer(1024))
         {
@@ -176,7 +172,7 @@ public class GossipHelper
         }
     }
 
-    public static EndpointState fromBytes(byte[] bytes)
+    private static EndpointState fromBytes(byte[] bytes)
     {
         try (DataInputBuffer in = new DataInputBuffer(bytes))
         {
@@ -188,84 +184,18 @@ public class GossipHelper
         }
     }
 
-    private static class PullSchemaFrom implements InstanceAction
+    public static void decomission(IInvokableInstance target)
     {
-        final IInvokableInstance pullFrom;
-
-        public PullSchemaFrom(IInvokableInstance pullFrom)
-        {
-            this.pullFrom = pullFrom;
-        }
-
-        public void accept(IInvokableInstance pullTo)
-        {
-            InetSocketAddress addr = pullFrom.broadcastAddress();
-
-            pullTo.runOnInstance(() -> {
-                InetAddressAndPort endpoint = toCassandraInetAddressAndPort(addr);
-                EndpointState state = Gossiper.instance.getEndpointStateForEndpoint(endpoint);
-                MigrationManager.scheduleSchemaPull(endpoint, state);
-                MigrationManager.waitUntilReadyForBootstrap();
-            });
-        }
-    }
-
-    private static class BootstrapAction implements InstanceAction
-    {
-        private final boolean joinRing;
-        private final Duration waitForBootstrap;
-        private final Duration waitForSchema;
-
-        public BootstrapAction()
-        {
-            this(true, Duration.ofMinutes(10), Duration.ofSeconds(10));
-        }
-
-        public BootstrapAction(boolean joinRing, Duration waitForBootstrap, Duration waitForSchema)
-        {
-            this.joinRing = joinRing;
-            this.waitForBootstrap = waitForBootstrap;
-            this.waitForSchema = waitForSchema;
-        }
-
-        public void accept(IInvokableInstance instance)
-        {
-            instance.appliesOnInstance((String partitionerString, String tokenString) -> {
-                IPartitioner partitioner = FBUtilities.newPartitioner(partitionerString);
-                List<Token> tokens = Collections.singletonList(partitioner.getTokenFactory().fromString(tokenString));
-                try
-                {
-                    StorageService.instance.waitForSchema((int) waitForSchema.toMillis());
-                    PendingRangeCalculatorService.instance.blockUntilFinished();
-                    StorageService.instance.startBootstrap(tokens).get(waitForBootstrap.toMillis(), TimeUnit.MILLISECONDS);
-                    StorageService.instance.setUpDistributedSystemKeyspaces();
-                    if (joinRing)
-                        StorageService.instance.finishJoiningRing(true, tokens);
-                }
-                catch (Throwable t)
-                {
-                    throw new RuntimeException(t);
-                }
-
-                return null;
-            }).apply(instance.config().getString("partitioner"), instance.config().getString("initial_token"));
-        }
-    }
-
-    public static InstanceAction decomission()
-    {
-        return (target) -> {
-            target.runOnInstance(() -> {
-                try
-                {
-                    StorageService.instance.decommission(false);
-                }
-                catch (InterruptedException e)
-                {
-                    throw new RuntimeException();
-                }
-            });
-        };
+        target.runOnInstance(() -> {
+            try
+            {
+                StorageService.instance.decommission(false);
+            }
+            catch (InterruptedException e)
+            {
+                throw new RuntimeException();
+            }
+        });
     }
 
 
