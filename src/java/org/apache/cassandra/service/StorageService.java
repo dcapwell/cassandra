@@ -909,6 +909,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
         boolean dataAvailable = true; // make this to false when bootstrap streaming failed
         boolean bootstrap = shouldBootstrap();
+        logger.debug("Should bootstrap is defined as {}", bootstrap);
         if (bootstrap)
         {
             if (SystemKeyspace.bootstrapInProgress())

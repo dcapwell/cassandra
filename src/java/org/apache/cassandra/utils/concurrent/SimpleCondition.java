@@ -99,4 +99,10 @@ public class SimpleCondition implements Condition
     {
         throw new UnsupportedOperationException();
     }
+
+    public void reset()
+    {
+        waiting = null;
+        signaled = false;
+    }
 }

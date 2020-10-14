@@ -18,8 +18,8 @@
 
 package org.apache.cassandra.distributed.test;
 
+import java.io.Serializable;
 import java.net.InetSocketAddress;
-import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -33,6 +33,7 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
 import com.datastax.driver.core.ResultSet;
@@ -50,16 +51,16 @@ import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.api.TokenSupplier;
 import org.apache.cassandra.distributed.impl.DistributedTestSnitch;
 import org.apache.cassandra.distributed.impl.RowUtil;
+import org.apache.cassandra.distributed.shared.Byteman;
 import org.apache.cassandra.distributed.shared.NetworkTopology;
+import org.apache.cassandra.distributed.shared.Shared;
 import org.apache.cassandra.locator.EndpointsForRange;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.utils.concurrent.SimpleCondition;
 
-import static org.apache.cassandra.distributed.action.GossipHelper.bootstrap;
 import static org.apache.cassandra.distributed.action.GossipHelper.decomission;
 import static org.apache.cassandra.distributed.action.GossipHelper.disseminateGossipState;
-import static org.apache.cassandra.distributed.action.GossipHelper.pullSchemaFrom;
-import static org.apache.cassandra.distributed.action.GossipHelper.statusToBootstrap;
 import static org.apache.cassandra.distributed.api.Feature.GOSSIP;
 import static org.apache.cassandra.distributed.api.Feature.NATIVE_PROTOCOL;
 import static org.apache.cassandra.distributed.api.Feature.NETWORK;
@@ -68,7 +69,7 @@ import static org.apache.cassandra.distributed.shared.AssertUtils.row;
 
 //TODO class is slow, so starts to push the limits of the 6m timeout, might be best to split it =(
 //TODO would be great if we could split CI based off test function rather than class, would solve the above problem (how python dtest works)
-public class BootstrapTest extends TestBaseImpl
+public class BootstrapTest extends TestBaseImpl implements Serializable
 {
     @Test
     public void bootstrapTest() throws Throwable
@@ -85,40 +86,54 @@ public class BootstrapTest extends TestBaseImpl
             populate(cluster,0, 100);
 
             IInstanceConfig config = cluster.newInstanceConfig();
+            config.set("auto_bootstrap", true);
             IInvokableInstance newInstance = cluster.bootstrap(config);
             withJoinRing(false, () -> newInstance.startup(cluster));
 
-            cluster.forEach(i -> statusToBootstrap(newInstance, i));
-            pullSchemaFrom(cluster.get(1), newInstance);
-            bootstrap(newInstance);
+            newInstance.nodetoolResult("join").asserts().success();
 
             for (Map.Entry<Integer, Long> e : count(cluster).entrySet())
-                Assert.assertEquals(e.getValue().longValue(), 100L);
+                Assert.assertEquals("Node " + e.getKey() + " has incorrect row state", e.getValue().longValue(), 100L);
         }
     }
 
-    //TODO failed because `StorageService.instance.getTokenMetadata().getPendingRanges(KEYSPACE)` returned empty
     @Test
     public void testPendingWrites() throws Throwable
     {
         int originalNodeCount = 2;
         int expandedNodeCount = originalNodeCount + 1;
 
+        Byteman byteman = Byteman.createFromScripts("test/resources/byteman/stream_blocker.btm");
         try (Cluster cluster = builder().withNodes(originalNodeCount)
                                         .withTokenSupplier(TokenSupplier.evenlyDistributedTokens(expandedNodeCount))
                                         .withNodeIdTopology(NetworkTopology.singleDcNetworkTopology(expandedNodeCount, "dc0", "rack0"))
                                         .withConfig(config -> config.with(NETWORK, GOSSIP))
+                                        .withInstanceInitializer((cl, node) -> {
+                                            switch (node)
+                                            {
+                                                case 1:
+                                                case 2:
+                                                    byteman.install(cl);
+                                            }
+                                        })
                                         .start())
         {
             populate(cluster, 0, 100);
             IInstanceConfig config = cluster.newInstanceConfig();
+            config.set("auto_bootstrap", true);
             IInvokableInstance newInstance = cluster.bootstrap(config);
             withJoinRing(false, () -> newInstance.startup(cluster));
 
-            cluster.forEach(i -> statusToBootstrap(newInstance, i));
-            bootstrap(newInstance, false, Duration.ofSeconds(60), Duration.ofSeconds(60));
+            // join in the background; the bootstrap should hang waiting for the test to unblock
+            //TODO update dtest api to expose async nodetool to avoid needing a seperate thread to block on
+            CompletableFuture<Void> joining = CompletableFuture.runAsync(() -> newInstance.nodetoolResult("join").asserts().success());
 
+            // wait for join to start, pending ranges should be updated by now
+            BootstrapBlocker.awaitStreaming();
+
+            // Make sure the node joins the ring and that some ranges are pending
             cluster.get(1).acceptsOnInstance((InetSocketAddress ip) -> {
+
                 Set<InetAddressAndPort> set = new HashSet<>();
                 for (Map.Entry<Range<Token>, EndpointsForRange.Builder> e : StorageService.instance.getTokenMetadata().getPendingRanges(KEYSPACE))
                 {
@@ -127,23 +142,28 @@ public class BootstrapTest extends TestBaseImpl
                 Assert.assertEquals(set.size(), 1);
                 Assert.assertTrue(String.format("%s should contain %s", set, ip),
                                   set.contains(DistributedTestSnitch.toCassandraInetAddressAndPort(ip)));
-            }).accept(cluster.get(3).broadcastAddress());
+            }).accept(newInstance.broadcastAddress());
 
             populate(cluster, 100, 150);
 
-            newInstance.nodetoolResult("join").asserts().success();
-            
+            // unblock the bootstrap and wait for it to complete
+            BootstrapBlocker.signal();
+            joining.join();
+
+            // node3 knows that bootstrap is complete but node1 and node2 may not have this yet
+            // to avoid flaky tests disseminate the GossipState cross the cluster
             IntStream.of(1, 2).forEach(i -> disseminateGossipState(cluster.get(i), newInstance));
 
+            // validate no pending ranges
             cluster.get(1).acceptsOnInstance((InetSocketAddress ip) -> {
                 Set<InetAddressAndPort> set = new HashSet<>();
                 for (Map.Entry<Range<Token>, EndpointsForRange.Builder> e : StorageService.instance.getTokenMetadata().getPendingRanges(KEYSPACE))
                     set.addAll(e.getValue().build().endpoints());
                 assert set.size() == 0 : set;
-            }).accept(cluster.get(3).broadcastAddress());
+            }).accept(newInstance.broadcastAddress());
 
             for (Map.Entry<Integer, Long> e : count(cluster).entrySet())
-                Assert.assertEquals(e.getValue().longValue(), 150L);
+                Assert.assertEquals("Node " + e.getKey() + " has incorrect row state; present was " + e.getValue().longValue(), e.getValue().longValue(), 150L);
         }
     }
 
@@ -256,6 +276,49 @@ public class BootstrapTest extends TestBaseImpl
         finally
         {
             System.setProperty(prop, before == null ? "true" : before);
+        }
+    }
+
+    @Before
+    public void resetBlocked()
+    {
+        BootstrapBlocker.reset();
+    }
+
+    @Shared
+    public static final class BootstrapBlocker
+    {
+        private static final SimpleCondition STREAMING = new SimpleCondition();
+        private static final SimpleCondition TEST = new SimpleCondition();
+
+        public static boolean block()
+        {
+            TEST.signalAll();
+            try
+            {
+                STREAMING.await();
+            }
+            catch (InterruptedException e)
+            {
+                throw new RuntimeException(e);
+            }
+            return true;
+        }
+
+        public static void awaitStreaming() throws InterruptedException
+        {
+            TEST.await();
+        }
+
+        public static void reset()
+        {
+            TEST.reset();
+            STREAMING.reset();
+        }
+
+        public static void signal()
+        {
+            STREAMING.signalAll();
         }
     }
 }

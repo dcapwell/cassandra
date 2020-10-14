@@ -1,0 +1,14 @@
+#
+# Inject streaming delay
+#
+# Before start streaming files in `StreamSession#prepare()` method,
+# add a pause to streaming by locking.
+#
+RULE delay streaming
+CLASS org.apache.cassandra.streaming.StreamSession
+METHOD prepareAck
+AT INVOKE startStreamingFiles
+IF true
+DO
+   org.apache.cassandra.distributed.test.BootstrapTest$BootstrapBlocker.block();
+ENDRULE
