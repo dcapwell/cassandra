@@ -2190,8 +2190,8 @@ jobs:
           export PATH=$JAVA_HOME/bin:$PATH
           cd ~/cassandra
           mkdir ~/dtest_jars
-          git remote add apache git://github.com/apache/cassandra.git
-          for branch in cassandra-2.2 cassandra-3.0 cassandra-3.11 trunk; do
+          git remote add apache https://github.com/dcapwell/cassandra.git
+          for branch in commit_remote_branch/CASSANDRA-16152-cassandra-2.2-DDEE3A29-AB50-4AB0-B85B-51BAADBCA0BE commit_remote_branch/CASSANDRA-16152-cassandra-3.0-DDEE3A29-AB50-4AB0-B85B-51BAADBCA0BE commit_remote_branch/CASSANDRA-16152-cassandra-3.11-DDEE3A29-AB50-4AB0-B85B-51BAADBCA0BE commit_remote_branch/CASSANDRA-16152-trunk-DDEE3A29-AB50-4AB0-B85B-51BAADBCA0BE; do
             # check out the correct cassandra version:
             git remote set-branches --add apache '$branch'
             git fetch --depth 1 apache $branch
