@@ -148,8 +148,9 @@ public enum CassandraRelevantProperties
     GOSSIPER_QUARANTINE_DELAY("cassandra.gossip_quarantine_delay_ms"),
 
     /**
-     * When doing a host replacement gossip status is checked to make sure the endpoint is only in a allowd set of
-     * states, these states are controled via this property.
+     * When doing a host replacement gossip status is checked to make sure the endpoint is only in an allowed set of
+     * states, these states are controled via this property. Changing this is not advised as the behavior is undefined
+     * when replacing a node not on NORMAL or shutdown states.
      */
     REPLACEMENT_ALLOWED_GOSSIP_STATUSES("cassandra.replacement_allowed_gossip_statuses", "NORMAL,shutdown"),
 
@@ -159,14 +160,6 @@ public enum CassandraRelevantProperties
      * be true.
      */
     REPLACEMENT_ALLOW_EMPTY("cassandra.allow_empty_replace_address", "false"),
-
-    /**
-     * When doing a host replacement a check is done to make sure the targeted host to replace is in a known
-     * allowed set of gossip status, else it will reject the host replacement.
-     *
-     * This property allows to ignore this check.
-     */
-    REPLACEMENT_ALLOW_NON_NORMAL("cassandra.allow_non_normal_replace_address", "false"),
 
     //cassandra properties (without the "cassandra." prefix)
 

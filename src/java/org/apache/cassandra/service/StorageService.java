@@ -122,7 +122,6 @@ import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
 import static org.apache.cassandra.config.CassandraRelevantProperties.REPLACEMENT_ALLOWED_GOSSIP_STATUSES;
 import static org.apache.cassandra.config.CassandraRelevantProperties.REPLACEMENT_ALLOW_EMPTY;
-import static org.apache.cassandra.config.CassandraRelevantProperties.REPLACEMENT_ALLOW_NON_NORMAL;
 import static org.apache.cassandra.index.SecondaryIndexManager.getIndexName;
 import static org.apache.cassandra.index.SecondaryIndexManager.isIndexColumnFamily;
 import static org.apache.cassandra.net.NoPayload.noPayload;
@@ -509,7 +508,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         Set<String> allowedGossipStatusesSet = REPLACEMENT_ALLOWED_GOSSIP_STATUSES.getSet();
         if (!allowedGossipStatusesSet.contains(state.getStatus()))
         {
-            if (state.isEmpty() && REPLACEMENT_ALLOW_EMPTY.getBoolean())
+            if (state.getStatus().isEmpty() && REPLACEMENT_ALLOW_EMPTY.getBoolean())
             {
                 logger.warn("Gossip state is-empty for node {}. Injecting normal state.", replaceAddress);
                 // apply the empty state locally in order for the host replacement to know about the instance
@@ -518,10 +517,10 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 // fake normal to populate TokenMetadata
                 handleStateNormal(replaceAddress, VersionedValue.STATUS_NORMAL);
             }
-            else if (!REPLACEMENT_ALLOW_NON_NORMAL.getBoolean())
+            else
             {
                 String msg = String.format("Cannot replace_address %s because it's status is not in %s, status is %s", replaceAddress, allowedGossipStatusesSet, state.getStatus());
-                if (state.isEmpty())
+                if (state.getStatus().isEmpty())
                     msg += "; if the node is known to be safe to replace, restart with -D" + REPLACEMENT_ALLOW_EMPTY.getKey() + "=true to override this check";
                 throw new RuntimeException(msg);
             }

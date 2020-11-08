@@ -143,12 +143,6 @@ public class EndpointState
         isAlive = false;
     }
 
-    public boolean isEmpty()
-    {
-        Map<ApplicationState, VersionedValue> state = applicationState.get();
-        return hbState.isEmpty() && !(state.containsKey(ApplicationState.STATUS_WITH_PORT) || state.containsKey(ApplicationState.STATUS));
-    }
-
     public boolean isRpcReady()
     {
         VersionedValue rpcState = getApplicationState(ApplicationState.RPC_READY);

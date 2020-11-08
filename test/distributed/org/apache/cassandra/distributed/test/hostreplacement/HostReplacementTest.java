@@ -64,7 +64,7 @@ public class HostReplacementTest extends TestBaseImpl
     }
 
     /**
-     * Attempt to do a host replacement on a alive host
+     * Attempt to do a host replacement on a down host
      */
     @Test
     public void replaceDownedHost() throws IOException, InterruptedException, ExecutionException
