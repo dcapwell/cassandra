@@ -67,6 +67,7 @@ import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.distributed.Constants;
 import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.ICoordinator;
 import org.apache.cassandra.distributed.api.IInstance;
@@ -626,8 +627,8 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
     {
         Map<String,Object> params = ((InstanceConfig) overrides).getParams();
         boolean check = true;
-        if (overrides.get("dtest.api.config.check") != null)
-            check = (boolean) overrides.get("dtest.api.config.check");
+        if (overrides.get(Constants.KEY_DTEST_API_CONFIG_CHECK) != null)
+            check = (boolean) overrides.get(Constants.KEY_DTEST_API_CONFIG_CHECK);
         return YamlConfigurationLoader.fromMap(params, check, Config.class);
     }
 
