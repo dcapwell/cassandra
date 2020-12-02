@@ -469,24 +469,33 @@ public final class SSLFactory
                 CipherSuiteFilter loggingCipherSuiteFilter = logProtocolAndCiphers ? new LoggingCipherSuiteFilter(contextDescription)
                                                                                    : LoggingCipherSuiteFilter.QUIET_FILTER;
                 SslContext serverSslContext = createNettySslContext(options, buildTrustStore, SocketType.SERVER, openSslIsAvailable(), loggingCipherSuiteFilter);
-                SSLEngine engine = serverSslContext.newEngine(ByteBufAllocator.DEFAULT);
                 try
                 {
-                    if (logProtocolAndCiphers)
+                    SSLEngine engine = serverSslContext.newEngine(ByteBufAllocator.DEFAULT);
+                    try
                     {
-                        String[] supportedProtocols = engine.getSupportedProtocols();
-                        String[] supportedCiphers = engine.getSupportedCipherSuites();
-                        String[] enabledProtocols = engine.getEnabledProtocols();
-                        String[] enabledCiphers = engine.getEnabledCipherSuites();
+                        if (logProtocolAndCiphers)
+                        {
+                            String[] supportedProtocols = engine.getSupportedProtocols();
+                            String[] supportedCiphers = engine.getSupportedCipherSuites();
+                            String[] enabledProtocols = engine.getEnabledProtocols();
+                            String[] enabledCiphers = engine.getEnabledCipherSuites();
 
-                        logger.debug("{} supported TLS protocols: {}", contextDescription,
-                                     supportedProtocols == null ? "system default" : String.join(", ", supportedProtocols));
-                        logger.info("{} enabled TLS protocols: {}", contextDescription,
-                                    enabledProtocols == null ? "system default" : String.join(", ", enabledProtocols));
-                        logger.debug("{} supported cipher suites: {}", contextDescription,
-                                     supportedCiphers == null ? "system default" : String.join(", ", supportedCiphers));
-                        logger.info("{} enabled cipher suites: {}", contextDescription,
-                                    enabledCiphers == null ? "system default" : String.join(", ", enabledCiphers));
+                            logger.debug("{} supported TLS protocols: {}", contextDescription,
+                                         supportedProtocols == null ? "system default" : String.join(", ", supportedProtocols));
+                            logger.info("{} enabled TLS protocols: {}", contextDescription,
+                                        enabledProtocols == null ? "system default" : String.join(", ", enabledProtocols));
+                            logger.debug("{} supported cipher suites: {}", contextDescription,
+                                         supportedCiphers == null ? "system default" : String.join(", ", supportedCiphers));
+                            logger.info("{} enabled cipher suites: {}", contextDescription,
+                                        enabledCiphers == null ? "system default" : String.join(", ", enabledCiphers));
+                        }
+                    }
+                    finally
+                    {
+                        engine.closeInbound();
+                        engine.closeOutbound();
+                        ReferenceCountUtil.release(engine);
                     }
                 }
                 finally
