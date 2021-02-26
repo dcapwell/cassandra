@@ -26,7 +26,11 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 
 import io.netty.util.concurrent.FastThreadLocal;
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.Config;
+
+import static org.apache.cassandra.config.CassandraRelevantProperties.DATA_OUTPUT_BUFFER_ALLOCATE_TYPE;
+import static org.apache.cassandra.config.CassandraRelevantProperties.DATA_OUTPUT_BUFFER_ALWAYS_CLEAR;
 
 /**
  * An implementation of the DataOutputStream interface using a FastByteArrayOutputStream and exposing
@@ -46,6 +50,10 @@ public class DataOutputBuffer extends BufferedDataOutputStreamPlus
      */
     private static final int MAX_RECYCLE_BUFFER_SIZE = Integer.getInteger(Config.PROPERTY_PREFIX + "dob_max_recycle_bytes", 1024 * 1024);
 
+    private enum AllocationType { DIRECT, ONHEAP }
+    private static final AllocationType ALLOCATION_TYPE = DATA_OUTPUT_BUFFER_ALLOCATE_TYPE.getEnum(AllocationType.DIRECT);
+    private static final boolean ALWAYS_CLEAR = DATA_OUTPUT_BUFFER_ALWAYS_CLEAR.getBoolean();
+
     private static final int DEFAULT_INITIAL_BUFFER_SIZE = 128;
 
     /**
@@ -61,14 +69,21 @@ public class DataOutputBuffer extends BufferedDataOutputStreamPlus
             {
                 public void close()
                 {
-                    if (buffer.capacity() <= MAX_RECYCLE_BUFFER_SIZE)
+                    if (ALWAYS_CLEAR || buffer.capacity() <= MAX_RECYCLE_BUFFER_SIZE)
                     {
                         buffer.clear();
                     }
                     else
                     {
-                        buffer = ByteBuffer.allocate(DEFAULT_INITIAL_BUFFER_SIZE);
+                        setBuffer(allocate(DEFAULT_INITIAL_BUFFER_SIZE));
                     }
+                }
+
+                protected ByteBuffer allocate(int size)
+                {
+                    return ALLOCATION_TYPE == AllocationType.DIRECT ?
+                           ByteBuffer.allocateDirect(size) :
+                           ByteBuffer.allocate(size);
                 }
             };
         }
@@ -76,12 +91,12 @@ public class DataOutputBuffer extends BufferedDataOutputStreamPlus
 
     public DataOutputBuffer()
     {
-        this(DEFAULT_INITIAL_BUFFER_SIZE);
+        super(DEFAULT_INITIAL_BUFFER_SIZE);
     }
 
     public DataOutputBuffer(int size)
     {
-        super(ByteBuffer.allocate(size));
+        super(size);
     }
 
     public DataOutputBuffer(ByteBuffer buffer)
@@ -158,9 +173,14 @@ public class DataOutputBuffer extends BufferedDataOutputStreamPlus
     {
         if (count <= 0)
             return;
-        ByteBuffer newBuffer = ByteBuffer.allocate(checkedArraySizeCast(calculateNewSize(count)));
+        ByteBuffer newBuffer = allocate(checkedArraySizeCast(calculateNewSize(count)));
         buffer.flip();
         newBuffer.put(buffer);
+        setBuffer(newBuffer);
+    }
+
+    protected void setBuffer(ByteBuffer newBuffer) {
+        FileUtils.clean(buffer); // free if direct
         buffer = newBuffer;
     }
 
