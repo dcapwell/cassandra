@@ -160,7 +160,6 @@ public enum CassandraRelevantProperties
     REPLACEMENT_ALLOW_EMPTY("cassandra.allow_empty_replace_address", "true"),
 
     DATA_OUTPUT_BUFFER_ALLOCATE_TYPE("cassandra.dob.allocate_type"),
-    DATA_OUTPUT_BUFFER_ALWAYS_CLEAR("cassandra.dob.always_clear", "true"),
 
     //cassandra properties (without the "cassandra." prefix)
 

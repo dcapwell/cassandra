@@ -26,11 +26,9 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 
 import io.netty.util.concurrent.FastThreadLocal;
-import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.Config;
 
 import static org.apache.cassandra.config.CassandraRelevantProperties.DATA_OUTPUT_BUFFER_ALLOCATE_TYPE;
-import static org.apache.cassandra.config.CassandraRelevantProperties.DATA_OUTPUT_BUFFER_ALWAYS_CLEAR;
 
 /**
  * An implementation of the DataOutputStream interface using a FastByteArrayOutputStream and exposing
@@ -52,12 +50,11 @@ public class DataOutputBuffer extends BufferedDataOutputStreamPlus
 
     private enum AllocationType { DIRECT, ONHEAP }
     private static final AllocationType ALLOCATION_TYPE = DATA_OUTPUT_BUFFER_ALLOCATE_TYPE.getEnum(AllocationType.DIRECT);
-    private static final boolean ALWAYS_CLEAR = DATA_OUTPUT_BUFFER_ALWAYS_CLEAR.getBoolean();
 
     private static final int DEFAULT_INITIAL_BUFFER_SIZE = 128;
 
     /**
-     * Scratch buffers used mostly for serializing in memory. It's important to call #recycle() when finished
+     * Scratch buffers used mostly for serializing in memory. It's important to call #close() when finished
      * to keep the memory overhead from being too large in the system.
      */
     public static final FastThreadLocal<DataOutputBuffer> scratchBuffer = new FastThreadLocal<DataOutputBuffer>()
@@ -69,7 +66,7 @@ public class DataOutputBuffer extends BufferedDataOutputStreamPlus
             {
                 public void close()
                 {
-                    if (ALWAYS_CLEAR || buffer.capacity() <= MAX_RECYCLE_BUFFER_SIZE)
+                    if (buffer.capacity() <= MAX_RECYCLE_BUFFER_SIZE)
                     {
                         buffer.clear();
                     }
