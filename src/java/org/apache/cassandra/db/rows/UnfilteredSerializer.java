@@ -190,7 +190,7 @@ public class UnfilteredSerializer
 
         if (header.isForSSTable())
         {
-            try (DataOutputBuffer dob = DataOutputBuffer.scratchBuffer.get())
+            try (DataOutputBuffer dob = DataOutputBuffer.largeBuffer())
             {
                 serializeRowBody(row, flags, helper, dob);
 

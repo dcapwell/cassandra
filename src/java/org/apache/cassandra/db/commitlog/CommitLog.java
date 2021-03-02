@@ -263,7 +263,7 @@ public class CommitLog implements CommitLogMBean
 
         mutation.validateSize(MessagingService.current_version, ENTRY_OVERHEAD_SIZE);
 
-        try (DataOutputBuffer dob = DataOutputBuffer.scratchBuffer.get())
+        try (DataOutputBuffer dob = DataOutputBuffer.smallBuffer())
         {
             Mutation.serializer.serialize(mutation, dob, MessagingService.current_version);
             int size = dob.getLength();

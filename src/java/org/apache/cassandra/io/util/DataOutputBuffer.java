@@ -25,8 +25,12 @@ import java.nio.channels.WritableByteChannel;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 
+import com.codahale.metrics.Counter;
 import io.netty.util.concurrent.FastThreadLocal;
 import org.apache.cassandra.config.Config;
+import org.apache.cassandra.metrics.CassandraMetricsRegistry;
+import org.apache.cassandra.metrics.DefaultNameFactory;
+import org.apache.cassandra.metrics.MetricNameFactory;
 
 import static org.apache.cassandra.config.CassandraRelevantProperties.DATA_OUTPUT_BUFFER_ALLOCATE_TYPE;
 
@@ -46,18 +50,21 @@ public class DataOutputBuffer extends BufferedDataOutputStreamPlus
     /*
      * Only recycle OutputBuffers up to 1Mb. Larger buffers will be trimmed back to this size.
      */
+    @VisibleForTesting
     private static final int MAX_RECYCLE_BUFFER_SIZE = Integer.getInteger(Config.PROPERTY_PREFIX + "dob_max_recycle_bytes", 1024 * 1024);
+    private static final int MAX_RECYCLE_LARGE_BUFFER_SIZE = Integer.getInteger(Config.PROPERTY_PREFIX + "dob_max_recycle_large_bytes", 20 * 1024 * 1024);
 
     private enum AllocationType { DIRECT, ONHEAP }
     private static final AllocationType ALLOCATION_TYPE = DATA_OUTPUT_BUFFER_ALLOCATE_TYPE.getEnum(AllocationType.DIRECT);
 
-    private static final int DEFAULT_INITIAL_BUFFER_SIZE = 128;
+    @VisibleForTesting
+    static final int DEFAULT_INITIAL_BUFFER_SIZE = 128;
 
     /**
      * Scratch buffers used mostly for serializing in memory. It's important to call #close() when finished
      * to keep the memory overhead from being too large in the system.
      */
-    public static final FastThreadLocal<DataOutputBuffer> scratchBuffer = new FastThreadLocal<DataOutputBuffer>()
+    private static final FastThreadLocal<DataOutputBuffer> scratchBuffer = new FastThreadLocal<DataOutputBuffer>()
     {
         @Override
         protected DataOutputBuffer initialValue()
@@ -85,6 +92,81 @@ public class DataOutputBuffer extends BufferedDataOutputStreamPlus
             };
         }
     };
+
+    private static final MetricNameFactory FACTORY = new DefaultNameFactory("DataOutputBuffer");
+
+    static final Counter LARGE_BUFFER_THREADS_ALLOCATED = CassandraMetricsRegistry.Metrics.counter(FACTORY.createMetricName("LargeBufferThreadCount"));
+    static final Counter LARGE_BUFFER_ALLOCATED = CassandraMetricsRegistry.Metrics.counter(FACTORY.createMetricName("LargeBufferAllocated"));
+
+    /**
+     * Scratch buffers used mostly for serializing in memory. It's important to call #close() when finished
+     * to keep the memory overhead from being too large in the system.
+     */
+    @VisibleForTesting
+    static final FastThreadLocal<DataOutputBuffer> largeScratchBuffer = new FastThreadLocal<DataOutputBuffer>()
+    {
+        @Override
+        protected DataOutputBuffer initialValue()
+        {
+            return new DataOutputBuffer()
+            {
+                {
+                    LARGE_BUFFER_THREADS_ALLOCATED.inc();
+                    LARGE_BUFFER_ALLOCATED.inc(buffer.capacity());
+                }
+
+                public void close()
+                {
+                    if (buffer.capacity() <= MAX_RECYCLE_LARGE_BUFFER_SIZE)
+                    {
+                        buffer.clear();
+                    }
+                    else
+                    {
+                        setBuffer(allocate(MAX_RECYCLE_LARGE_BUFFER_SIZE));
+                    }
+                }
+
+                @Override
+                protected void setBuffer(ByteBuffer newBuffer)
+                {
+                    ByteBuffer previous = buffer;
+                    super.setBuffer(newBuffer);
+                    // if new buffer is smaller than previous, inc will act as dec, so this is fine to be negative
+                    LARGE_BUFFER_ALLOCATED.inc(newBuffer.capacity() - previous.capacity());
+                }
+
+                protected ByteBuffer allocate(int size)
+                {
+                    return ALLOCATION_TYPE == AllocationType.DIRECT ?
+                           ByteBuffer.allocateDirect(size) :
+                           ByteBuffer.allocate(size);
+                }
+
+                @Override
+                protected void finalize()
+                {
+                    LARGE_BUFFER_THREADS_ALLOCATED.dec();
+                    LARGE_BUFFER_ALLOCATED.dec(buffer.capacity());
+                    FileUtils.clean(buffer);
+                }
+            };
+        }
+    };
+
+    public static DataOutputBuffer smallBuffer()
+    {
+        return scratchBuffer.get();
+    }
+
+    /**
+     * Get a buffer which allows larger sizes. This should only be called if its known that the number of threads calling
+     * this is "small", else memory can blow up drastically.
+     */
+    public static DataOutputBuffer largeBuffer()
+    {
+        return largeScratchBuffer.get();
+    }
 
     public DataOutputBuffer()
     {
