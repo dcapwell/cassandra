@@ -64,6 +64,7 @@ public class DataOutputBuffer extends BufferedDataOutputStreamPlus
         {
             return new DataOutputBuffer()
             {
+                @Override
                 public void close()
                 {
                     if (buffer.capacity() <= MAX_RECYCLE_BUFFER_SIZE)
@@ -76,6 +77,7 @@ public class DataOutputBuffer extends BufferedDataOutputStreamPlus
                     }
                 }
 
+                @Override
                 protected ByteBuffer allocate(int size)
                 {
                     return ALLOCATION_TYPE == AllocationType.DIRECT ?
@@ -236,6 +238,17 @@ public class DataOutputBuffer extends BufferedDataOutputStreamPlus
         ByteBuffer result = buffer.duplicate();
         result.flip();
         return result;
+    }
+
+    /**
+     * Gets the underlying ByteBuffer and calls {@link ByteBuffer#flip()}.  This method is "unsafe" in the sense that
+     * it returns the underlying buffer, which may be modified by other methods after calling this method.  If the calling
+     * logic knows that no new calls to this object will happen after calling this method, then this method can avoid the
+     * copying done in {@link #getData()} and {@link #asNewBuffer()}.
+     */
+    public ByteBuffer unsafeGetBufferAndFlip() {
+        buffer.flip();
+        return buffer;
     }
 
     public byte[] getData()
