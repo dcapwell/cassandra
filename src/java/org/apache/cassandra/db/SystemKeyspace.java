@@ -643,7 +643,7 @@ public final class SystemKeyspace
 
     private static Map<UUID, ByteBuffer> truncationAsMapEntry(ColumnFamilyStore cfs, long truncatedAt, CommitLogPosition position)
     {
-        try (DataOutputBuffer out = DataOutputBuffer.smallBuffer())
+        try (DataOutputBuffer out = DataOutputBuffer.scratchBuffer.get())
         {
             CommitLogPosition.serializer.serialize(position, out);
             out.writeLong(truncatedAt);
