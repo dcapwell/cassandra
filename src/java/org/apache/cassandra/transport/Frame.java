@@ -180,6 +180,8 @@ public class Frame
             if (version < Server.MIN_SUPPORTED_VERSION || version > versionCap.getMaxVersion())
                 throw new ProtocolException(String.format("Invalid or unsupported protocol version (%d); the lowest supported version is %d and the greatest is %d",
                                                           version, Server.MIN_SUPPORTED_VERSION, versionCap.getMaxVersion()),
+                                            // only override the version IFF the version is less than the min supported, as this is relativly safe since older versions were the same up to v3.
+                                            // in the case where version is greater than, it isn't known if the protocol has changed, so reply back normally
                                             version < Server.MIN_SUPPORTED_VERSION ? version : null);
 
             // Wait until we have the complete header
