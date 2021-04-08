@@ -101,8 +101,9 @@ public enum ProtocolVersion implements Comparable<ProtocolVersion>
                     throw new ProtocolException(ProtocolVersion.invalidVersionMessage(versionNum), version);
             }
 
-            // If the version is invalid reply with the highest version that we support
-            throw new ProtocolException(invalidVersionMessage(versionNum), ceiling.getMaxVersion());
+            // If the version is invalid reply with the channel's version
+            //TODO 3.11 is different than 3.0 here, if I revert this change then the client fails (which is C* decoding logic) as channel version != frame version.  This implies to me that a different issue is going on that should get looked into...
+            throw new ProtocolException(invalidVersionMessage(versionNum));
         }
 
         return ret;
