@@ -18,13 +18,19 @@
 
 version: 2
 jobs:
+  start_j8_dtests:
+    docker: [ {image: "alpine:latest" } ]
+    steps: [ { run: "echo skipping" } ]
+  start_jvm_upgrade_dtest:
+    docker: [ {image: "alpine:latest" } ]
+    steps: [ { run: "echo skipping" } ]
   j8_jvm_upgrade_dtests:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11-w-dependencies:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 1
+    parallelism: 2
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -114,10 +120,10 @@ jobs:
   j8_cqlsh-dtests-py2-with-vnodes:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11-w-dependencies:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 4
+    parallelism: 20
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -125,6 +131,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/riptano/ccm.git@cassandra-test;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -193,10 +200,10 @@ jobs:
   j11_unit_tests:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 4
+    parallelism: 20
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -287,10 +294,10 @@ jobs:
   j8_cqlsh-dtests-py38-no-vnodes:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11-w-dependencies:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 4
+    parallelism: 20
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -298,6 +305,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/riptano/ccm.git@cassandra-test;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -366,10 +374,10 @@ jobs:
   j11_cqlsh-dtests-py3-with-vnodes:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 4
+    parallelism: 20
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -377,6 +385,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/riptano/ccm.git@cassandra-test;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -446,10 +455,10 @@ jobs:
   j11_cqlsh-dtests-py3-no-vnodes:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 4
+    parallelism: 20
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -457,6 +466,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/riptano/ccm.git@cassandra-test;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -526,10 +536,10 @@ jobs:
   j11_cqlsh-dtests-py38-with-vnodes:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 4
+    parallelism: 20
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -537,6 +547,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/riptano/ccm.git@cassandra-test;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -606,10 +617,10 @@ jobs:
   j8_cqlsh-dtests-py3-with-vnodes:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11-w-dependencies:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 4
+    parallelism: 20
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -617,6 +628,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/riptano/ccm.git@cassandra-test;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -685,10 +697,10 @@ jobs:
   j8_cqlsh-dtests-py2-no-vnodes:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11-w-dependencies:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 4
+    parallelism: 20
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -696,6 +708,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/riptano/ccm.git@cassandra-test;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -764,10 +777,10 @@ jobs:
   j11_cqlsh-dtests-py2-with-vnodes:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 4
+    parallelism: 20
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -775,6 +788,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/riptano/ccm.git@cassandra-test;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -844,10 +858,10 @@ jobs:
   j11_dtests-with-vnodes:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 4
+    parallelism: 25
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -877,6 +891,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/riptano/ccm.git@cassandra-test;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -927,10 +942,10 @@ jobs:
   j8_dtests-no-vnodes:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11-w-dependencies:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 4
+    parallelism: 25
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -938,6 +953,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/riptano/ccm.git@cassandra-test;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -987,10 +1003,10 @@ jobs:
   j8_upgradetests-no-vnodes:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11-w-dependencies:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 4
+    parallelism: 100
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -998,6 +1014,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/riptano/ccm.git@cassandra-test;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -1047,7 +1064,7 @@ jobs:
   utests_stress:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11-w-dependencies:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
     parallelism: 1
@@ -1094,10 +1111,10 @@ jobs:
   j8_unit_tests:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11-w-dependencies:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 4
+    parallelism: 35
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -1187,10 +1204,10 @@ jobs:
   j11_jvm_dtests:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 1
+    parallelism: 10
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -1364,10 +1381,10 @@ jobs:
   j11_cqlsh-dtests-py2-no-vnodes:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 4
+    parallelism: 20
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -1375,6 +1392,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/riptano/ccm.git@cassandra-test;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -1483,10 +1501,10 @@ jobs:
   j8_dtests-with-vnodes:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11-w-dependencies:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 4
+    parallelism: 25
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -1494,6 +1512,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/riptano/ccm.git@cassandra-test;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -1543,10 +1562,10 @@ jobs:
   j11_cqlsh-dtests-py38-no-vnodes:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 4
+    parallelism: 20
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -1554,6 +1573,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/riptano/ccm.git@cassandra-test;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -1623,10 +1643,10 @@ jobs:
   j8_jvm_dtests:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11-w-dependencies:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 1
+    parallelism: 14
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -1798,10 +1818,10 @@ jobs:
   j8_cqlsh-dtests-py3-no-vnodes:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11-w-dependencies:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 4
+    parallelism: 20
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -1809,6 +1829,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/riptano/ccm.git@cassandra-test;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -1877,10 +1898,10 @@ jobs:
   j8_cqlsh-dtests-py38-with-vnodes:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11-w-dependencies:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 4
+    parallelism: 20
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -1888,6 +1909,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/riptano/ccm.git@cassandra-test;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -1956,7 +1978,7 @@ jobs:
   utests_long:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11-w-dependencies:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
     parallelism: 1
@@ -2003,10 +2025,10 @@ jobs:
   utests_system_keyspace_directory:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11-w-dependencies:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 4
+    parallelism: 20
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -2134,7 +2156,7 @@ jobs:
   utests_fqltool:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11-w-dependencies:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
     parallelism: 1
@@ -2181,10 +2203,10 @@ jobs:
   j11_dtests-no-vnodes:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 4
+    parallelism: 25
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -2214,6 +2236,7 @@ jobs:
         name: Clone Cassandra dtest Repository (via git)
         command: |
           git clone --single-branch --branch $DTEST_BRANCH --depth 1 $DTEST_REPO ~/cassandra-dtest
+          sed -i 's;https://github.com/riptano/ccm.git@cassandra-test;https://github.com/riptano/ccm.git@cassandra-test;g' ~/cassandra-dtest/requirements.txt
     - run:
         name: Configure virtualenv and python Dependencies
         command: |
@@ -2264,10 +2287,10 @@ jobs:
   utests_compression:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11-w-dependencies:20210304
-    resource_class: medium
+    resource_class: xlarge
     working_directory: ~/
     shell: /bin/bash -eo pipefail -l
-    parallelism: 4
+    parallelism: 20
     steps:
     - attach_workspace:
         at: /home/cassandra
@@ -2483,8 +2506,7 @@ workflows:
         requires:
         - start_utests_system_keyspace_directory
         - j8_build
-    - start_jvm_upgrade_dtest:
-        type: approval
+    - start_jvm_upgrade_dtest
     - j8_dtest_jars_build:
         requires:
         - j8_build
@@ -2492,8 +2514,7 @@ workflows:
     - j8_jvm_upgrade_dtests:
         requires:
         - j8_dtest_jars_build
-    - start_j8_dtests:
-        type: approval
+    - start_j8_dtests: { requires: [ "j8_build" ]}
     - j8_dtests-with-vnodes:
         requires:
         - start_j8_dtests
