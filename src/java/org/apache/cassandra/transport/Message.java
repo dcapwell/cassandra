@@ -750,7 +750,6 @@ public abstract class Message
         @Override
         public void exceptionCaught(final ChannelHandlerContext ctx, Throwable cause)
         {
-            boolean isProtocolException = Throwables.anyCauseMatches(cause, t -> t instanceof ProtocolException);
             if (ctx.channel().isOpen())
             {
                 // Provide error message to client in case channel is still open
@@ -758,7 +757,7 @@ public abstract class Message
                 ErrorMessage errorMessage = ErrorMessage.fromException(cause, handler);
                 ChannelFuture future = ctx.writeAndFlush(errorMessage);
                 // On protocol exception, close the channel as soon as the message have been sent
-                if (isProtocolException)
+                if (isFatal(cause))
                 {
                     future.addListener(new ChannelFutureListener()
                     {
@@ -769,18 +768,27 @@ public abstract class Message
                     });
                 }
             }
-            if (isProtocolException)
+            if (Throwables.anyCauseMatches(cause, t -> t instanceof ProtocolException))
             {
-                ClientMetrics.instance.markProtocolException();
-                // since protocol exceptions are expected to be client issues, not logging stack trace
-                // to avoid spamming the logs once a bad client shows up
-                NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 1, TimeUnit.MINUTES, "Protocol exception with client networking: " + cause.getMessage());
+                // if any ProtocolExceptions is not silent, then handle
+                if (Throwables.anyCauseMatches(cause, t -> t instanceof ProtocolException && !((ProtocolException) t).isSilent()))
+                {
+                    ClientMetrics.instance.markProtocolException();
+                    // since protocol exceptions are expected to be client issues, not logging stack trace
+                    // to avoid spamming the logs once a bad client shows up
+                    NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 1, TimeUnit.MINUTES, "Protocol exception with client networking: " + cause.getMessage());
+                }
             }
             else
             {
                 ClientMetrics.instance.markUnknownException();
                 logger.warn("Unknown exception in client networking", cause);
             }
+        }
+
+        private static boolean isFatal(Throwable cause)
+        {
+            return cause instanceof ProtocolException;
         }
     }
 

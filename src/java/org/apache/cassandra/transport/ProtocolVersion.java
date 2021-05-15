@@ -65,6 +65,7 @@ public enum ProtocolVersion implements Comparable<ProtocolVersion>
     private final static ProtocolVersion[] SUPPORTED_VERSIONS = new ProtocolVersion[] { V3, V4, V5 };
     final static ProtocolVersion MIN_SUPPORTED_VERSION = SUPPORTED_VERSIONS[0];
     final static ProtocolVersion MAX_SUPPORTED_VERSION = SUPPORTED_VERSIONS[SUPPORTED_VERSIONS.length - 1];
+    private static int[] DSE_VERSIONS = {66, 65};
 
     /** All supported versions, published as an enumset */
     public final static EnumSet<ProtocolVersion> SUPPORTED = EnumSet.copyOf(Arrays.asList((ProtocolVersion[]) ArrayUtils.addAll(SUPPORTED_VERSIONS)));
@@ -93,16 +94,20 @@ public enum ProtocolVersion implements Comparable<ProtocolVersion>
         if (ret == null)
         {
             // if this is not a supported version check the old versions
-            for (ProtocolVersion version : UNSUPPORTED)
+            for (ProtocolVersion dseVersion : UNSUPPORTED)
             {
                 // if it is an old version that is no longer supported this ensures that we reply
                 // with that same version
-                if (version.num == versionNum)
-                    throw new ProtocolException(ProtocolVersion.invalidVersionMessage(versionNum), version);
+                if (dseVersion.num == versionNum)
+                    throw new ProtocolException(ProtocolVersion.invalidVersionMessage(versionNum), dseVersion);
+            }
+            for (int version : DSE_VERSIONS)
+            {
+                if (versionNum == version)
+                    throw ProtocolException.toSilentException(new ProtocolException(ProtocolVersion.invalidVersionMessage(versionNum)));
             }
 
             // If the version is invalid reply with the channel's version
-            //TODO 3.11 is different than 3.0 here, if I revert this change then the client fails (which is C* decoding logic) as channel version != frame version.  This implies to me that a different issue is going on that should get looked into...
             throw new ProtocolException(invalidVersionMessage(versionNum));
         }
 
