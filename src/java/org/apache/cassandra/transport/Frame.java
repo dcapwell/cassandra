@@ -35,6 +35,8 @@ public class Frame
 {
     public static final byte PROTOCOL_VERSION_MASK = 0x7f;
 
+    private static int[] DSE_VERSIONS = {66, 65};
+
     public final Header header;
     public final ByteBuf body;
 
@@ -177,9 +179,13 @@ public class Frame
             int firstByte = buffer.getByte(idx++);
             Message.Direction direction = Message.Direction.extractFromVersion(firstByte);
             int version = firstByte & PROTOCOL_VERSION_MASK;
+            for (int dseVersion : DSE_VERSIONS)
+            {
+                if (dseVersion == version)
+                    throw ProtocolException.toSilentException(new ProtocolException(invalidVersionMessage(version)));
+            }
             if (version < Server.MIN_SUPPORTED_VERSION || version > versionCap.getMaxVersion())
-                throw new ProtocolException(String.format("Invalid or unsupported protocol version (%d); the lowest supported version is %d and the greatest is %d",
-                                                          version, Server.MIN_SUPPORTED_VERSION, versionCap.getMaxVersion()),
+                throw new ProtocolException(invalidVersionMessage(version),
                                             // only override the version IFF the version is less than the min supported, as this is relativly safe since older versions were the same up to v3.
                                             // in the case where version is greater than, it isn't known if the protocol has changed, so reply back normally
                                             version < Server.MIN_SUPPORTED_VERSION ? version : null);
@@ -247,6 +253,12 @@ public class Frame
             }
 
             results.add(new Frame(new Header(version, flags, streamId, type, bodyLength), body));
+        }
+
+        private String invalidVersionMessage(int version)
+        {
+            return String.format("Invalid or unsupported protocol version (%d); the lowest supported version is %d and the greatest is %d",
+                                 version, Server.MIN_SUPPORTED_VERSION, versionCap.getMaxVersion());
         }
 
         private void fail()
