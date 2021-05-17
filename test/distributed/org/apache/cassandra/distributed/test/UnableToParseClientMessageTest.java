@@ -25,6 +25,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import io.netty.buffer.Unpooled;
+import org.apache.cassandra.Util;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
@@ -63,15 +64,16 @@ public class UnableToParseClientMessageTest extends TestBaseImpl
                 client.connect(false, true);
 
                 // this should return a failed response
-                String response = client.write(Unpooled.wrappedBuffer("This is just a test".getBytes(StandardCharsets.UTF_8))).toString();
+                String response = client.write(Unpooled.wrappedBuffer("This is just a test".getBytes(StandardCharsets.UTF_8)), false).toString();
                 Assert.assertTrue("Resposne '" + response + "' expected to contain 'Invalid or unsupported protocol version (84); the lowest supported version is 3 and the greatest is 4'",
                                   response.contains("Invalid or unsupported protocol version (84); the lowest supported version is 3 and the greatest is 4"));
 
                 node.runOnInstance(() -> {
-                    // channelRead throws then channelInactive throws after trying to read remaining bytes
-                    Assert.assertEquals(2, CassandraMetricsRegistry.Metrics.getMeters()
-                                                                           .get("org.apache.cassandra.metrics.Client.ProtocolException")
-                                                                           .getCount());
+                    Util.spinAssertEquals(1L,
+                                          () -> CassandraMetricsRegistry.Metrics.getMeters()
+                                                                                .get("org.apache.cassandra.metrics.Client.ProtocolException")
+                                                                                .getCount(),
+                                          10);
                     Assert.assertEquals(0, CassandraMetricsRegistry.Metrics.getMeters()
                                                                            .get("org.apache.cassandra.metrics.Client.UnknownException")
                                                                            .getCount());
