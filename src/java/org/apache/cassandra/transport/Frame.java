@@ -35,7 +35,8 @@ public class Frame
 {
     public static final byte PROTOCOL_VERSION_MASK = 0x7f;
 
-    private static int[] DSE_VERSIONS = {66, 65};
+    /** These versions are sent by some clients, but are not valid Apache Cassandra versions (66, and 65 are DSE versions) */
+    private static int[] KNOWN_INVALID_VERSIONS = { 66, 65};
 
     public final Header header;
     public final ByteBuf body;
@@ -179,7 +180,7 @@ public class Frame
             int firstByte = buffer.getByte(idx++);
             Message.Direction direction = Message.Direction.extractFromVersion(firstByte);
             int version = firstByte & PROTOCOL_VERSION_MASK;
-            for (int dseVersion : DSE_VERSIONS)
+            for (int dseVersion : KNOWN_INVALID_VERSIONS)
             {
                 if (dseVersion == version)
                     throw ProtocolException.toSilentException(new ProtocolException(invalidVersionMessage(version)));
