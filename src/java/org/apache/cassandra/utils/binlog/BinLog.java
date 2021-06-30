@@ -170,6 +170,7 @@ public class BinLog implements Runnable
         sampleQueue.put(NO_OP);
         binLogThread.join();
         appender = null;
+        queue.close();
         queue = null;
         archiver.stop();
         currentPaths.remove(path);
