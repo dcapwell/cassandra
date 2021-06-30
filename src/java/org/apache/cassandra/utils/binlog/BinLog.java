@@ -169,6 +169,7 @@ public class BinLog implements Runnable
         shouldContinue = false;
         sampleQueue.put(NO_OP);
         binLogThread.join();
+        appender.close();
         appender = null;
         queue.close();
         queue = null;
