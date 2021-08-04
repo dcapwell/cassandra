@@ -23,6 +23,7 @@ import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.security.Permission;
@@ -44,7 +45,15 @@ import javax.management.NotificationListener;
 
 import com.google.common.annotations.VisibleForTesting;
 
+import com.datastax.driver.core.AuthProvider;
+import com.datastax.driver.core.Host;
+import com.datastax.driver.core.PlainTextAuthProvider;
+import com.datastax.driver.core.ResultSet;
+import com.datastax.driver.core.Row;
+import com.datastax.driver.core.Session;
+import com.datastax.driver.core.SimpleStatement;
 import io.netty.util.concurrent.GlobalEventExecutor;
+import org.apache.cassandra.auth.CassandraRoleManager;
 import org.apache.cassandra.batchlog.Batch;
 import org.apache.cassandra.batchlog.BatchlogManager;
 import org.apache.cassandra.concurrent.ExecutorLocals;
@@ -70,6 +79,8 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.Constants;
 import org.apache.cassandra.distributed.action.GossipHelper;
+import org.apache.cassandra.distributed.api.ConsistencyLevel;
+import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.ICoordinator;
 import org.apache.cassandra.distributed.api.IInstance;
@@ -79,6 +90,7 @@ import org.apache.cassandra.distributed.api.IListen;
 import org.apache.cassandra.distributed.api.IMessage;
 import org.apache.cassandra.distributed.api.LogAction;
 import org.apache.cassandra.distributed.api.NodeToolResult;
+import org.apache.cassandra.distributed.api.QueryResults;
 import org.apache.cassandra.distributed.api.SimpleQueryResult;
 import org.apache.cassandra.distributed.mock.nodetool.InternalNodeProbe;
 import org.apache.cassandra.distributed.mock.nodetool.InternalNodeProbeFactory;
@@ -215,12 +227,84 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
     @Override
     public SimpleQueryResult executeInternalWithResult(String query, Object... args)
     {
+        if (config.has(NATIVE_PROTOCOL)) {
+            // create a client and use that
+            return executeViaClient(query, args);
+        }
         return sync(() -> {
             QueryHandler.Prepared prepared = QueryProcessor.prepareInternal(query);
             ResultMessage result = prepared.statement.executeLocally(QueryProcessor.internalQueryState(),
                                                                      QueryProcessor.makeInternalOptions(prepared.statement, args));
             return RowUtil.toQueryResult(result);
         }).call();
+    }
+
+    private SimpleQueryResult executeViaClient(String query, Object[] args)
+    {
+        InetAddress target = config.broadcastAddress().getAddress();
+        AuthProvider auth = null;
+        if ("org.apache.cassandra.auth.PasswordAuthenticator".equals(config.getString("authenticator")))
+            auth = new PlainTextAuthProvider("cassandra", "cassandra");
+        return executeViaClient(auth, null, target, query, args);
+    }
+
+    static SimpleQueryResult executeViaClient(AuthProvider auth, ConsistencyLevel cl, InetAddress target, String query, Object[] args)
+    {
+        com.datastax.driver.core.Cluster.Builder clusterBuilder = com.datastax.driver.core.Cluster.builder();
+        if (target != null)
+        {
+            clusterBuilder.addContactPoint(target.getHostAddress());
+        }
+        else
+        {
+            clusterBuilder.addContactPoint("127.0.0.1");
+        }
+        if (auth != null)
+            clusterBuilder.withAuthProvider(auth);
+        try (com.datastax.driver.core.Cluster cluster = clusterBuilder.build();
+             Session session = cluster.connect())
+        {
+            SimpleStatement statement = new SimpleStatement(query, args);
+            if (cl != null)
+                statement.setConsistencyLevel(to(cl));
+            if (target != null) {
+                Host host = cluster.getMetadata().getAllHosts().stream()
+                                   .filter(h -> h.getBroadcastAddress().equals(target))
+                                   .findFirst().get();
+                statement.setHost(host);
+            }
+            ResultSet rs = session.execute(statement);
+            QueryResults.Builder builder = QueryResults.builder().columns(rs.getColumnDefinitions().asList().stream().map(d -> d.getName()).toArray(String[]::new));
+            for (Row row : rs) {
+                Object[] a = new Object[row.getColumnDefinitions().size()];
+                for (int i = 0; i < a.length; i++) {
+                    a[i] = row.getObject(i);
+                }
+                builder.row(a);
+            }
+            return builder.build();
+        }
+    }
+
+    private static com.datastax.driver.core.ConsistencyLevel to(ConsistencyLevel cl)
+    {
+        switch (cl)
+        {
+            case ALL: return com.datastax.driver.core.ConsistencyLevel.ALL;
+            case ANY: return com.datastax.driver.core.ConsistencyLevel.ANY;
+            case ONE: return com.datastax.driver.core.ConsistencyLevel.ONE;
+            case TWO: return com.datastax.driver.core.ConsistencyLevel.TWO;
+            case THREE: return com.datastax.driver.core.ConsistencyLevel.THREE;
+            case QUORUM: return com.datastax.driver.core.ConsistencyLevel.QUORUM;
+            case SERIAL: return com.datastax.driver.core.ConsistencyLevel.SERIAL;
+            case LOCAL_ONE: return com.datastax.driver.core.ConsistencyLevel.LOCAL_ONE;
+//            case NODE_LOCAL: return com.datastax.driver.core.ConsistencyLevel.
+            case EACH_QUORUM: return com.datastax.driver.core.ConsistencyLevel.EACH_QUORUM;
+            case LOCAL_QUORUM: return com.datastax.driver.core.ConsistencyLevel.LOCAL_QUORUM;
+            case LOCAL_SERIAL: return com.datastax.driver.core.ConsistencyLevel.LOCAL_SERIAL;
+            default:
+                throw new IllegalArgumentException("Unknow ConsistencyLevel: " + cl);
+        }
     }
 
     @Override
@@ -578,6 +662,10 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                     throw new IllegalStateException(String.format("%s != %s", FBUtilities.getBroadcastAddressAndPort(), broadcastAddress()));
 
                 ActiveRepairService.instance.start();
+
+                // async role creation FTW
+                if (DatabaseDescriptor.getRoleManager() instanceof CassandraRoleManager)
+                    logs().watchFor("Created default superuser role 'cassandra'");
             }
             catch (Throwable t)
             {

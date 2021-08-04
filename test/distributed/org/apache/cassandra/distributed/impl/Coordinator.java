@@ -29,12 +29,15 @@ import java.util.concurrent.Future;
 
 import com.google.common.collect.Iterators;
 
+import com.datastax.driver.core.AuthProvider;
+import com.datastax.driver.core.PlainTextAuthProvider;
 import org.apache.cassandra.cql3.CQLStatement;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.cql3.statements.SelectStatement;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
+import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.distributed.api.ICoordinator;
 import org.apache.cassandra.distributed.api.IInstance;
 import org.apache.cassandra.distributed.api.QueryResult;
@@ -87,6 +90,13 @@ public class Coordinator implements ICoordinator
 
     private SimpleQueryResult executeInternal(String query, ConsistencyLevel consistencyLevelOrigin, Object[] boundValues)
     {
+        if (instance.config.has(Feature.NATIVE_PROTOCOL))
+        {
+            AuthProvider auth = null;
+            if ("org.apache.cassandra.auth.PasswordAuthenticator".equals(instance.config.getString("authenticator")))
+                auth = new PlainTextAuthProvider("cassandra", "cassandra");
+            return Instance.executeViaClient(auth, consistencyLevelOrigin, null, query, boundValues);
+        }
         ClientState clientState = makeFakeClientState();
         CQLStatement prepared = QueryProcessor.getStatement(query, clientState);
         List<ByteBuffer> boundBBValues = new ArrayList<>();
