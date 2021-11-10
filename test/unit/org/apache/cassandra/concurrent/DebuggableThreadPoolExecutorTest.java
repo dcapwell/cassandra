@@ -22,11 +22,13 @@ package org.apache.cassandra.concurrent;
 
 
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RunnableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 import com.google.common.base.Throwables;
 import com.google.common.net.InetAddresses;
@@ -37,10 +39,12 @@ import org.junit.Test;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.locator.InetAddressAndPort;
+import org.apache.cassandra.service.ClientWarn;
 import org.apache.cassandra.tracing.TraceState;
 import org.apache.cassandra.tracing.TraceStateImpl;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.WrappedRunnable;
+import org.assertj.core.api.Assertions;
 
 public class DebuggableThreadPoolExecutorTest
 {
@@ -76,6 +80,34 @@ public class DebuggableThreadPoolExecutorTest
             continue;
         long delta = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
         assert delta >= 9 * 50 : delta;
+    }
+
+    @Test
+    public void testExecuteFutureTaskWhileCapturingClientWarnings() throws InterruptedException
+    {
+        testClientWarnings(executor -> executor.execute(() -> ClientWarn.instance.warn("msg")));
+        testClientWarnings(executor -> executor.submit(() -> ClientWarn.instance.warn("msg")));
+        testClientWarnings(executor -> executor.submit(() -> ClientWarn.instance.warn("msg"), null));
+        testClientWarnings(executor -> executor.submit((Callable<Void>) () -> {
+            ClientWarn.instance.warn("msg");
+            return null;
+        }));
+    }
+
+    private void testClientWarnings(Consumer<DebuggableThreadPoolExecutor> schedulingTask) throws InterruptedException
+    {
+        LinkedBlockingQueue<Runnable> q = new LinkedBlockingQueue<Runnable>(1);
+        DebuggableThreadPoolExecutor executor = new DebuggableThreadPoolExecutor(1,
+                                                                                 Integer.MAX_VALUE,
+                                                                                 TimeUnit.MILLISECONDS,
+                                                                                 q,
+                                                                                 new NamedThreadFactory("TEST"));
+
+        ClientWarn.instance.captureWarnings();
+        schedulingTask.accept(executor);
+        executor.shutdown();
+        Assertions.assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        Assertions.assertThat(ClientWarn.instance.getWarnings()).contains("msg");
     }
 
     @Test
