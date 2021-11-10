@@ -36,6 +36,7 @@ import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.cassandra.service.ClientWarn.isCapturingClientWarnings;
 import static org.apache.cassandra.tracing.Tracing.isTracing;
 
 /**
@@ -169,11 +170,16 @@ public class DebuggableThreadPoolExecutor extends ThreadPoolExecutor implements 
         execute(command);
     }
 
+    private boolean shouldCreateLocalSessionWrapper(Object command)
+    {
+        return (isTracing() || isCapturingClientWarnings()) && !(command instanceof LocalSessionWrapper);
+    }
+
     // execute does not call newTaskFor
     @Override
     public void execute(Runnable command)
     {
-        super.execute(isTracing() && !(command instanceof LocalSessionWrapper)
+        super.execute(shouldCreateLocalSessionWrapper(command)
                       ? LocalSessionWrapper.create(command)
                       : command);
     }
@@ -181,7 +187,7 @@ public class DebuggableThreadPoolExecutor extends ThreadPoolExecutor implements 
     @Override
     protected <T> RunnableFuture<T> newTaskFor(Runnable runnable, T result)
     {
-        if (isTracing() && !(runnable instanceof LocalSessionWrapper))
+        if (shouldCreateLocalSessionWrapper(runnable))
             return LocalSessionWrapper.create(runnable, result);
         if (runnable instanceof RunnableFuture)
             return new ForwardingRunnableFuture<>((RunnableFuture) runnable, result);
@@ -191,7 +197,7 @@ public class DebuggableThreadPoolExecutor extends ThreadPoolExecutor implements 
     @Override
     protected <T> RunnableFuture<T> newTaskFor(Callable<T> callable)
     {
-        if (isTracing() && !(callable instanceof LocalSessionWrapper))
+        if (shouldCreateLocalSessionWrapper(callable))
             return LocalSessionWrapper.create(callable);
         return super.newTaskFor(callable);
     }

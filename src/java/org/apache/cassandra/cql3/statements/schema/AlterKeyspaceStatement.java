@@ -63,9 +63,6 @@ public final class AlterKeyspaceStatement extends AlterSchemaStatement
 
     public Keyspaces apply(Keyspaces schema)
     {
-        if (ClientWarn.instance.get() == null)
-            ClientWarn.instance.captureWarnings();
-        int previousNumWarnings = ClientWarn.instance.numWarnings();
         attrs.validate();
 
         KeyspaceMetadata keyspace = schema.getNullable(keyspaceName);
@@ -83,10 +80,6 @@ public final class AlterKeyspaceStatement extends AlterSchemaStatement
         validateTransientReplication(keyspace.createReplicationStrategy(), newKeyspace.createReplicationStrategy());
 
         Keyspaces res = schema.withAddedOrUpdated(newKeyspace);
-
-        int newNumWarnings = ClientWarn.instance.numWarnings();
-        if (newNumWarnings > previousNumWarnings)
-            clientWarnings.addAll(ClientWarn.instance.getWarnings().subList(previousNumWarnings, newNumWarnings));
 
         return res;
     }

@@ -74,6 +74,11 @@ public class ClientWarn implements ExecutorLocal<ClientWarn.State>
         warnLocal.remove();
     }
 
+    public static boolean isCapturingClientWarnings()
+    {
+        return instance.get() != null;
+    }
+
     public static class State
     {
         private final List<String> warnings = new ArrayList<>();
