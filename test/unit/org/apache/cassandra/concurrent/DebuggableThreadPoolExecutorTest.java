@@ -23,16 +23,17 @@ package org.apache.cassandra.concurrent;
 
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RunnableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
 
 import com.google.common.base.Throwables;
 import com.google.common.net.InetAddresses;
 import com.google.common.util.concurrent.ListenableFutureTask;
+import com.google.common.util.concurrent.Uninterruptibles;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -43,8 +44,11 @@ import org.apache.cassandra.service.ClientWarn;
 import org.apache.cassandra.tracing.TraceState;
 import org.apache.cassandra.tracing.TraceStateImpl;
 import org.apache.cassandra.tracing.Tracing;
+import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.WrappedRunnable;
 import org.assertj.core.api.Assertions;
+
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 public class DebuggableThreadPoolExecutorTest
 {
@@ -83,31 +87,71 @@ public class DebuggableThreadPoolExecutorTest
     }
 
     @Test
-    public void testExecuteFutureTaskWhileCapturingClientWarnings() throws InterruptedException
+    public void testLocalStatePropagation() throws InterruptedException
     {
-        testClientWarnings(executor -> executor.execute(() -> ClientWarn.instance.warn("msg")));
-        testClientWarnings(executor -> executor.submit(() -> ClientWarn.instance.warn("msg")));
-        testClientWarnings(executor -> executor.submit(() -> ClientWarn.instance.warn("msg"), null));
-        testClientWarnings(executor -> executor.submit((Callable<Void>) () -> {
+        DebuggableThreadPoolExecutor executor = DebuggableThreadPoolExecutor.createWithFixedPoolSize("TEST", 1);
+        try
+        {
+            checkLocalStateIsPropagated(executor);
+        }
+        finally
+        {
+            executor.shutdown();
+        }
+    }
+
+    public static void checkLocalStateIsPropagated(LocalAwareExecutorService executor)
+    {
+        checkClientWarningsArePropagated(executor, () -> executor.execute(() -> ClientWarn.instance.warn("msg")));
+        checkClientWarningsArePropagated(executor, () -> executor.submit(() -> ClientWarn.instance.warn("msg")));
+        checkClientWarningsArePropagated(executor, () -> executor.submit(() -> ClientWarn.instance.warn("msg"), null));
+        checkClientWarningsArePropagated(executor, () -> executor.submit((Callable<Void>) () -> {
             ClientWarn.instance.warn("msg");
+            return null;
+        }));
+
+        checkTracingIsPropagated(executor, () -> executor.execute(() -> Tracing.trace("msg")));
+        checkTracingIsPropagated(executor, () -> executor.submit(() -> Tracing.trace("msg")));
+        checkTracingIsPropagated(executor, () -> executor.submit(() -> Tracing.trace("msg"), null));
+        checkTracingIsPropagated(executor, () -> executor.submit((Callable<Void>) () -> {
+            Tracing.trace("msg");
             return null;
         }));
     }
 
-    private void testClientWarnings(Consumer<DebuggableThreadPoolExecutor> schedulingTask) throws InterruptedException
-    {
-        LinkedBlockingQueue<Runnable> q = new LinkedBlockingQueue<Runnable>(1);
-        DebuggableThreadPoolExecutor executor = new DebuggableThreadPoolExecutor(1,
-                                                                                 Integer.MAX_VALUE,
-                                                                                 TimeUnit.MILLISECONDS,
-                                                                                 q,
-                                                                                 new NamedThreadFactory("TEST"));
-
+    public static void checkClientWarningsArePropagated(LocalAwareExecutorService executor, Runnable schedulingTask) {
         ClientWarn.instance.captureWarnings();
-        schedulingTask.accept(executor);
-        executor.shutdown();
-        Assertions.assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
-        Assertions.assertThat(ClientWarn.instance.getWarnings()).contains("msg");
+        Assertions.assertThat(ClientWarn.instance.getWarnings()).isNullOrEmpty();
+
+        ClientWarn.instance.warn("msg0");
+        long initCompletedTasks = executor.getCompletedTaskCount();
+        schedulingTask.run();
+        while (executor.getCompletedTaskCount() == initCompletedTasks) Uninterruptibles.sleepUninterruptibly(10, MILLISECONDS);
+        ClientWarn.instance.warn("msg1");
+
+        Assertions.assertThat(ClientWarn.instance.getWarnings()).containsExactlyInAnyOrder("msg0", "msg", "msg1");
+    }
+
+    public static void checkTracingIsPropagated(LocalAwareExecutorService executor, Runnable schedulingTask) {
+        ClientWarn.instance.captureWarnings();
+        Assertions.assertThat(ClientWarn.instance.getWarnings()).isNullOrEmpty();
+
+        ConcurrentLinkedQueue<String> q = new ConcurrentLinkedQueue<>();
+        Tracing.instance.set(new TraceState(FBUtilities.getLocalAddressAndPort(), UUID.randomUUID(), Tracing.TraceType.NONE)
+        {
+            @Override
+            protected void traceImpl(String message)
+            {
+                q.add(message);
+            }
+        });
+        Tracing.trace("msg0");
+        long initCompletedTasks = executor.getCompletedTaskCount();
+        schedulingTask.run();
+        while (executor.getCompletedTaskCount() == initCompletedTasks) Uninterruptibles.sleepUninterruptibly(10, MILLISECONDS);
+        Tracing.trace("msg1");
+
+        Assertions.assertThat(q.toArray()).containsExactlyInAnyOrder("msg0", "msg", "msg1");
     }
 
     @Test
