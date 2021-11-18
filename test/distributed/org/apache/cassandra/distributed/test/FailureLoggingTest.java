@@ -30,6 +30,7 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
 import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.distributed.Cluster;
@@ -52,7 +53,7 @@ public class FailureLoggingTest extends TestBaseImpl
     @BeforeClass
     public static void setUpCluster() throws IOException
     {
-        System.setProperty("cassandra.request_failure_log_interval_seconds", "0");
+        CassandraRelevantProperties.FAILURE_LOGGING_INTERVAL_SECONDS.setInt(0);
         cluster = init(Cluster.build(1).withInstanceInitializer(BBRequestFailures::install).start());
         cluster.schemaChange("create table "+KEYSPACE+".tbl (id int primary key, i int)");
     }
@@ -60,16 +61,17 @@ public class FailureLoggingTest extends TestBaseImpl
     @AfterClass
     public static void tearDownCluster()
     {
-        cluster.close();
+        if (cluster != null)
+            cluster.close();
     }
-    
+
     @Before
     public void resetBootstrappingState()
     {
         cluster.get(1).callOnInstance(() -> BBRequestFailures.bootstrapping = false);
         
     }
-    
+
     @Test
     public void testRequestBootstrapFail() throws Throwable
     {

@@ -50,6 +50,7 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.batchlog.Batch;
 import org.apache.cassandra.batchlog.BatchlogManager;
 import org.apache.cassandra.concurrent.Stage;
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.ConsistencyLevel;
@@ -164,9 +165,8 @@ public class StorageProxy implements StorageProxyMBean
     private static final Logger logger = LoggerFactory.getLogger(StorageProxy.class);
 
     public static final String UNREACHABLE = "UNREACHABLE";
-    
-    public static final String REQUEST_FAIL_MESSAGE = "\"{}\" while executing {}";
-    private static final int FAILURE_LOGGING_INTERVAL_SECONDS = Integer.getInteger("cassandra.request_failure_log_interval_seconds", 60);
+
+    private static final int FAILURE_LOGGING_INTERVAL_SECONDS = CassandraRelevantProperties.FAILURE_LOGGING_INTERVAL_SECONDS.getInt();
 
     private static final WritePerformer standardWritePerformer;
     private static final WritePerformer counterWritePerformer;
@@ -2469,7 +2469,7 @@ public class StorageProxy implements StorageProxyMBean
     public static void logRequestException(Exception exception, Collection<? extends ReadCommand> commands)
     {
         NoSpamLogger.log(logger, NoSpamLogger.Level.INFO, FAILURE_LOGGING_INTERVAL_SECONDS, TimeUnit.SECONDS,
-                         REQUEST_FAIL_MESSAGE,
+                         "\"{}\" while executing {}",
                          () -> new Object[]
                                {
                                    exception.getMessage(),
