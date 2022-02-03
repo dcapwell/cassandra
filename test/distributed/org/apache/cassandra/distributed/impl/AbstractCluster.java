@@ -273,12 +273,14 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
 
         public boolean isShutdown()
         {
-            return isShutdown;
+            IInvokableInstance delegate = this.delegate;
+            // if the instance shuts down on its own, detect that
+            return isShutdown || (delegate != null && delegate.isShutdown());
         }
 
         private boolean isRunning()
         {
-            return !isShutdown;
+            return !isShutdown();
         }
 
         @Override
@@ -309,9 +311,9 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
                 instanceMap.put(newAddress, (I) this); // if the broadcast address changes, update
                 instanceMap.remove(previous);
                 broadcastAddress = newAddress;
-                // remove delegate to make sure static state is reset
-                delegate = null;
             }
+            // remove delegate to make sure static state is reset
+            delegate = null;
             try
             {
                 delegateForStartup().startup(cluster);
