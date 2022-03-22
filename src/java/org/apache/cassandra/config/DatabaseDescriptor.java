@@ -551,14 +551,14 @@ public class DatabaseDescriptor
             conf.hints_directory = storagedirFor("hints");
         }
 
-        if (conf.native_transport_max_concurrent_requests_in_bytes <= 0)
+        if (conf.native_transport_max_concurrent_requests.toBytes() == 0)
         {
-            conf.native_transport_max_concurrent_requests_in_bytes = Runtime.getRuntime().maxMemory() / 10;
+            conf.native_transport_max_concurrent_requests = DataStorageSpec.inBytes(Runtime.getRuntime().maxMemory() / 10);
         }
 
-        if (conf.native_transport_max_concurrent_requests_in_bytes_per_ip <= 0)
+        if (conf.native_transport_max_concurrent_requests_per_ip.toBytes() == 0)
         {
-            conf.native_transport_max_concurrent_requests_in_bytes_per_ip = Runtime.getRuntime().maxMemory() / 40;
+            conf.native_transport_max_concurrent_requests_per_ip = DataStorageSpec.inBytes(Runtime.getRuntime().maxMemory() / 40);
         }
         
         if (conf.native_transport_rate_limiting_enabled)
@@ -774,13 +774,8 @@ public class DatabaseDescriptor
             throw new ConfigurationException("index_summary_capacity option was set incorrectly to '"
                                              + conf.index_summary_capacity.toString() + "', it should be a non-negative integer.", false);
 
-        if (conf.user_defined_function_fail_timeout < 0)
-            throw new ConfigurationException("user_defined_function_fail_timeout must not be negative", false);
-        if (conf.user_defined_function_warn_timeout < 0)
-            throw new ConfigurationException("user_defined_function_warn_timeout must not be negative", false);
-
-        if (conf.user_defined_function_fail_timeout < conf.user_defined_function_warn_timeout)
-            throw new ConfigurationException("user_defined_function_warn_timeout must less than user_defined_function_fail_timeout", false);
+        if (conf.user_defined_functions_fail_timeout.toMilliseconds() < conf.user_defined_functions_warn_timeout.toMilliseconds())
+            throw new ConfigurationException("user_defined_functions_warn_timeout must less than user_defined_function_fail_timeout", false);
 
         if (!conf.allow_insecure_udfs && !conf.user_defined_functions_threads_enabled)
             throw new ConfigurationException("To be able to set enable_user_defined_functions_threads: false you need to set allow_insecure_udfs: true - this is an unsafe configuration and is not recommended.");
@@ -2491,7 +2486,7 @@ public class DatabaseDescriptor
 
     public static long getNativeTransportMaxConcurrentRequestsInBytesPerIp()
     {
-        return conf.native_transport_max_concurrent_requests_in_bytes_per_ip;
+        return conf.native_transport_max_concurrent_requests_per_ip.toBytes();
     }
 
     public static Config.PaxosVariant getPaxosVariant()
@@ -2626,17 +2621,17 @@ public class DatabaseDescriptor
 
     public static void setNativeTransportMaxConcurrentRequestsInBytesPerIp(long maxConcurrentRequestsInBytes)
     {
-        conf.native_transport_max_concurrent_requests_in_bytes_per_ip = maxConcurrentRequestsInBytes;
+        conf.native_transport_max_concurrent_requests_per_ip = DataStorageSpec.inBytes(maxConcurrentRequestsInBytes);
     }
 
     public static long getNativeTransportMaxConcurrentRequestsInBytes()
     {
-        return conf.native_transport_max_concurrent_requests_in_bytes;
+        return conf.native_transport_max_concurrent_requests.toBytes();
     }
 
     public static void setNativeTransportMaxConcurrentRequestsInBytes(long maxConcurrentRequestsInBytes)
     {
-        conf.native_transport_max_concurrent_requests_in_bytes = maxConcurrentRequestsInBytes;
+        conf.native_transport_max_concurrent_requests = DataStorageSpec.inBytes(maxConcurrentRequestsInBytes);
     }
 
     public static int getNativeTransportMaxRequestsPerSecond()
@@ -3322,12 +3317,12 @@ public class DatabaseDescriptor
 
     public static long getUserDefinedFunctionWarnTimeout()
     {
-        return conf.user_defined_function_warn_timeout;
+        return conf.user_defined_functions_warn_timeout.toMilliseconds();
     }
 
     public static void setUserDefinedFunctionWarnTimeout(long userDefinedFunctionWarnTimeout)
     {
-        conf.user_defined_function_warn_timeout = userDefinedFunctionWarnTimeout;
+        conf.user_defined_functions_warn_timeout = SmallestDurationMilliseconds.inMilliseconds(userDefinedFunctionWarnTimeout);
     }
 
     public static boolean allowInsecureUDFs()
@@ -3383,12 +3378,12 @@ public class DatabaseDescriptor
 
     public static long getUserDefinedFunctionFailTimeout()
     {
-        return conf.user_defined_function_fail_timeout;
+        return conf.user_defined_functions_fail_timeout.toMilliseconds();
     }
 
     public static void setUserDefinedFunctionFailTimeout(long userDefinedFunctionFailTimeout)
     {
-        conf.user_defined_function_fail_timeout = userDefinedFunctionFailTimeout;
+        conf.user_defined_functions_fail_timeout = SmallestDurationMilliseconds.inMilliseconds(userDefinedFunctionFailTimeout);
     }
 
     public static Config.UserFunctionTimeoutPolicy getUserFunctionTimeoutPolicy()
@@ -3667,7 +3662,7 @@ public class DatabaseDescriptor
 
     public static int getValidationPreviewPurgeHeadStartInSec()
     {
-        int seconds = conf.validation_preview_purge_head_start_in_sec;
+        int seconds = conf.validation_preview_purge_head_start.toSecondsAsInt();
         return Math.max(seconds, 0);
     }
 

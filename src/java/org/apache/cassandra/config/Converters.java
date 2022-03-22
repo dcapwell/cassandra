@@ -53,6 +53,9 @@ public enum Converters
     SECONDS_DURATION(Long.class,
                      o -> SmallestDurationSeconds.inSeconds((Long) o),
                      o -> ((SmallestDurationSeconds)o).toSeconds()),
+    NEGATIVE_SECONDS_DURATION(Long.class,
+                              o -> (Long)o <0 ? new SmallestDurationSeconds("0s") : SmallestDurationSeconds.inSeconds((Long) o),
+                              o -> ((SmallestDurationSeconds)o).toSeconds()),
     /**
      * This converter is used to support backward compatibility for Duration parameters where we added the opportunity
      * for the users to add a unit in the parameters' values but we didn't change the names. (key_cache_save_period,
@@ -74,6 +77,14 @@ public enum Converters
     BYTES_DATASTORAGE(Long.class,
                       o -> DataStorageSpec.inBytes((Long) o),
                       o -> ((DataStorageSpec)o).toBytes()),
+    /**
+     * This converter is used to support backward compatibility for parameters where in the past negative number was used as a value
+     * Example: native_transport_max_concurrent_requests_in_bytes_per_ip = -1 and native_transport_max_concurrent_requests_per_ip = null
+     * (quantity of 0B) are equal. All negative numbers are printed as 0 in virtual tables.
+     */
+    BYTES_CUSTOM_DATASTORAGE(Long.class,
+                             o -> (Long)o < 0 ? new DataStorageSpec("0B") : DataStorageSpec.inBytes((Long) o),
+                             o -> ((DataStorageSpec)o).toBytes()),
     MEBIBYTES_PER_SECOND_DATA_RATE(Long.class,
                                    o -> DataRateSpec.inMebibytesPerSecond((Long) o),
                                    o -> ((DataRateSpec)o).toMebibytesPerSecondAsInt()),
