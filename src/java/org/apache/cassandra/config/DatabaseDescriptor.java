@@ -3653,7 +3653,7 @@ public class DatabaseDescriptor
         {
             throw new ConfigurationException(String.format("%s must be positive value < %dB, but was %dB",
                                                            name,
-                                                           value.getUnit()
+                                                           DataStorageSpec.DataStorageUnit.BYTES
                                                                 .convert(Integer.MAX_VALUE, DataStorageSpec.DataStorageUnit.BYTES),
                                                            valueInBytes),
                                              false);

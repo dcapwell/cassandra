@@ -45,7 +45,7 @@ public enum Converters
                            o -> ((SmallestDurationMilliseconds)o).toMilliseconds()),
     /**
      * This converter is used to support backward compatibility for parameters where in the past -1 was used as a value
-     * Example: credentials_update_interval_in_ms = -1 and credentials_update_interval = null (quantity of 0ms) are equal.
+     * Example: credentials_update_interval_in_ms = -1 and credentials_update_interval = null are equal.
      */
     MILLIS_CUSTOM_DURATION(Long.class,
                            o -> (Long)o == -1 ? null : SmallestDurationMilliseconds.inMilliseconds((Long) o),
