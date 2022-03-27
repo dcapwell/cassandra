@@ -1350,7 +1350,7 @@ public class DatabaseDescriptor
 
     public static int getPermissionsUpdateInterval()
     {
-        return conf.permissions_update_interval.toMilliseconds() == 0
+        return conf.permissions_update_interval == null
              ? conf.permissions_validity.toMillisecondsAsInt()
              : conf.permissions_update_interval.toMillisecondsAsInt();
     }
@@ -1392,7 +1392,7 @@ public class DatabaseDescriptor
 
     public static int getRolesUpdateInterval()
     {
-        return conf.roles_update_interval.toMillisecondsAsInt() == 0
+        return conf.roles_update_interval == null
              ? conf.roles_validity.toMillisecondsAsInt()
              : conf.roles_update_interval.toMillisecondsAsInt();
     }
@@ -1434,7 +1434,7 @@ public class DatabaseDescriptor
 
     public static int getCredentialsUpdateInterval()
     {
-        return conf.credentials_update_interval.toMillisecondsAsInt() == 0
+        return conf.credentials_update_interval == null
                ? conf.credentials_validity.toMillisecondsAsInt()
                : conf.credentials_update_interval.toMillisecondsAsInt();
     }

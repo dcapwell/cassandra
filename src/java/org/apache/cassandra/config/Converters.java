@@ -48,13 +48,13 @@ public enum Converters
      * Example: credentials_update_interval_in_ms = -1 and credentials_update_interval = null (quantity of 0ms) are equal.
      */
     MILLIS_CUSTOM_DURATION(Long.class,
-                           o -> (Long)o == -1 ? new SmallestDurationMilliseconds("0ms") : SmallestDurationMilliseconds.inMilliseconds((Long) o),
-                           o -> ((SmallestDurationMilliseconds)o).toMilliseconds() == 0 ? -1 : ((SmallestDurationMilliseconds)o).toMilliseconds()),
+                           o -> (Long)o == -1 ? null : SmallestDurationMilliseconds.inMilliseconds((Long) o),
+                           o -> o == null ? -1 : ((SmallestDurationMilliseconds)o).toMilliseconds()),
     SECONDS_DURATION(Long.class,
                      o -> SmallestDurationSeconds.inSeconds((Long) o),
                      o -> ((SmallestDurationSeconds)o).toSeconds()),
     NEGATIVE_SECONDS_DURATION(Long.class,
-                              o -> (Long)o <0 ? new SmallestDurationSeconds("0s") : SmallestDurationSeconds.inSeconds((Long) o),
+                              o -> (Long)o < 0 ? new SmallestDurationSeconds("0s") : SmallestDurationSeconds.inSeconds((Long) o),
                               o -> ((SmallestDurationSeconds)o).toSeconds()),
     /**
      * This converter is used to support backward compatibility for Duration parameters where we added the opportunity
