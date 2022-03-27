@@ -29,6 +29,8 @@ import static org.apache.commons.lang3.StringUtils.isEmpty;
 import static org.apache.commons.lang3.StringUtils.isNotEmpty;
 
 import java.io.Console;
+
+import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.util.File;
 import org.apache.cassandra.io.util.FileWriter;
 import java.io.FileNotFoundException;
@@ -260,6 +262,7 @@ public class NodeTool
             parse.run(nodeProbeFactory, output);
         } catch (IllegalArgumentException |
                 IllegalStateException |
+                ConfigurationException |
                 ParseArgumentsMissingException |
                 ParseArgumentsUnexpectedException |
                 ParseOptionConversionException |
