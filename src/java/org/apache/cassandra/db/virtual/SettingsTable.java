@@ -60,7 +60,7 @@ final class SettingsTable extends AbstractVirtualTable
 
     // CASSANDRA-15234 - a few configuration parameters kept their names but added unit to their value, only the
     // new value format is displayed for them
-    private final List<String> EXCLUDED_CONFIG = new ArrayList<String>()
+    private static final List<String> EXCLUDED_CONFIG = new ArrayList<String>()
     {
         {
             add("key_cache_save_period");
@@ -68,6 +68,11 @@ final class SettingsTable extends AbstractVirtualTable
             add("counter_cache_save_period");
         }
     };
+
+    private static final ImmutableMap<String, String> SPECIAL_CASE_FIELDS =
+    ImmutableMap.of ("permissions_update_interval", "permissions_update_interval_in_ms",
+                     "credentials_update_interval", "credentials_update_interval_in_ms",
+                     "roles_update_interval", "roles_update_interval_in_ms");
 
     @VisibleForTesting
     final Map<String, BiConsumer<SimpleDataSet, Field>> overrides =
@@ -115,7 +120,7 @@ final class SettingsTable extends AbstractVirtualTable
     private void addValue(SimpleDataSet result, Field f)
     {
         Object value = getValue(f);
-        if (value == null)
+        if (value == null && !SPECIAL_CASE_FIELDS.containsKey(f.getName()))
         {
             result.row(f.getName());
         }
