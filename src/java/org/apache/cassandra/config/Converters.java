@@ -79,8 +79,8 @@ public enum Converters
                       o -> ((DataStorageSpec)o).toBytes()),
     /**
      * This converter is used to support backward compatibility for parameters where in the past negative number was used as a value
-     * Example: native_transport_max_concurrent_requests_in_bytes_per_ip = -1 and native_transport_max_concurrent_requests_per_ip = null
-     * (quantity of 0B) are equal. All negative numbers are printed as 0 in virtual tables.
+     * Example: native_transport_max_concurrent_requests_in_bytes_per_ip = -1 and native_transport_max_concurrent_requests_per_ip = 0B
+     * are equal. All negative numbers are printed as 0 in virtual tables.
      */
     BYTES_CUSTOM_DATASTORAGE(Long.class,
                              o -> (Long)o < 0 ? new DataStorageSpec("0B") : DataStorageSpec.inBytes((Long) o),
