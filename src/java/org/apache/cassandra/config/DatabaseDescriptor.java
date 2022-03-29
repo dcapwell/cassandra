@@ -2630,6 +2630,9 @@ public class DatabaseDescriptor
 
     public static void setNativeTransportMaxConcurrentRequestsInBytesPerIp(long maxConcurrentRequestsInBytes)
     {
+        if (maxConcurrentRequestsInBytes < 0)
+            maxConcurrentRequestsInBytes = 0;
+
         conf.native_transport_max_concurrent_requests_per_ip = DataStorageSpec.inBytes(maxConcurrentRequestsInBytes);
     }
 
@@ -2640,6 +2643,9 @@ public class DatabaseDescriptor
 
     public static void setNativeTransportMaxConcurrentRequestsInBytes(long maxConcurrentRequestsInBytes)
     {
+        if (maxConcurrentRequestsInBytes < 0)
+            maxConcurrentRequestsInBytes = 0;
+
         conf.native_transport_max_concurrent_requests = DataStorageSpec.inBytes(maxConcurrentRequestsInBytes);
     }
 
