@@ -428,7 +428,7 @@ public class Config
 
     public SmallestDataStorageMebibytes paxos_cache_size = null;
 
-    @Replaces(oldName = "cache_load_timeout_seconds ", converter = Converters.SECONDS_DURATION, deprecated = true)
+    @Replaces(oldName = "cache_load_timeout_seconds", converter = Converters.SECONDS_DURATION, deprecated = true)
     public SmallestDurationSeconds cache_load_timeout = new SmallestDurationSeconds("30s");
 
     private static boolean isClientMode = false;
