@@ -120,9 +120,12 @@ final class SettingsTable extends AbstractVirtualTable
     private void addValue(SimpleDataSet result, Field f)
     {
         Object value = getValue(f);
-        if (value == null && !SPECIAL_CASE_FIELDS.containsKey(f.getName()))
+        if (value == null)
         {
             result.row(f.getName());
+
+            if(SPECIAL_CASE_FIELDS.containsKey(f.getName()))
+                 result.row(SPECIAL_CASE_FIELDS.get(f.getName())).column(VALUE, "-1");
         }
         else if (overrides.containsKey(f.getName()))
         {
