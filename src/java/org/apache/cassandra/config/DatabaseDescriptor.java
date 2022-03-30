@@ -1359,8 +1359,10 @@ public class DatabaseDescriptor
     {
         if (updateInterval >= 0)
             conf.permissions_update_interval = SmallestDurationMilliseconds.inMilliseconds(updateInterval);
-        else
+        else if (updateInterval == -1)
             conf.permissions_update_interval = null;
+        else
+            throw new IllegalArgumentException("permission_update_interval should be >= -1");
     }
 
     public static int getPermissionsCacheMaxEntries()
@@ -1414,8 +1416,10 @@ public class DatabaseDescriptor
     {
         if (interval >= 0)
             conf.roles_update_interval = SmallestDurationMilliseconds.inMilliseconds(interval);
-        else
+        else if (interval == -1)
             conf.roles_update_interval = null;
+        else
+            throw new IllegalArgumentException("roles_update_interval should be >= -1");
     }
 
     public static int getRolesCacheMaxEntries()
@@ -1449,8 +1453,10 @@ public class DatabaseDescriptor
     {
         if (updateInterval >= 0)
             conf.credentials_update_interval = SmallestDurationMilliseconds.inMilliseconds(updateInterval);
-        else
+        else if (updateInterval == -1)
             conf.credentials_update_interval = null;
+        else
+            throw new IllegalArgumentException("roles_update_interval should be >= -1");
     }
 
     public static int getCredentialsCacheMaxEntries()

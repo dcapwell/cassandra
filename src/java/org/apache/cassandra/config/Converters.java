@@ -41,8 +41,8 @@ public enum Converters
                     o -> SmallestDurationMilliseconds.inMilliseconds((Long) o),
                     o -> ((SmallestDurationMilliseconds)o).toMilliseconds()),
     MILLIS_DOUBLE_DURATION(Double.class,
-                           o ->  SmallestDurationMilliseconds.inDoubleMilliseconds((Double) o),
-                           o -> ((SmallestDurationMilliseconds)o).toMilliseconds()),
+                           o -> Double.isNaN((Double) o) ? 0 : SmallestDurationMilliseconds.inDoubleMilliseconds((Double) o),
+                           o -> (double)((SmallestDurationMilliseconds)o).toMilliseconds()),
     /**
      * This converter is used to support backward compatibility for parameters where in the past -1 was used as a value
      * Example: credentials_update_interval_in_ms = -1 and credentials_update_interval = null are equal.
