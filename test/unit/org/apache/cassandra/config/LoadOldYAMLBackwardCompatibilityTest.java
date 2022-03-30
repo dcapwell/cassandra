@@ -124,5 +124,6 @@ public class LoadOldYAMLBackwardCompatibilityTest
         assertEquals(DurationSpec.inSecondsString("0"), config.row_cache_save_period);
         assertEquals(DurationSpec.inSeconds(0), config.row_cache_save_period);
         assertEquals(DurationSpec.inHours(2), config.counter_cache_save_period);
+        assertEquals(DurationSpec.inSeconds(35), config.cache_load_timeout);
     }
 }

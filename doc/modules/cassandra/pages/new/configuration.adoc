@@ -52,7 +52,6 @@ our parameters (incrementally, post https://issues.apache.org/jira/browse/CASSAN
 |permissions_update_interval_in_ms |permissions_update_interval |ms
 |roles_validity_in_ms |roles_validity |ms
 |roles_update_interval_in_ms |roles_update_interval |ms
-|roles_update_interval_in_ms |roles_update_interval |ms
 |credentials_validity_in_ms |credentials_validity |ms
 |credentials_update_interval_in_ms |credentials_update_interval |ms
 |max_hint_window_in_ms |max_hint_window |ms
@@ -131,6 +130,9 @@ our parameters (incrementally, post https://issues.apache.org/jira/browse/CASSAN
 |enable_drop_compact_storage |drop_compact_storage_enabled |-
 |enable_user_defined_functions_threads |user_defined_functions_threads_enabled |-
 |enable_legacy_ssl_storage_port |legacy_ssl_storage_port_enabled |-
+|user_defined_function_fail_timeout |user_defined_functions_fail_timeout |ms
+|user_defined_function_warn_timeout |user_defined_functions_warn_timeout |ms
+|cache_load_timeout_seconds |cache_load_timeout |s
 |===
 
 Another TO DO is to add JMX methods supporting the new format. However, we may abandon this if virtual tables support for

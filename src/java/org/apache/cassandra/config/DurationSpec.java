@@ -18,7 +18,6 @@
 package org.apache.cassandra.config;
 
 import java.util.Arrays;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
