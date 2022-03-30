@@ -204,10 +204,10 @@ public class PaxosRepairTest extends TestBaseImpl
     private static final Consumer<IInstanceConfig> CONFIG_CONSUMER = cfg -> {
         cfg.with(Feature.NETWORK);
         cfg.with(Feature.GOSSIP);
-        cfg.set("paxos_purge_grace_period", "0");
+        cfg.set("paxos_purge_grace_period", "0s");
         cfg.set("paxos_state_purging", Config.PaxosStatePurging.repaired.toString());
         cfg.set("paxos_variant", "v2_without_linearizable_reads");
-        cfg.set("truncate_request_timeout_in_ms", 1000L);
+        cfg.set("truncate_request_timeout", "1000ms");
         cfg.set("partitioner", "ByteOrderedPartitioner");
         cfg.set("initial_token", ByteBufferUtil.bytesToHex(ByteBufferUtil.bytes(cfg.num() * 100)));
     };
@@ -298,9 +298,9 @@ public class PaxosRepairTest extends TestBaseImpl
     {
         try (Cluster cluster = init(Cluster.create(3, cfg -> cfg
                 .set("paxos_variant", "v2")
-                .set("paxos_purge_grace_period", 0)
+                .set("paxos_purge_grace_period", "0s")
                 .set("paxos_state_purging", Config.PaxosStatePurging.repaired.toString())
-                .set("truncate_request_timeout_in_ms", 1000L))))
+                .set("truncate_request_timeout", "1000ms"))))
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + '.' + TABLE + " (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
 
@@ -365,9 +365,9 @@ public class PaxosRepairTest extends TestBaseImpl
     {
         try (Cluster cluster = init(Cluster.create(5, cfg -> cfg
                 .set("paxos_variant", "v2")
-                .set("paxos_purge_grace_period", 0)
-                .set("paxos_cache_size", "0")
-                .set("truncate_request_timeout_in_ms", 1000L))))
+                .set("paxos_purge_grace_period", "0s")
+                .set("paxos_cache_size", "0MiB")
+                .set("truncate_request_timeout", "1000ms"))))
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + '.' + TABLE + " (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
 
@@ -433,9 +433,9 @@ public class PaxosRepairTest extends TestBaseImpl
     {
         try (Cluster cluster = init(Cluster.create(3, cfg -> cfg
                 .set("paxos_variant", "v2")
-                .set("paxos_purge_grace_period", 0)
+                .set("paxos_purge_grace_period", "0s")
                 .set("paxos_state_purging", Config.PaxosStatePurging.repaired.toString())
-                .set("truncate_request_timeout_in_ms", 1000L)))
+                .set("truncate_request_timeout", "1000ms")))
         )
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + '.' + TABLE + " (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
