@@ -1357,7 +1357,7 @@ public class DatabaseDescriptor
 
     public static void setPermissionsUpdateInterval(int updateInterval)
     {
-        if (updateInterval != -1)
+        if (updateInterval >= 0)
             conf.permissions_update_interval = SmallestDurationMilliseconds.inMilliseconds(updateInterval);
         else
             conf.permissions_update_interval = null;
@@ -1412,7 +1412,7 @@ public class DatabaseDescriptor
 
     public static void setRolesUpdateInterval(int interval)
     {
-        if (interval != -1)
+        if (interval >= 0)
             conf.roles_update_interval = SmallestDurationMilliseconds.inMilliseconds(interval);
         else
             conf.roles_update_interval = null;
@@ -1447,7 +1447,7 @@ public class DatabaseDescriptor
 
     public static void setCredentialsUpdateInterval(int updateInterval)
     {
-        if (updateInterval == -1)
+        if (updateInterval >= 0)
             conf.credentials_update_interval = SmallestDurationMilliseconds.inMilliseconds(updateInterval);
         else
             conf.credentials_update_interval = null;
