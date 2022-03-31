@@ -27,9 +27,11 @@ import java.util.Map;
 import com.google.common.collect.ImmutableMap;
 import org.junit.Test;
 
+import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.util.File;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.Assert.assertEquals;
 
 
@@ -93,6 +95,7 @@ public class YamlConfigurationLoaderTest
                                  .put("client_encryption_options", encryptionOptions)
                                  .put("internode_socket_send_buffer_size", "5B")
                                  .put("internode_socket_receive_buffer_size", "5B")
+                                 .put("commitlog_sync_group_window_in_ms", "42")
                                  .build();
 
         Config config = YamlConfigurationLoader.fromMap(map, Config.class);
@@ -126,6 +129,43 @@ public class YamlConfigurationLoaderTest
         SubnetGroups expected = new SubnetGroups(Arrays.asList("127.0.0.1", "127.0.0.0/31"));
         assertThat(config.client_error_reporting_exclusions).isEqualTo(expected);
         assertThat(config.internode_error_reporting_exclusions).isEqualTo(expected);
+    }
+
+    @Test
+    public void converters()
+    {
+        // MILLIS_DOUBLE_DURATION
+        assertThat(from("commitlog_sync_group_window_in_ms", "42").commitlog_sync_group_window.toMilliseconds()).isEqualTo(42);
+        assertThat(from("commitlog_sync_group_window_in_ms", "NaN").commitlog_sync_group_window.toMilliseconds()).isEqualTo(0);
+        assertThatThrownBy(() -> from("commitlog_sync_group_window_in_ms", -2).commitlog_sync_group_window.toMilliseconds())
+        .hasRootCauseInstanceOf(ConfigurationException.class)
+        .hasRootCauseMessage("Invalid duration -2: value must be positive");
+
+        // MILLIS_CUSTOM_DURATION
+        assertThat(from("permissions_update_interval_in_ms", 42).permissions_update_interval).isEqualTo(SmallestDurationMilliseconds.inMilliseconds(42));
+        assertThat(from("permissions_update_interval_in_ms", -1).permissions_update_interval).isNull();
+        assertThatThrownBy(() -> from("permissions_update_interval_in_ms", -2))
+        .hasRootCauseInstanceOf(ConfigurationException.class)
+        .hasRootCauseMessage("Invalid duration -2: value must be positive");
+
+        // NEGATIVE_SECONDS_DURATION
+        assertThat(from("validation_preview_purge_head_start_in_sec", -1).validation_preview_purge_head_start.toSeconds()).isEqualTo(0);
+        assertThat(from("validation_preview_purge_head_start_in_sec", 0).validation_preview_purge_head_start.toSeconds()).isEqualTo(0);
+        assertThat(from("validation_preview_purge_head_start_in_sec", 42).validation_preview_purge_head_start.toSeconds()).isEqualTo(42);
+
+        // BYTES_CUSTOM_DATASTORAGE
+        assertThat(from("native_transport_max_concurrent_requests_in_bytes_per_ip", -1).native_transport_max_concurrent_requests_per_ip.toBytes()).isEqualTo(0);
+        assertThat(from("native_transport_max_concurrent_requests_in_bytes_per_ip", 0).native_transport_max_concurrent_requests_per_ip.toBytes()).isEqualTo(0);
+        assertThat(from("native_transport_max_concurrent_requests_in_bytes_per_ip", 42).native_transport_max_concurrent_requests_per_ip.toBytes()).isEqualTo(42);
+    }
+
+    private static Config from(Object... values)
+    {
+        assert values.length % 2 == 0 : "Map can only be created with an even number of inputs: given " + values.length;
+        ImmutableMap.Builder<String, Object> builder = ImmutableMap.builder();
+        for (int i = 0; i < values.length; i += 2)
+            builder.put((String) values[i], values[i + 1]);
+        return YamlConfigurationLoader.fromMap(builder.build(), Config.class);
     }
 
     private static Config load(String path)

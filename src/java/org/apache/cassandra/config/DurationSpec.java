@@ -81,13 +81,13 @@ public class DurationSpec
     DurationSpec(long quantity, TimeUnit unit)
     {
         if (quantity < 0)
-            throw new ConfigurationException("Invalid duration: value must be positive");
+            throw new ConfigurationException("Invalid duration " + quantity + ": value must be positive");
 
         this.quantity = quantity;
         this.unit = unit;
     }
 
-    private DurationSpec(double quantity, TimeUnit unit)
+    DurationSpec(double quantity, TimeUnit unit)
     {
         this(Math.round(quantity), unit);
     }
