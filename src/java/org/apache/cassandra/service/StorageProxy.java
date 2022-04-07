@@ -39,7 +39,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.cache.CacheLoader;
 import com.google.common.collect.Iterables;
@@ -195,7 +194,7 @@ public class StorageProxy implements StorageProxyMBean
 
     private static final PartitionDenylist partitionDenylist = new PartitionDenylist();
 
-    private volatile long logBlockingReadRepairAttemptsUntil = Long.MIN_VALUE;
+    private volatile long logBlockingReadRepairAttemptsUntilNanos = Long.MIN_VALUE;
 
     private StorageProxy()
     {
@@ -2061,7 +2060,7 @@ public class StorageProxy implements StorageProxyMBean
 
         // wait for enough responses to meet the consistency level. If there's a digest mismatch, begin the read
         // repair process by sending full data reads to all replicas we received responses from.
-        boolean logBlockingRepairAttempts = instance.loggingReadRepairs();
+        boolean logBlockingRepairAttempts = instance.isLoggingReadRepairs();
         for (int i=0; i<cmdCount; i++)
         {
             reads[i].awaitResponses(logBlockingRepairAttempts);
@@ -2756,7 +2755,13 @@ public class StorageProxy implements StorageProxyMBean
     @Override
     public void logBlockingReadRepairAttemptsForNSeconds(int seconds)
     {
-        logBlockingReadRepairAttemptsUntil = currentTimeMillis() + TimeUnit.SECONDS.toMillis(seconds);
+        logBlockingReadRepairAttemptsUntilNanos = nanoTime() + TimeUnit.SECONDS.toNanos(seconds);
+    }
+
+    @Override
+    public boolean isLoggingReadRepairs()
+    {
+        return nanoTime() <= StorageProxy.instance.logBlockingReadRepairAttemptsUntilNanos;
     }
 
     @Deprecated
@@ -3037,12 +3042,6 @@ public class StorageProxy implements StorageProxyMBean
 
         final ByteBuffer bytes = cfs.metadata.get().partitionKeyType.fromString(partitionKeyAsString);
         return !partitionDenylist.isKeyPermitted(keyspace, table, bytes);
-    }
-
-    @VisibleForTesting
-    public boolean loggingReadRepairs()
-    {
-        return currentTimeMillis() <= StorageProxy.instance.logBlockingReadRepairAttemptsUntil;
     }
 
     @Override
