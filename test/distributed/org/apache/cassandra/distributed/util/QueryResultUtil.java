@@ -36,14 +36,15 @@ public class QueryResultUtil
     {
     }
 
-    public static <A> SimpleQueryResult map(SimpleQueryResult input, String c1, Function<A, Object> c1Fn)
+    public static <A> SimpleQueryResult map(SimpleQueryResult input,
+                                            String c1, Function<A, Object> c1Fn)
     {
         return map(input, Map.of(c1, (Function<Object, Object>) c1Fn));
     }
 
     public static <A, B> SimpleQueryResult map(SimpleQueryResult input,
-                                        String c1, Function<A, Object> c1Fn,
-                                        String c2, Function<B, Object> c2Fn)
+                                               String c1, Function<A, Object> c1Fn,
+                                               String c2, Function<B, Object> c2Fn)
     {
         return map(input, Map.of(c1, (Function<Object, Object>) c1Fn,
                                  c2, (Function<Object, Object>) c2Fn));
