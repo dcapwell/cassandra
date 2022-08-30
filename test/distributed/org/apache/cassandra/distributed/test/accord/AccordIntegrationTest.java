@@ -290,7 +290,7 @@ public class AccordIntegrationTest extends TestBaseImpl
 
     private static void awaitAsyncApply(Cluster cluster) throws TimeoutException
     {
-        long deadlineNanos = nanoTime() + TimeUnit.SECONDS.toNanos(1);
+        long deadlineNanos = nanoTime() + TimeUnit.SECONDS.toNanos(30);
         AtomicReference<TimeoutException> timeout = new AtomicReference<>(null);
         cluster.stream().filter(i -> !i.isShutdown()).forEach(inst -> {
             while (timeout.get() == null)
