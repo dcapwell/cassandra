@@ -28,7 +28,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
@@ -71,7 +70,6 @@ import org.apache.cassandra.service.accord.AccordService;
 import org.apache.cassandra.service.accord.AccordTxnBuilder;
 import org.apache.cassandra.service.accord.db.AccordData;
 import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.utils.Clock;
 import org.apache.cassandra.utils.FailingConsumer;
 import org.assertj.core.api.Assertions;
 
