@@ -73,7 +73,7 @@ public class QueryResultUtil
             };
             rows[i] = row;
         }
-        return new SimpleQueryResult(input.names().toArray(new String[0]), rows, input.warnings());
+        return new SimpleQueryResult(input.names().toArray(String[]::new), rows, input.warnings());
     }
 
     public static boolean contains(SimpleQueryResult qr, Object... values)
