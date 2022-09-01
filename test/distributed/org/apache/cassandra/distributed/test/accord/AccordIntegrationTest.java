@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Spliterator;
 import java.util.Spliterators;
 import java.util.concurrent.ExecutionException;
@@ -296,9 +297,10 @@ public class AccordIntegrationTest extends TestBaseImpl
             while (timeout.get() == null)
             {
                 SimpleQueryResult pending = inst.executeInternalWithResult("SELECT store_generation, store_index, txn_id, status FROM system_accord.commands WHERE status < ? ALLOW FILTERING", Status.Executed.ordinal());
-                pending = QueryResultUtil.map(pending,
-                                              "txn_id", (ByteBuffer bb) -> AccordKeyspace.deserializeTimestampOrNull(bb, TxnId::new),
-                                              "status", (Integer ordinal) -> Status.values()[ordinal]);
+                pending = QueryResultUtil.map(pending, Map.of(
+                "txn_id", (ByteBuffer bb) -> AccordKeyspace.deserializeTimestampOrNull(bb, TxnId::new),
+                "status", (Integer ordinal) -> Status.values()[ordinal]
+                ));
                 logger.info("[node{}] Pending:\n{}", inst.config().num(), QueryResultUtil.expand(pending));
                 pending.reset();
                 if (!pending.hasNext())

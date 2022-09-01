@@ -36,21 +36,8 @@ public class QueryResultUtil
     {
     }
 
-    public static <A> SimpleQueryResult map(SimpleQueryResult input,
-                                            String c1, Function<A, Object> c1Fn)
-    {
-        return map(input, Map.of(c1, (Function<Object, Object>) c1Fn));
-    }
-
-    public static <A, B> SimpleQueryResult map(SimpleQueryResult input,
-                                               String c1, Function<A, Object> c1Fn,
-                                               String c2, Function<B, Object> c2Fn)
-    {
-        return map(input, Map.of(c1, (Function<Object, Object>) c1Fn,
-                                 c2, (Function<Object, Object>) c2Fn));
-    }
-
-    public static SimpleQueryResult map(SimpleQueryResult input, Map<String, Function<Object, Object>> mapper)
+    @SuppressWarnings("unchecked")
+    public static SimpleQueryResult map(SimpleQueryResult input, Map<String, ? extends Function<?, Object>> mapper)
     {
         if (input.toObjectArrays().length == 0 || mapper == null || mapper.isEmpty())
             return input;
@@ -67,10 +54,10 @@ public class QueryResultUtil
             Object[] row = rows[i].clone();
             for (int j = 0; j < idxes.length; j++)
             {
-                Function<Object, Object> map = mapper.get(names.get(j));
+                @SuppressWarnings("rawtypes") Function map = mapper.get(names.get(j));
                 int idx = idxes[j];
                 row[idx] = map.apply(row[idx]);
-            };
+            }
             rows[i] = row;
         }
         return new SimpleQueryResult(input.names().toArray(String[]::new), rows, input.warnings());
