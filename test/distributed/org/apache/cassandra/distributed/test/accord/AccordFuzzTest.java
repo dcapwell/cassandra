@@ -171,7 +171,7 @@ public class AccordFuzzTest extends TestBaseImpl
                     {
                         try
                         {
-                            cluster.coordinator(1).execute(t.toCQL(), ConsistencyLevel.ANY, t.boundValues);
+                            cluster.coordinator(1).execute(t.toCQL(), ConsistencyLevel.ANY);
                             break;
                         }
                         catch (Exception e)

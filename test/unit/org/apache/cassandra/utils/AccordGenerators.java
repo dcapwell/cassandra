@@ -21,6 +21,7 @@ package org.apache.cassandra.utils;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -28,12 +29,14 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Sets;
 
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.schema.ColumnMetadata;
@@ -51,11 +54,14 @@ public class AccordGenerators
     {
         Gen<Boolean> bool = SourceDSL.booleans().all();
         Constraint letRange = Constraint.between(0, 10);
+        Constraint conditionRange = Constraint.between(0, 1);
+        Constraint updateRange = Constraint.between(0, 10);
         Gen<Select> selectGen = selectGen(metadata);
         Gen<List<Expression>> returnGen = selectColumns(metadata);
 //        Gen<String> nameGen = Generators.IDENTIFIER_GEN;
         // table uses IDENTIFIER_GEN but can't use that here due to lack of "" support
         Gen<TxReturn> txReturnGen = SourceDSL.arbitrary().enumValues(TxReturn.class);
+        Gen<TxnUpdate> updateGen = updateGen(metadata);
         return rnd -> {
             TxnBuilder builder = new TxnBuilder();
             do
@@ -82,11 +88,57 @@ public class AccordGenerators
                         builder.output = Optional.of(selectGen.generate(rnd));
                         break;
                 }
+//                int numConditions = Math.toIntExact(rnd.next(conditionRange));
+//                for (int i = 0; i < numConditions; i++)
+//                {
+//                    //TODO
+//                }
+                int numUpdates = Math.toIntExact(rnd.next(updateRange));
+                for (int i = 0; i < numUpdates; i++)
+                    builder.addUpdate(updateGen.generate(rnd));
             } while (builder.isEmpty());
             return builder.build();
         };
     }
-    
+
+    private static Gen<TxnUpdate> updateGen(TableMetadata metadata)
+    {
+        Set<String> partitionColumns = metadata.partitionKeyColumns().stream().map(m -> m.name.toString()).collect(Collectors.toSet());
+        Set<String> clusteringColumns = metadata.clusteringColumns().stream().map(m -> m.name.toString()).collect(Collectors.toSet());
+        Set<String> primaryColumns = Sets.union(partitionColumns, clusteringColumns);
+        Set<String> allColumns = metadata.columns().stream().map(m -> m.name.toString()).collect(Collectors.toSet());
+
+        Gen<TxnUpdate.Kind> kindGen = SourceDSL.arbitrary().enumValues(TxnUpdate.Kind.class);
+        Map<String, Gen<?>> data = CassandraGenerators.tableDataComposed(metadata);
+        Gen<OptionalInt> ttlGen = SourceDSL.integers().allPositive().map(i -> i % 2 == 0 ? OptionalInt.empty() : OptionalInt.of(i));
+        Gen<OptionalLong> timestampGen = SourceDSL.longs().between(1, Long.MAX_VALUE).map(i -> i % 2 == 0 ? OptionalLong.empty() : OptionalLong.of(i));
+        return rnd -> {
+            TxnUpdate.Kind kind = kindGen.generate(rnd);
+//            Set<String> requiredColumns;
+//            switch (kind)
+//            {
+//                case INSERT:
+//                case UPDATE:
+//                    requiredColumns = primaryColumns;
+//                    break;
+//                case DELETE:
+//                    requiredColumns = partitionColumns;
+//                    break;
+//                default:
+//                    throw new IllegalArgumentException("Unknown kind: " + kind);
+//            }
+//            Set<String> optionalColumns = Sets.difference(allColumns, requiredColumns);
+            //TODO don't always include all optional columns
+            Map<String, Element> values = new HashMap<>();
+            for (String name : allColumns)
+            {
+                Object value = data.get(name).generate(rnd);
+                values.put(name, new Literal<>(value));
+            }
+            return new TxnUpdate(kind, metadata, values, ttlGen.generate(rnd), timestampGen.generate(rnd));
+        };
+    }
+
     private static void newLine(StringBuilder sb, int indent)
     {
         sb.append('\n');
@@ -181,13 +233,13 @@ public class AccordGenerators
         public final List<TxnLet> lets;
         // return
         public final Optional<Select> output;
-        //TODO when bind support is done, move away from literals
-        public final Object[] boundValues = new Object[0];
+        public final List<TxnUpdate> updates;
 
-        public Txn(List<TxnLet> lets, Optional<Select> output)
+        public Txn(List<TxnLet> lets, Optional<Select> output, List<TxnUpdate> updates)
         {
             this.lets = lets;
             this.output = output;
+            this.updates = updates;
         }
 
         @Override
@@ -208,11 +260,12 @@ public class AccordGenerators
         @Override
         public Stream<? extends Element> stream()
         {
-            if (output.isEmpty())
-                return lets.stream();
-            return Stream.concat(lets.stream(), Stream.of(output.get()));
+            Stream<? extends Element> ret = lets.stream();
+            if (!output.isEmpty())
+                ret = Stream.concat(ret, Stream.of(output.get()));
+            ret = Stream.concat(ret, updates.stream());
+            return ret;
         }
-        // mutations
     }
 
     public static class TxnBuilder
@@ -221,16 +274,14 @@ public class AccordGenerators
         // no type system so don't need easy lookup to Expression; just existence check
         private final Set<Reference> allowedReferences = new HashSet<>();
         private Optional<Select> output = Optional.empty();
-
-        //TODO makes a lot easier...
-        private final List<Object> binds = new ArrayList<>();
+        private final List<TxnUpdate> updates = new ArrayList<>();
 
         boolean isEmpty()
         {
             // don't include output as 'BEGIN TRANSACTION SELECT "000000000000000010000"; COMMIT TRANSACTION' isn't valid
 //            return lets.isEmpty();
             // TransactionStatement defines empty as no SELECT or updates
-            return output.isEmpty();
+            return output.isEmpty() && updates.isEmpty();
         }
 
         void addLet(String name, Select select)
@@ -245,10 +296,178 @@ public class AccordGenerators
                 allowedReferences.add(new Reference(Arrays.asList(name, e.name().replace("\"", ""))));
         }
 
+        void addUpdate(TxnUpdate update)
+        {
+            this.updates.add(Objects.requireNonNull(update));
+        }
+
         Txn build()
         {
             List<TxnLet> lets = this.lets.entrySet().stream().map(e -> new TxnLet(e.getKey(), e.getValue())).collect(Collectors.toList());
-            return new Txn(lets, output);
+            return new Txn(lets, output, new ArrayList<>(updates));
+        }
+    }
+
+    public static class TxnUpdate implements Element
+    {
+        public enum Kind { INSERT, UPDATE, DELETE};
+        public final Kind kind;
+        public final TableMetadata table;
+        public final Map<String, Element> values;
+        private final Set<String> requiredColumns;
+        private final Set<String> optionalColumns;
+        public final List<String> columnOrder;
+        public final OptionalInt ttl;
+        public final OptionalLong timestampMicros;
+
+        public TxnUpdate(Kind kind, TableMetadata table, Map<String, Element> values, OptionalInt ttl, OptionalLong timestampMicros)
+        {
+            this.kind = kind;
+            this.table = table;
+            this.values = values;
+            this.ttl = ttl;
+            this.timestampMicros = timestampMicros;
+            this.columnOrder = new ArrayList<>(values.keySet());
+
+            // partition key is always required, so validate
+            Set<String> partitionColumns = table.partitionKeyColumns().stream().map(m -> m.name.toString()).collect(Collectors.toSet());
+            Set<String> clusteringColumns = table.clusteringColumns().stream().map(m -> m.name.toString()).collect(Collectors.toSet());
+            Set<String> primaryColumns = Sets.union(partitionColumns, clusteringColumns);
+
+            Set<String> requiredColumns;
+            switch (kind)
+            {
+                case INSERT:
+                case UPDATE:
+                    requiredColumns = primaryColumns;
+                    break;
+                case DELETE:
+                    requiredColumns = partitionColumns;
+                    break;
+                default:
+                    throw new IllegalArgumentException("Unknown kind: " + kind);
+            }
+            this.requiredColumns = requiredColumns;
+            this.optionalColumns = Sets.difference(values.keySet(), requiredColumns);
+            if (!values.keySet().containsAll(requiredColumns))
+                throw new IllegalArgumentException("Not all required columns present; expected (" + requiredColumns + ") but was (" + values.keySet() + ")");
+        }
+
+        @Override
+        public void toCQL(StringBuilder sb, int indent)
+        {
+            switch (kind)
+            {
+                case INSERT:
+                    toCQLInsert(sb, indent);
+                    break;
+                case UPDATE:
+                    toCQLUpdate(sb, indent);
+                    break;
+                case DELETE:
+                    toCQLDelete(sb, indent);
+                    break;
+                default: throw new IllegalArgumentException("Unsupported kind: " + kind);
+            }
+        }
+
+        private void toCQLInsert(StringBuilder sb, int indent)
+        {
+            /*
+INSERT INTO [keyspace_name.] table_name (column_list)
+VALUES (column_values)
+[IF NOT EXISTS]
+[USING TTL seconds | TIMESTAMP epoch_in_microseconds]
+             */
+            sb.append("INSERT INTO ").append(table.toString()).append(" (");
+            for (String name : columnOrder)
+                sb.append(name).append(", ");
+            sb.setLength(sb.length() - 2);
+            sb.append(")");
+            newLine(sb, indent);
+            sb.append("VALUES (");
+            for (String name : columnOrder)
+            {
+                Element value = values.get(name);
+                value.toCQL(sb, indent);
+                sb.append(", ");
+            }
+            sb.setLength(sb.length() - 2);
+            sb.append(")");
+            newLine(sb, indent);
+            maybeAddTTLOrTimestamp(sb);
+        }
+
+        private void maybeAddTTLOrTimestamp(StringBuilder sb)
+        {
+            if (ttl.isPresent() || timestampMicros.isPresent())
+                sb.append("USING ");
+            if (ttl.isPresent())
+                sb.append("TTL ").append(ttl.getAsInt()).append(" ");
+            if (timestampMicros.isPresent())
+                sb.append("TIMESTAMP ").append(timestampMicros.getAsLong());
+        }
+
+        private void toCQLUpdate(StringBuilder sb, int indent)
+        {
+            /*
+UPDATE [keyspace_name.] table_name
+[USING TTL time_value | USING TIMESTAMP timestamp_value]
+SET assignment [, assignment] . . .
+WHERE row_specification
+[IF EXISTS | IF condition [AND condition] . . .] ;
+             */
+            sb.append("UPDATE ").append(table.toString());
+            newLine(sb, indent);
+            maybeAddTTLOrTimestamp(sb);
+            sb.append("SET ");
+            valuesAnd(sb, indent, optionalColumns);
+            newLine(sb, indent);
+            sb.append("WHERE ");
+            valuesAnd(sb, indent, requiredColumns);
+        }
+
+        private void toCQLDelete(StringBuilder sb, int indent)
+        {
+            /*
+DELETE [column_name (term)][, ...]
+FROM [keyspace_name.] table_name
+[USING TIMESTAMP timestamp_value]
+WHERE PK_column_conditions
+[IF EXISTS | IF static_column_conditions]
+             */
+            sb.append("DELETE ");
+            for (String column : values.keySet())
+                sb.append(column).append(", ");
+            sb.setLength(sb.length() - 2);
+            newLine(sb, indent);
+            sb.append("FROM ").append(table.toString());
+            newLine(sb, indent);
+            if (timestampMicros.isPresent())
+            {
+                sb.append("USING TIMESTAMP ").append(timestampMicros.getAsLong());
+                newLine(sb, indent);
+            }
+            sb.append("WHERE ");
+            valuesAnd(sb, indent, columnOrder);
+        }
+
+        private void valuesAnd(StringBuilder sb, int indent, Collection<String> names)
+        {
+            for (String name : names)
+            {
+                Element value = values.get(name);
+                sb.append(name).append('=');
+                value.toCQL(sb, indent);
+                sb.append(" AND ");
+            }
+            sb.setLength(sb.length() - 5);
+        }
+
+        @Override
+        public Stream<? extends Element> stream()
+        {
+            return values.values().stream();
         }
     }
 

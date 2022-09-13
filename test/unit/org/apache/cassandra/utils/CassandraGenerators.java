@@ -21,8 +21,10 @@ import java.lang.reflect.Modifier;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -355,6 +357,22 @@ public final class CassandraGenerators
                 buffers[i] = columnGens.get(i).generate(rnd);
             return buffers;
         };
+    }
+
+    public static Map<String, Gen<ByteBuffer>> tableData(TableMetadata metadata)
+    {
+        Map<String, Gen<ByteBuffer>> output = new HashMap<>();
+        for (ColumnMetadata column : metadata.columns())
+            output.put(column.name.toString(), getTypeSupport(column.type).bytesGen());
+        return output;
+    }
+
+    public static Map<String, Gen<?>> tableDataComposed(TableMetadata metadata)
+    {
+        Map<String, Gen<?>> output = new HashMap<>();
+        for (ColumnMetadata column : metadata.columns())
+            output.put(column.name.toString(), getTypeSupport(column.type).valueGen);
+        return output;
     }
 
     public static Gen<ByteBuffer> partitionKeyDataGen(TableMetadata metadata)
