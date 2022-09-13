@@ -109,7 +109,8 @@ public class AccordFuzzTest extends TestBaseImpl
     @Test
     public void test() throws IOException
     {
-        class C {
+        class C
+        {
             final TableMetadata metadata;
             final List<Txn> transactions;
 
@@ -137,7 +138,9 @@ public class AccordFuzzTest extends TestBaseImpl
         Set<String> tables = new HashSet<>();
         Gen<String> uniqTableNames = rnd -> {
             String name;
-            while (!tables.add((name = nameGen.generate(rnd)))) { }
+            while (!tables.add((name = nameGen.generate(rnd))))
+            {
+            }
             return name;
         };
         Gen<TableMetadata> metadataGen = CassandraGenerators.tableMetadataGenBuilder()
@@ -175,7 +178,10 @@ public class AccordFuzzTest extends TestBaseImpl
                         {
                             //TODO this is a bad error to give to users... shouldn't this be retried automatically?
                             if (AssertionUtils.rootCauseIs(Preempted.class).matches(e))
+                            {
+                                logger.info("Preempted, attempt retry...");
                                 continue;
+                            }
 //                            Throwables.getRootCause(e).getClass().getdeclared
                             throw new RuntimeException("Table:\n" + createStatement + "\nCQL:\n" + t.toCQL(), e);
                         }
@@ -192,6 +198,4 @@ public class AccordFuzzTest extends TestBaseImpl
     {
         return init(Cluster.build(2).withConfig(c -> c.with(Feature.NETWORK, Feature.GOSSIP).set("write_request_timeout", "30s")).start());
     }
-
-
 }
