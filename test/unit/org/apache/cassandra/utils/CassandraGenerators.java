@@ -99,7 +99,10 @@ public final class CassandraGenerators
 
     public static Gen<TableMetadata> tableMetadataGen(Gen<String> identifierGen, Gen<AbstractType<?>> typeGen, Gen<String> keyspaceGen)
     {
-        return gen(rnd -> createTableMetadata(identifierGen, typeGen, keyspaceGen.generate(rnd), rnd)).describedAs(CassandraGenerators::toStringRecursive);
+        return tableMetadataGenBuilder()
+        .withKeyspace(keyspaceGen).withName(identifierGen).withColumnName(identifierGen)
+        .withType(typeGen)
+        .build();
     }
 
     private static final Gen<SinglePartitionReadCommand> SINGLE_PARTITION_READ_COMMAND_GEN = gen(rnd -> {
@@ -151,7 +154,133 @@ public final class CassandraGenerators
 
     }
 
-    public static TableMetadata createTableMetadata(Gen<String> identifierGen, Gen<AbstractType<?>> typeGen, String ks, RandomnessSource rnd)
+    public static TableMetadataGenBuilder tableMetadataGenBuilder()
+    {
+        return new TableMetadataGenBuilder();
+    }
+
+    public static class TableMetadataGenBuilder
+    {
+        Gen<IPartitioner> partitionerGen = PARTITIONER_GEN;
+        Gen<TableId> idGen = Generators.UUID_RANDOM_GEN.map(TableId::fromUUID);
+        Gen<String> keyspaceGen = IDENTIFIER_GEN, nameGen = IDENTIFIER_GEN, columnNameGen = IDENTIFIER_GEN;
+        Gen<TableMetadata.Kind> kindGen = TABLE_KIND_GEN;
+        Gen<AbstractType<?>> typeGen = AbstractTypeGenerators.typeGen();
+        Gen<Boolean> counterGen = BOOLEAN_GEN;
+
+        public TableMetadataGenBuilder withPartitioner(Gen<IPartitioner> partitionerGen)
+        {
+            this.partitionerGen = partitionerGen;
+            return this;
+        }
+
+        public TableMetadataGenBuilder withPartitioner(IPartitioner partitioner)
+        {
+            this.partitionerGen = Generate.constant(partitioner);
+            return this;
+        }
+
+        public TableMetadataGenBuilder withId(Gen<TableId> idGen)
+        {
+            this.idGen = idGen;
+            return this;
+        }
+
+        public TableMetadataGenBuilder withKeyspace(Gen<String> keyspaceGen)
+        {
+            this.keyspaceGen = keyspaceGen;
+            return this;
+        }
+
+        public TableMetadataGenBuilder withKeyspace(String keyspace)
+        {
+            this.keyspaceGen = Generate.constant(keyspace);
+            return this;
+        }
+
+        public TableMetadataGenBuilder withName(Gen<String> nameGen)
+        {
+            this.nameGen = nameGen;
+            return this;
+        }
+
+        public TableMetadataGenBuilder withName(String name)
+        {
+            this.nameGen = Generate.constant(name);
+            return this;
+        }
+
+        public TableMetadataGenBuilder withColumnName(Gen<String> columnNameGen)
+        {
+            this.columnNameGen = columnNameGen;
+            return this;
+        }
+
+        public TableMetadataGenBuilder withKind(Gen<TableMetadata.Kind> kindGen)
+        {
+            this.kindGen = kindGen;
+            return this;
+        }
+
+        public TableMetadataGenBuilder withKind(TableMetadata.Kind kind)
+        {
+            this.kindGen = Generate.constant(kind);
+            return this;
+        }
+
+        public TableMetadataGenBuilder withType(Gen<AbstractType<?>> typeGen)
+        {
+            this.typeGen = typeGen;
+            return this;
+        }
+
+        public TableMetadataGenBuilder withCounter(Gen<Boolean> counterGen)
+        {
+            this.counterGen = counterGen;
+            return this;
+        }
+
+        public TableMetadataGenBuilder withCounter(boolean counter)
+        {
+            this.counterGen = Generate.constant(counter);
+            return this;
+        }
+
+        public Gen<TableMetadata> build()
+        {
+            return gen(rnd -> {
+                String ks = keyspaceGen.generate(rnd);
+                String name = nameGen.generate(rnd);
+
+                TableMetadata.Builder builder = TableMetadata.builder(ks, name, idGen.generate(rnd))
+                                                             .partitioner(partitionerGen.generate(rnd))
+                                                             .kind(kindGen.generate(rnd))
+                                                             .isCounter(counterGen.generate(rnd))
+                                                             .params(TableParams.builder().build());
+
+                // generate columns
+                // must have a non-zero amount of partition columns, but may have 0 for the rest; SMALL_POSSITIVE_SIZE_GEN won't return 0
+                int numPartitionColumns = SMALL_POSITIVE_SIZE_GEN.generate(rnd);
+                int numClusteringColumns = SMALL_POSITIVE_SIZE_GEN.generate(rnd) - 1;
+                int numRegularColumns = SMALL_POSITIVE_SIZE_GEN.generate(rnd) - 1;
+                int numStaticColumns = SMALL_POSITIVE_SIZE_GEN.generate(rnd) - 1;
+
+                Set<String> createdColumnNames = new HashSet<>();
+                for (int i = 0; i < numPartitionColumns; i++)
+                    builder.addColumn(createColumnDefinition(ks, name, ColumnMetadata.Kind.PARTITION_KEY, columnNameGen, typeGen, createdColumnNames, rnd));
+                for (int i = 0; i < numClusteringColumns; i++)
+                    builder.addColumn(createColumnDefinition(ks, name, ColumnMetadata.Kind.CLUSTERING, columnNameGen, typeGen, createdColumnNames, rnd));
+                for (int i = 0; i < numStaticColumns; i++)
+                    builder.addColumn(createColumnDefinition(ks, name, ColumnMetadata.Kind.STATIC, columnNameGen, typeGen, createdColumnNames, rnd));
+                for (int i = 0; i < numRegularColumns; i++)
+                    builder.addColumn(createColumnDefinition(ks, name, ColumnMetadata.Kind.REGULAR, columnNameGen, typeGen, createdColumnNames, rnd));
+
+                return builder.build();
+            }).describedAs(CassandraGenerators::toStringRecursive);
+        }
+    }
+
+    private static TableMetadata createTableMetadata(Gen<String> identifierGen, Gen<AbstractType<?>> typeGen, String ks, RandomnessSource rnd)
     {
         String tableName = identifierGen.generate(rnd);
         TableMetadata.Builder builder = TableMetadata.builder(ks, tableName, TableId.fromUUID(Generators.UUID_RANDOM_GEN.generate(rnd)))

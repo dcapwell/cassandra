@@ -129,7 +129,12 @@ public class AccordFuzzTest extends TestBaseImpl
                 return sb.toString();
             }
         }
-        Gen<TableMetadata> metadataGen = CassandraGenerators.tableMetadataGen(nameGen, AbstractTypeGenerators.numericTypeGen(), Generate.constant(KEYSPACE));
+        Gen<TableMetadata> metadataGen = CassandraGenerators.tableMetadataGenBuilder()
+                                                            .withKind(TableMetadata.Kind.REGULAR)
+                                                            .withKeyspace(KEYSPACE).withName(nameGen).withColumnName(nameGen)
+                                                            //TODO once bind support is in, use all types
+                                                            .withType(AbstractTypeGenerators.numericTypeGen())
+                                                            .build();
         Set<String> tables = new HashSet<>();
         Gen<C> gen = rnd -> {
             TableMetadata metadata = metadataGen.generate(rnd);
