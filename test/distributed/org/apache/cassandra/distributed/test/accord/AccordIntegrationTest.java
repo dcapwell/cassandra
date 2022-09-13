@@ -21,6 +21,7 @@ package org.apache.cassandra.distributed.test.accord;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -30,9 +31,12 @@ import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
 import com.google.common.base.Splitter;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.Uninterruptibles;
 
 import accord.coordinate.Preempted;
+import org.apache.cassandra.distributed.api.IInvokableInstance;
+import org.apache.cassandra.distributed.api.Row;
 import org.assertj.core.api.Assertions;
 import org.assertj.core.util.Throwables;
 import org.awaitility.Awaitility;
@@ -533,11 +537,7 @@ public class AccordIntegrationTest extends TestBaseImpl
         cluster.stream().filter(i -> !i.isShutdown()).forEach(inst -> {
             while (timeout.get() == null)
             {
-                SimpleQueryResult pending = inst.executeInternalWithResult("SELECT store_generation, store_index, txn_id, status FROM system_accord.commands WHERE status < ? ALLOW FILTERING", Status.Executed.ordinal());
-                pending = QueryResultUtil.map(pending, Map.of(
-                        "txn_id", (ByteBuffer bb) -> AccordKeyspace.deserializeTimestampOrNull(bb, TxnId::new),
-                        "status", (Integer ordinal) -> Status.values()[ordinal]
-                ));
+                SimpleQueryResult pending = findPendingTxns(inst);
                 logger.info("[node{}] Pending:\n{}", inst.config().num(), QueryResultUtil.expand(pending));
                 pending.reset();
                 if (!pending.hasNext())
@@ -553,6 +553,38 @@ public class AccordIntegrationTest extends TestBaseImpl
         });
         if (timeout.get() != null)
             throw timeout.get();
+    }
+
+    private static SimpleQueryResult findPendingTxns(IInvokableInstance inst)
+    {
+        // to add more context, it is best to query the whole table so the waiting_on columns
+        // can be enhanced to include extra context
+        SimpleQueryResult all = inst.executeInternalWithResult("SELECT store_generation, store_index, txn_id, status, waiting_on_commit, waiting_on_apply FROM system_accord.commands");
+        all = normalizeCommands(all);
+        Map<TxnId, Status> map = new HashMap<>();
+        while (all.hasNext())
+        {
+            Row next = all.next();
+            map.put(next.get("txn_id"), next.get("status"));
+        }
+        all.reset();
+        all = QueryResultUtil.filter(all, "status", (Status s) -> s.ordinal() < Status.Executed.ordinal());
+        all = QueryResultUtil.map(all, ImmutableMap.of(
+        "waiting_on_commit", (List<TxnId> deps) -> deps == null ? null : deps.stream().map(id -> id + " -> " + map.get(id)).collect(Collectors.toList()),
+        "waiting_on_apply", (List<TxnId> deps) -> deps == null ? null : deps.stream().map(id -> id + " -> " + map.get(id)).collect(Collectors.toList())
+        ));
+
+        return all;
+    }
+
+    private static SimpleQueryResult normalizeCommands(SimpleQueryResult pending)
+    {
+        return QueryResultUtil.map(pending, ImmutableMap.of(
+        "txn_id", (ByteBuffer bb) -> AccordKeyspace.deserializeTimestampOrNull(bb, TxnId::new),
+        "status", (Integer ordinal) -> Status.values()[ordinal],
+        "waiting_on_commit", (Map<ByteBuffer, ByteBuffer> map) -> map == null ? null : map.keySet().stream().map(b -> AccordKeyspace.deserializeTimestampOrNull(b, TxnId::new)).collect(Collectors.toList()),
+        "waiting_on_apply", (Map<ByteBuffer, ByteBuffer> map) -> map == null ? null : map.keySet().stream().map(b -> AccordKeyspace.deserializeTimestampOrNull(b, TxnId::new)).collect(Collectors.toList())
+        ));
     }
 
 //    @Test
