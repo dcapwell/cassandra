@@ -527,7 +527,8 @@ public class AccordIntegrationTest extends TestBaseImpl
     @SuppressWarnings("UnstableApiUsage")
     public static void awaitAsyncApply(Cluster cluster) throws TimeoutException
     {
-        long deadlineNanos = nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        Duration deadline = Duration.ofSeconds(30);
+        long deadlineNanos = nanoTime() + deadline.toNanos();
         AtomicReference<TimeoutException> timeout = new AtomicReference<>(null);
         cluster.stream().filter(i -> !i.isShutdown()).forEach(inst -> {
             while (timeout.get() == null)
@@ -544,7 +545,7 @@ public class AccordIntegrationTest extends TestBaseImpl
                 if (nanoTime() > deadlineNanos)
                 {
                     pending.reset();
-                    timeout.set(new TimeoutException("Timeout waiting on Accord Txn to complete; node" + inst.config().num() + " Pending:\n" + QueryResultUtil.expand(pending)));
+                    timeout.set(new TimeoutException("Timeout waiting on Accord Txn to complete after " + deadline + "; node" + inst.config().num() + " Pending:\n" + QueryResultUtil.expand(pending)));
                     break;
                 }
                 Uninterruptibles.sleepUninterruptibly(500, TimeUnit.MILLISECONDS);

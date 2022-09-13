@@ -24,10 +24,13 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
+import com.google.common.base.Throwables;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import accord.coordinate.Preempted;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.Feature;
@@ -38,17 +41,19 @@ import org.apache.cassandra.service.accord.AccordService;
 import org.apache.cassandra.utils.AbstractTypeGenerators;
 import org.apache.cassandra.utils.AccordGenerators;
 import org.apache.cassandra.utils.AccordGenerators.Txn;
+import org.apache.cassandra.utils.AssertionUtils;
 import org.apache.cassandra.utils.CassandraGenerators;
 import org.apache.cassandra.utils.FailingConsumer;
 import org.apache.cassandra.utils.Generators;
 import org.quicktheories.core.Gen;
-import org.quicktheories.generators.Generate;
 import org.quicktheories.generators.SourceDSL;
 
 import static org.quicktheories.QuickTheory.qt;
 
 public class AccordFuzzTest extends TestBaseImpl
 {
+    private static final Logger logger = LoggerFactory.getLogger(AccordFuzzTest.class);
+
     private static final Gen<String> nameGen = Generators.SYMBOL_GEN;
 
     @Test
@@ -129,17 +134,20 @@ public class AccordFuzzTest extends TestBaseImpl
                 return sb.toString();
             }
         }
+        Set<String> tables = new HashSet<>();
+        Gen<String> uniqTableNames = rnd -> {
+            String name;
+            while (!tables.add((name = nameGen.generate(rnd)))) { }
+            return name;
+        };
         Gen<TableMetadata> metadataGen = CassandraGenerators.tableMetadataGenBuilder()
                                                             .withKind(TableMetadata.Kind.REGULAR)
-                                                            .withKeyspace(KEYSPACE).withName(nameGen).withColumnName(nameGen)
+                                                            .withKeyspace(KEYSPACE).withName(uniqTableNames).withColumnName(nameGen)
                                                             //TODO once bind support is in, use all types
                                                             .withType(AbstractTypeGenerators.numericTypeGen())
                                                             .build();
-        Set<String> tables = new HashSet<>();
         Gen<C> gen = rnd -> {
             TableMetadata metadata = metadataGen.generate(rnd);
-            while (!tables.add(metadata.name))
-                metadata = metadata.unbuild(metadata.keyspace, nameGen.generate(rnd)).build();
             List<Txn> selects = SourceDSL.lists().of(AccordGenerators.txnGen(metadata)).ofSize(10).generate(rnd);
             return new C(metadata, selects);
         };
@@ -147,7 +155,7 @@ public class AccordFuzzTest extends TestBaseImpl
         {
             qt().withFixedSeed(800226806560166L).withExamples(10).withShrinkCycles(0).forAll(gen).checkAssert(FailingConsumer.orFail(c -> {
                 String createStatement = c.metadata.toCqlString(false, false);
-                LoggerFactory.getLogger(AccordFuzzTest.class).info("Creating table\n{}", createStatement);
+                logger.info("Creating table\n{}", createStatement);
                 cluster.schemaChange(createStatement);
                 ClusterUtils.awaitGossipSchemaMatch(cluster);
                 cluster.forEach(node -> node.runOnInstance(() -> AccordService.instance.createEpochFromConfigUnsafe()));
@@ -155,18 +163,28 @@ public class AccordFuzzTest extends TestBaseImpl
 
                 for (Txn t : c.transactions)
                 {
-                    try
+                    logger.info("Trying Transaction\n{}", t.toCQL());
+                    while (true)
                     {
-                        cluster.coordinator(1).execute(t.toCQL(), ConsistencyLevel.ANY, t.boundValues);
-                    }
-                    catch (Exception e)
-                    {
-                        throw new RuntimeException("Table:\n" + createStatement + "\nCQL:\n" + t.toCQL(), e);
+                        try
+                        {
+                            cluster.coordinator(1).execute(t.toCQL(), ConsistencyLevel.ANY, t.boundValues);
+                            break;
+                        }
+                        catch (Exception e)
+                        {
+                            //TODO this is a bad error to give to users... shouldn't this be retried automatically?
+                            if (AssertionUtils.rootCauseIs(Preempted.class).matches(e))
+                                continue;
+//                            Throwables.getRootCause(e).getClass().getdeclared
+                            throw new RuntimeException("Table:\n" + createStatement + "\nCQL:\n" + t.toCQL(), e);
+                        }
                     }
                 }
 
                 AccordIntegrationTest.awaitAsyncApply(cluster);
             }));
+            logger.info("Done");
         }
     }
 

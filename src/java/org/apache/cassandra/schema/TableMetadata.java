@@ -23,7 +23,6 @@ import java.util.Map.Entry;
 
 import javax.annotation.Nullable;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.*;
 
@@ -200,12 +199,6 @@ public class TableMetadata implements SchemaElement
     }
 
     public Builder unbuild()
-    {
-        return unbuild(keyspace, name);
-    }
-
-    @VisibleForTesting
-    public Builder unbuild(String keyspace, String name)
     {
         return builder(keyspace, name, id)
                .partitioner(partitioner)
