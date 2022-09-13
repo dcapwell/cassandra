@@ -228,7 +228,9 @@ public class AccordGenerators
         boolean isEmpty()
         {
             // don't include output as 'BEGIN TRANSACTION SELECT "000000000000000010000"; COMMIT TRANSACTION' isn't valid
-            return lets.isEmpty();
+//            return lets.isEmpty();
+            // TransactionStatement defines empty as no SELECT or updates
+            return output.isEmpty();
         }
 
         void addLet(String name, Select select)
