@@ -423,7 +423,7 @@ public abstract class Constants
             }
             catch (MarshalException e)
             {
-                throw new InvalidRequestException(e.getMessage());
+                throw new InvalidRequestException("Invalid bind value at index " + bindIndex + " with expected type " + receiver.type.asCQL3Type() + " for column " + receiver.name.toCQLString() + ": " + e.getMessage());
             }
         }
 

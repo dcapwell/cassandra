@@ -147,7 +147,7 @@ public class AccordFuzzTest extends TestBaseImpl
                                                             .withKind(TableMetadata.Kind.REGULAR)
                                                             .withKeyspace(KEYSPACE).withName(uniqTableNames).withColumnName(nameGen)
                                                             //TODO once bind support is in, use all types
-                                                            .withType(AbstractTypeGenerators.numericTypeGen())
+//                                                            .withType(AbstractTypeGenerators.numericTypeGen())
                                                             .build();
         Gen<C> gen = rnd -> {
             TableMetadata metadata = metadataGen.generate(rnd);
@@ -171,7 +171,7 @@ public class AccordFuzzTest extends TestBaseImpl
                     {
                         try
                         {
-                            cluster.coordinator(1).execute(t.toCQL(), ConsistencyLevel.ANY);
+                            cluster.coordinator(1).execute(t.toCQL(), ConsistencyLevel.ANY, t.binds);
                             break;
                         }
                         catch (Exception e)
@@ -183,7 +183,7 @@ public class AccordFuzzTest extends TestBaseImpl
                                 continue;
                             }
 //                            Throwables.getRootCause(e).getClass().getdeclared
-                            throw new RuntimeException("Table:\n" + createStatement + "\nCQL:\n" + t.toCQL(), e);
+                            throw new RuntimeException("Table:\n" + createStatement + "\nCQL:\n" + t, e);
                         }
                     }
                 }

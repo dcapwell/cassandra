@@ -81,12 +81,12 @@ public class AccordGenerators
                         if (!builder.allowedReferences.isEmpty())
                         {
                             Gen<List<Reference>> refsGen = SourceDSL.lists().of(SourceDSL.arbitrary().pick(new ArrayList<>(builder.allowedReferences))).ofSizeBetween(1, Math.max(10, builder.allowedReferences.size()));
-                            builder.output = Optional.of(new Select((List<Expression>) (List<?>) refsGen.generate(rnd)));
+                            builder.addReturn(new Select((List<Expression>) (List<?>) refsGen.generate(rnd)));
                         }
                     }
                     break;
                     case TABLE:
-                        builder.output = Optional.of(selectGen.generate(rnd));
+                        builder.addReturn(selectGen.generate(rnd));
                         break;
                 }
 //                int numConditions = Math.toIntExact(rnd.next(conditionRange));
@@ -125,7 +125,7 @@ public class AccordGenerators
             for (String name : allColumns)
             {
                 Object value = data.get(name).generate(rnd);
-                values.put(name, new Literal<>(value));
+                values.put(name, new Bind(value));
             }
             return new TxnUpdate(kind, metadata, values, ttlGen.generate(rnd));
         };
@@ -186,12 +186,12 @@ public class AccordGenerators
 
     private static Conditional whereEq(ColumnMetadata columnMetadata, ByteBuffer datum)
     {
-        return new Where(Where.Inequalities.EQUAL, columnMetadata.name.toCQLString(), literal(columnMetadata.type, datum));
+        return new Where(Where.Inequalities.EQUAL, columnMetadata.name.toCQLString(), bind(columnMetadata.type, datum));
     }
 
-    private static <T> Literal<T> literal(AbstractType<T> type, ByteBuffer datum)
+    private static Bind bind(AbstractType<?> type, ByteBuffer datum)
     {
-        return new Literal<>(type.compose(datum));
+        return new Bind(type.compose(datum));
     }
 
     public interface Element
@@ -215,7 +215,7 @@ public class AccordGenerators
 
         default Stream<? extends Element> streamRecursive()
         {
-            return Stream.concat(stream(), stream().flatMap(Element::stream));
+            return stream().flatMap(e -> Stream.concat(Stream.of(e), e.streamRecursive()));
         }
     }
 
@@ -226,12 +226,18 @@ public class AccordGenerators
         // return
         public final Optional<Select> output;
         public final List<TxnUpdate> updates;
+        public final Object[] binds;
 
         public Txn(List<TxnLet> lets, Optional<Select> output, List<TxnUpdate> updates)
         {
             this.lets = lets;
             this.output = output;
             this.updates = updates;
+
+            this.binds = streamRecursive()
+                         .filter(e -> e instanceof Bind)
+                         .map(e -> ((Bind) e).value())
+                         .toArray(Object[]::new);
         }
 
         @Override
@@ -257,6 +263,14 @@ public class AccordGenerators
                 ret = Stream.concat(ret, Stream.of(output.get()));
             ret = Stream.concat(ret, updates.stream());
             return ret;
+        }
+
+        @Override
+        public String toString()
+        {
+            return "CQL:\n" + toCQL() + "\nBinds:\n" + IntStream.range(0, binds.length)
+                                                                .mapToObj(i -> i + " -> " + binds[i].getClass().getCanonicalName() + "(" + binds[i] + ")")
+                                                                .collect(Collectors.joining("\n"));
         }
     }
 
@@ -288,6 +302,11 @@ public class AccordGenerators
                 allowedReferences.add(new Reference(Arrays.asList(name, e.name().replace("\"", ""))));
         }
 
+        void addReturn(Select select)
+        {
+            output = Optional.of(select);
+        }
+
         void addUpdate(TxnUpdate update)
         {
             this.updates.add(Objects.requireNonNull(update));
@@ -308,6 +327,7 @@ public class AccordGenerators
         public final Map<String, Element> values;
         private final Set<String> primaryColumns, nonPrimaryColumns;
         public final OptionalInt ttl;
+        private final List<Element> orderedElements = new ArrayList<>();
 
         public TxnUpdate(Kind kind, TableMetadata table, Map<String, Element> values, OptionalInt ttl)
         {
@@ -343,6 +363,8 @@ public class AccordGenerators
         @Override
         public void toCQL(StringBuilder sb, int indent)
         {
+            if (!orderedElements.isEmpty())
+                orderedElements.clear();
             switch (kind)
             {
                 case INSERT:
@@ -377,6 +399,7 @@ VALUES (column_values)
             for (String name : columnOrder)
             {
                 Element value = values.get(name);
+                orderedElements.add(value);
                 value.toCQL(sb, indent);
                 sb.append(", ");
             }
@@ -411,6 +434,7 @@ WHERE row_specification
             for (String name : nonPrimaryColumns)
             {
                 Element value = values.get(name);
+                orderedElements.add(value);
                 sb.append(name).append('=');
                 value.toCQL(sb, indent);
                 sb.append(", ");
@@ -449,6 +473,7 @@ WHERE PK_column_conditions
             for (String name : names)
             {
                 Element value = values.get(name);
+                orderedElements.add(value);
                 sb.append(name).append('=');
                 value.toCQL(sb, indent);
                 sb.append(" AND ");
@@ -459,7 +484,9 @@ WHERE PK_column_conditions
         @Override
         public Stream<? extends Element> stream()
         {
-            return values.values().stream();
+            if (orderedElements.isEmpty())
+                toCQL();
+            return orderedElements.stream();
         }
     }
 
@@ -707,6 +734,27 @@ WHERE PK_column_conditions
         public String name()
         {
             return symbol;
+        }
+    }
+
+    public static class Bind implements Expression
+    {
+        private final Object value;
+
+        public Bind(Object value)
+        {
+            this.value = value;
+        }
+
+        public Object value()
+        {
+            return value;
+        }
+
+        @Override
+        public void toCQL(StringBuilder sb, int indent)
+        {
+            sb.append('?');
         }
     }
 
