@@ -766,7 +766,7 @@ public class AccordIntegrationTest extends TestBaseImpl
     }
 
     @SuppressWarnings("UnstableApiUsage")
-    private static void awaitAsyncApply(Cluster cluster) throws TimeoutException
+    public static void awaitAsyncApply(Cluster cluster) throws TimeoutException
     {
         long deadlineNanos = nanoTime() + TimeUnit.SECONDS.toNanos(30);
         AtomicReference<TimeoutException> timeout = new AtomicReference<>(null);

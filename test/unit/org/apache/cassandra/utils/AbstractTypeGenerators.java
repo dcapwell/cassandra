@@ -20,6 +20,7 @@ package org.apache.cassandra.utils;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -92,6 +93,13 @@ public final class AbstractTypeGenerators
     // NOTE not supporting reversed as CQL doesn't allow nested reversed types
     // when generating part of the clustering key, it would be good to allow reversed types as the top level
     private static final Gen<AbstractType<?>> PRIMITIVE_TYPE_GEN = SourceDSL.arbitrary().pick(new ArrayList<>(PRIMITIVE_TYPE_DATA_GENS.keySet()));
+    private static final Gen<AbstractType<?>> NUMERIC_TYPE_GEN = SourceDSL.arbitrary().pick(Arrays.asList(ByteType.instance,
+                                                                                                          ShortType.instance,
+                                                                                                          Int32Type.instance,
+                                                                                                          LongType.instance,
+                                                                                                          FloatType.instance,
+                                                                                                          DoubleType.instance
+    ));
 
     private AbstractTypeGenerators()
     {
@@ -106,6 +114,11 @@ public final class AbstractTypeGenerators
     public static Gen<AbstractType<?>> primitiveTypeGen()
     {
         return PRIMITIVE_TYPE_GEN;
+    }
+
+    public static Gen<AbstractType<?>> numericTypeGen()
+    {
+        return NUMERIC_TYPE_GEN;
     }
 
     public static Gen<AbstractType<?>> typeGen()
