@@ -267,15 +267,24 @@ public final class CassandraGenerators
                 int numRegularColumns = SMALL_POSITIVE_SIZE_GEN.generate(rnd) - 1;
                 int numStaticColumns = SMALL_POSITIVE_SIZE_GEN.generate(rnd) - 1;
 
-                Set<String> createdColumnNames = new HashSet<>();
-                for (int i = 0; i < numPartitionColumns; i++)
-                    builder.addColumn(createColumnDefinition(ks, name, ColumnMetadata.Kind.PARTITION_KEY, columnNameGen, typeGen, createdColumnNames, rnd));
-                for (int i = 0; i < numClusteringColumns; i++)
-                    builder.addColumn(createColumnDefinition(ks, name, ColumnMetadata.Kind.CLUSTERING, columnNameGen, typeGen, createdColumnNames, rnd));
-                for (int i = 0; i < numStaticColumns; i++)
-                    builder.addColumn(createColumnDefinition(ks, name, ColumnMetadata.Kind.STATIC, columnNameGen, typeGen, createdColumnNames, rnd));
-                for (int i = 0; i < numRegularColumns; i++)
-                    builder.addColumn(createColumnDefinition(ks, name, ColumnMetadata.Kind.REGULAR, columnNameGen, typeGen, createdColumnNames, rnd));
+                // make sure all UDT are in the same keyspace
+                AbstractTypeGenerators.UDT_KEYSPACE.set(ks);
+                try
+                {
+                    Set<String> createdColumnNames = new HashSet<>();
+                    for (int i = 0; i < numPartitionColumns; i++)
+                        builder.addColumn(createColumnDefinition(ks, name, ColumnMetadata.Kind.PARTITION_KEY, columnNameGen, typeGen, createdColumnNames, rnd));
+                    for (int i = 0; i < numClusteringColumns; i++)
+                        builder.addColumn(createColumnDefinition(ks, name, ColumnMetadata.Kind.CLUSTERING, columnNameGen, typeGen, createdColumnNames, rnd));
+                    for (int i = 0; i < numStaticColumns; i++)
+                        builder.addColumn(createColumnDefinition(ks, name, ColumnMetadata.Kind.STATIC, columnNameGen, typeGen, createdColumnNames, rnd));
+                    for (int i = 0; i < numRegularColumns; i++)
+                        builder.addColumn(createColumnDefinition(ks, name, ColumnMetadata.Kind.REGULAR, columnNameGen, typeGen, createdColumnNames, rnd));
+                }
+                finally
+                {
+                    AbstractTypeGenerators.UDT_KEYSPACE.remove();
+                }
 
                 return builder.build();
             }).describedAs(CassandraGenerators::toStringRecursive);
