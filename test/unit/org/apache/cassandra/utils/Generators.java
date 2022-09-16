@@ -61,7 +61,7 @@ public final class Generators
     private static final Constraint DNS_DOMAIN_PART_CONSTRAINT = Constraint.between(0, DNS_DOMAIN_PART_DOMAIN.length - 1).withNoShrinkPoint();
 
     public static final Gen<String> IDENTIFIER_GEN = Generators.regexWord(SourceDSL.integers().between(1, 50));
-    public static final Gen<String> SYMBOL_GEN = symbolGen(SourceDSL.integers().between(1, 50));
+    public static final Gen<String> SYMBOL_GEN = symbolGen(SourceDSL.integers().between(1, 48));
 
     private static final char CHAR_UNDERSCORE = 95;
     public static Gen<String> symbolGen(Gen<Integer> size)
