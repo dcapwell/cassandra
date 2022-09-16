@@ -27,10 +27,10 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import com.google.common.collect.Sets;
@@ -38,7 +38,6 @@ import com.google.common.collect.Sets;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.CassandraGenerators;
-import org.apache.cassandra.utils.Generators;
 import org.quicktheories.core.Gen;
 import org.quicktheories.generators.SourceDSL;
 import org.quicktheories.impl.Constraint;
@@ -56,13 +55,15 @@ public class AccordGenerators
         Constraint letRange = Constraint.between(0, 10);
         Constraint conditionRange = Constraint.between(0, 1);
         Constraint updateRange = Constraint.between(0, 10);
-        Gen<Select> selectGen = new Select.Builder(metadata)
+        Gen<Select> selectGen = new Select.GenBuilder(metadata)
                                 .withLimit1()
                                 .build();
 //        Gen<String> nameGen = Generators.IDENTIFIER_GEN;
         // table uses IDENTIFIER_GEN but can't use that here due to lack of "" support
         Gen<TxReturn> txReturnGen = SourceDSL.arbitrary().enumValues(TxReturn.class);
-        Gen<Update> updateGen = updateGen(metadata);
+        Gen<Update> updateGen = new Update.GenBuilder(metadata)
+                                .withoutTimestamp()
+                                .build();
         return rnd -> {
             TxnBuilder builder = new TxnBuilder();
             do
@@ -99,30 +100,6 @@ public class AccordGenerators
                     builder.addUpdate(updateGen.generate(rnd));
             } while (builder.isEmpty());
             return builder.build();
-        };
-    }
-
-    private static Gen<Update> updateGen(TableMetadata metadata)
-    {
-        Set<Symbol> allColumns = Update.toSet(metadata.columns());
-        Set<Symbol> primaryColumns = Update.toSet(metadata.primaryKeyColumns());
-        Set<Symbol> nonPrimaryColumns = Sets.difference(allColumns, primaryColumns);
-        Gen<Update.Kind> kindGen = SourceDSL.arbitrary().enumValues(Update.Kind.class);
-        Map<ColumnIdentifier, Gen<?>> data = CassandraGenerators.tableDataComposed(metadata);
-        Gen<OptionalInt> ttlGen = SourceDSL.integers().between(1, Math.toIntExact(TimeUnit.DAYS.toSeconds(10))).map(i -> i % 2 == 0 ? OptionalInt.empty() : OptionalInt.of(i));
-        return rnd -> {
-            Update.Kind kind = kindGen.generate(rnd);
-            // when there are not non-primary-columns then can't support UPDATE
-            while (nonPrimaryColumns.isEmpty() && kind == Update.Kind.UPDATE)
-                kind = kindGen.generate(rnd);
-            //TODO don't always include all optional columns
-            Map<Symbol, Element> values = new HashMap<>();
-            for (Symbol name : allColumns)
-            {
-                Object value = data.get(name.toColumnIdentifier()).generate(rnd);
-                values.put(name, new Bind(value));
-            }
-            return new Update(kind, metadata, values, ttlGen.generate(rnd));
         };
     }
 
