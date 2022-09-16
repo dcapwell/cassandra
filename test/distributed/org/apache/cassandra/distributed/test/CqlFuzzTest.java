@@ -32,8 +32,10 @@ import org.apache.cassandra.db.marshal.UserType;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.shared.ClusterUtils;
+import org.apache.cassandra.exceptions.RequestTimeoutException;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.utils.AssertionUtils;
 import org.apache.cassandra.utils.CassandraGenerators;
 import org.apache.cassandra.utils.FailingConsumer;
 import org.apache.cassandra.utils.Generators;
@@ -74,15 +76,29 @@ public class CqlFuzzTest extends TestBaseImpl
             cluster.schemaChange(createStatement);
             ClusterUtils.awaitGossipSchemaMatch(cluster);
 
-            qt().withExamples(Integer.MAX_VALUE).withShrinkCycles(0).forAll(statements).checkAssert(FailingConsumer.orFail(stmt -> {
+            qt().withFixedSeed(25179070203791L).withExamples(Integer.MAX_VALUE).withShrinkCycles(0).forAll(statements).checkAssert(FailingConsumer.orFail(stmt -> {
                 logger.info("Trying Statement\n{}", stmt.toCQL());
-                cluster.coordinator(1).execute(stmt.toCQL(), ConsistencyLevel.QUORUM, stmt.binds());
+                while (true)
+                {
+                    try
+                    {
+                        cluster.coordinator(1).execute(stmt.toCQL(), ConsistencyLevel.QUORUM, stmt.binds());
+                    }
+                    catch (Exception e)
+                    {
+                        if (AssertionUtils.isInstanceof(RequestTimeoutException.class).matches(e))
+                            continue;
+                        throw e;
+                    }
+                }
             }));
         }
     }
 
     private static void maybeCreateUDT(Cluster cluster, AbstractType<?> type)
     {
+        if (type.isReversed())
+            type = ((ReversedType) type).baseType;
         for (AbstractType<?> subtype : type.subTypes())
             maybeCreateUDT(cluster, subtype);
         if (type.isUDT())
@@ -91,8 +107,9 @@ public class CqlFuzzTest extends TestBaseImpl
                 type = ((ReversedType) type).baseType;
             UserType udt = (UserType) type;
             cluster.schemaChange("CREATE KEYSPACE IF NOT EXISTS " + ColumnIdentifier.maybeQuote(udt.keyspace) + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': " + Math.min(3, cluster.size()) + "};");
-            logger.info("Creating UDT {}.{}", ColumnIdentifier.maybeQuote(udt.keyspace), ColumnIdentifier.maybeQuote(UTF8Type.instance.compose(udt.name)));
-            cluster.schemaChange(udt.toCqlString(false, true));
+            String cql = udt.toCqlString(false, true);
+            logger.info("Creating UDT {}.{} with CQL:\n{}", ColumnIdentifier.maybeQuote(udt.keyspace), ColumnIdentifier.maybeQuote(UTF8Type.instance.compose(udt.name)), cql);
+            cluster.schemaChange(cql);
         }
     }
 }
