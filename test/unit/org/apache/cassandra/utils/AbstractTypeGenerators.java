@@ -39,7 +39,6 @@ import org.apache.cassandra.db.marshal.BooleanType;
 import org.apache.cassandra.db.marshal.ByteType;
 import org.apache.cassandra.db.marshal.BytesType;
 import org.apache.cassandra.db.marshal.DoubleType;
-import org.apache.cassandra.db.marshal.EmptyType;
 import org.apache.cassandra.db.marshal.FloatType;
 import org.apache.cassandra.db.marshal.InetAddressType;
 import org.apache.cassandra.db.marshal.Int32Type;
@@ -59,6 +58,7 @@ import org.quicktheories.core.RandomnessSource;
 import org.quicktheories.generators.SourceDSL;
 
 import static org.apache.cassandra.utils.Generators.IDENTIFIER_GEN;
+import static org.apache.cassandra.utils.Generators.SYMBOL_GEN;
 
 public final class AbstractTypeGenerators
 {
@@ -78,9 +78,9 @@ public final class AbstractTypeGenerators
               TypeSupport.of(InetAddressType.instance, Generators.INET_ADDRESS_UNRESOLVED_GEN), // serialization strips the hostname, only keeps the address
               TypeSupport.of(AsciiType.instance, SourceDSL.strings().ascii().ofLengthBetween(1, 1024)),
               TypeSupport.of(UTF8Type.instance, Generators.utf8(1, 1024)),
-              TypeSupport.of(TimestampType.instance, Generators.DATE_GEN),
+              TypeSupport.of(TimestampType.instance, Generators.DATE_GEN)
               // null is desired here as #decompose will call org.apache.cassandra.serializers.EmptySerializer.serialize which ignores the input and returns empty bytes
-              TypeSupport.of(EmptyType.instance, rnd -> null)
+//              TypeSupport.of(EmptyType.instance, rnd -> null)
               //TODO add the following
               // IntegerType.instance,
               // DecimalType.instance,
@@ -166,7 +166,7 @@ public final class AbstractTypeGenerators
 
     public static Gen<SetType<?>> setTypeGen(Gen<AbstractType<?>> typeGen)
     {
-        return rnd -> SetType.getInstance(typeGen.generate(rnd), BOOLEAN_GEN.generate(rnd));
+        return rnd -> SetType.getInstance(maybeFreeze(typeGen.generate(rnd)), BOOLEAN_GEN.generate(rnd));
     }
 
     @SuppressWarnings("unused")
@@ -177,7 +177,7 @@ public final class AbstractTypeGenerators
 
     public static Gen<ListType<?>> listTypeGen(Gen<AbstractType<?>> typeGen)
     {
-        return rnd -> ListType.getInstance(typeGen.generate(rnd), BOOLEAN_GEN.generate(rnd));
+        return rnd -> ListType.getInstance(maybeFreeze(typeGen.generate(rnd)), BOOLEAN_GEN.generate(rnd));
     }
 
     @SuppressWarnings("unused")
@@ -193,7 +193,7 @@ public final class AbstractTypeGenerators
 
     public static Gen<MapType<?, ?>> mapTypeGen(Gen<AbstractType<?>> keyGen, Gen<AbstractType<?>> valueGen)
     {
-        return rnd -> MapType.getInstance(keyGen.generate(rnd), valueGen.generate(rnd), BOOLEAN_GEN.generate(rnd));
+        return rnd -> MapType.getInstance(maybeFreeze(keyGen.generate(rnd)), maybeFreeze(valueGen.generate(rnd)), BOOLEAN_GEN.generate(rnd));
     }
 
     public static Gen<TupleType> tupleTypeGen()
@@ -227,6 +227,8 @@ public final class AbstractTypeGenerators
         return userTypeGen(elementGen, VERY_SMALL_POSITIVE_SIZE_GEN);
     }
 
+    public static final ThreadLocal<String> UDT_KEYSPACE = new ThreadLocal<>();
+
     public static Gen<UserType> userTypeGen(Gen<AbstractType<?>> elementGen, Gen<Integer> sizeGen)
     {
         Gen<FieldIdentifier> fieldNameGen = IDENTIFIER_GEN.map(FieldIdentifier::forQuoted);
@@ -235,18 +237,38 @@ public final class AbstractTypeGenerators
             int numElements = sizeGen.generate(rnd);
             List<AbstractType<?>> fieldTypes = new ArrayList<>(numElements);
             LinkedHashSet<FieldIdentifier> fieldNames = new LinkedHashSet<>(numElements);
-            String ks = IDENTIFIER_GEN.generate(rnd);
-            ByteBuffer name = AsciiType.instance.decompose(IDENTIFIER_GEN.generate(rnd));
+            // UDT only allows types within the same keyspace
+            boolean topLevel = UDT_KEYSPACE.get() == null;
+            String ks = topLevel ? SYMBOL_GEN.generate(rnd) : UDT_KEYSPACE.get();
+            ByteBuffer name = AsciiType.instance.decompose(SYMBOL_GEN.generate(rnd));
 
             Gen<FieldIdentifier> distinctNameGen = Generators.filter(fieldNameGen, 30, e -> !fieldNames.contains(e));
             // UDTs don't allow duplicate names, so make sure all names are unique
-            for (int i = 0; i < numElements; i++)
+            if (topLevel)
+                UDT_KEYSPACE.set(ks);
+            try
             {
-                fieldTypes.add(elementGen.generate(rnd));
-                fieldNames.add(distinctNameGen.generate(rnd));
+                for (int i = 0; i < numElements; i++)
+                {
+                    fieldTypes.add(maybeFreeze(elementGen.generate(rnd)));
+                    fieldNames.add(distinctNameGen.generate(rnd));
+                }
             }
+            finally
+            {
+                if (topLevel)
+                    UDT_KEYSPACE.remove();
+            }
+
             return new UserType(ks, name, new ArrayList<>(fieldNames), fieldTypes, multiCell);
         };
+    }
+
+    private static AbstractType<?> maybeFreeze(AbstractType<?> type)
+    {
+        if (type.isMultiCell())
+            type = type.freeze();
+        return type;
     }
 
     public static Gen<AbstractType<?>> allowReversed(Gen<AbstractType<?>> gen)
