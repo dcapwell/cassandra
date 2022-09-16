@@ -24,11 +24,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Maps;
-
 import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.utils.Pair;
 
 public interface Statement extends Element
 {

@@ -129,14 +129,14 @@ FROM [keyspace_name.] table_name
         return detailedToString();
     }
 
-    public static class Builder
+    public static class GenBuilder
     {
         private final TableMetadata metadata;
         private Gen<List<Expression>> selectGen;
         private Gen<Map<Symbol, Expression>> partitionKeyGen;
         private Gen<OptionalInt> limit;
 
-        public Builder(TableMetadata metadata)
+        public GenBuilder(TableMetadata metadata)
         {
             this.metadata = Objects.requireNonNull(metadata);
             this.selectGen = selectColumns(metadata);
@@ -145,7 +145,7 @@ FROM [keyspace_name.] table_name
             withDefaultLimit();
         }
 
-        public Builder withDefaultLimit()
+        public GenBuilder withDefaultLimit()
         {
             Gen<OptionalInt> non = ignore -> OptionalInt.empty();
             Constraint limitLength = Constraint.between(1, 10_000);
@@ -154,13 +154,13 @@ FROM [keyspace_name.] table_name
             return this;
         }
 
-        public Builder withLimit1()
+        public GenBuilder withLimit1()
         {
             this.limit = ignore -> OptionalInt.of(1);
             return this;
         }
 
-        public Builder withoutLimit()
+        public GenBuilder withoutLimit()
         {
             this.limit = ignore -> OptionalInt.empty();
             return this;

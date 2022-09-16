@@ -25,7 +25,9 @@ import java.sql.Timestamp;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.Random;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiPredicate;
@@ -39,6 +41,8 @@ import org.quicktheories.core.Gen;
 import org.quicktheories.core.RandomnessSource;
 import org.quicktheories.generators.SourceDSL;
 import org.quicktheories.impl.Constraint;
+
+import static org.quicktheories.QuickTheory.qt;
 
 public final class Generators
 {
@@ -62,6 +66,23 @@ public final class Generators
 
     public static final Gen<String> IDENTIFIER_GEN = Generators.regexWord(SourceDSL.integers().between(1, 50));
     public static final Gen<String> SYMBOL_GEN = symbolGen(SourceDSL.integers().between(1, 48));
+
+    public static Gen<String> uniqueSymbolGen()
+    {
+        return uniqueSymbolGen(SYMBOL_GEN);
+    }
+
+    public static Gen<String> uniqueSymbolGen(Gen<String> gen)
+    {
+        Set<String> uniq = new HashSet<>();
+        return rnd -> {
+            String name;
+            while (!uniq.add((name = gen.generate(rnd))))
+            {
+            }
+            return name;
+        };
+    }
 
     private static final char CHAR_UNDERSCORE = 95;
     public static Gen<String> symbolGen(Gen<Integer> size)
@@ -372,6 +393,14 @@ public final class Generators
             default:
                 return false;
         }
+    }
+
+    public static <T> T get(Gen<T> gen)
+    {
+        class Capture {T value;}
+        Capture c = new Capture();
+        qt().withExamples(1).withShrinkCycles(0).forAll(gen).checkAssert(t -> c.value = t);
+        return c.value;
     }
 
     private static final class LazySharedBlob

@@ -32,6 +32,8 @@ import java.util.stream.Stream;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import com.carrotsearch.hppc.ObjectLongHashMap;
+import com.carrotsearch.hppc.ObjectLongMap;
 import org.apache.cassandra.cql3.FieldIdentifier;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.AsciiType;
@@ -39,6 +41,7 @@ import org.apache.cassandra.db.marshal.BooleanType;
 import org.apache.cassandra.db.marshal.ByteType;
 import org.apache.cassandra.db.marshal.BytesType;
 import org.apache.cassandra.db.marshal.DoubleType;
+import org.apache.cassandra.db.marshal.EmptyType;
 import org.apache.cassandra.db.marshal.FloatType;
 import org.apache.cassandra.db.marshal.InetAddressType;
 import org.apache.cassandra.db.marshal.Int32Type;
@@ -48,6 +51,7 @@ import org.apache.cassandra.db.marshal.MapType;
 import org.apache.cassandra.db.marshal.ReversedType;
 import org.apache.cassandra.db.marshal.SetType;
 import org.apache.cassandra.db.marshal.ShortType;
+import org.apache.cassandra.db.marshal.StringType;
 import org.apache.cassandra.db.marshal.TimestampType;
 import org.apache.cassandra.db.marshal.TupleType;
 import org.apache.cassandra.db.marshal.UTF8Type;
@@ -65,6 +69,7 @@ public final class AbstractTypeGenerators
     private static final Gen<Integer> VERY_SMALL_POSITIVE_SIZE_GEN = SourceDSL.integers().between(1, 3);
     private static final Gen<Boolean> BOOLEAN_GEN = SourceDSL.booleans().all();
 
+    private static final int DYNAMIC_TYPE_SIZE = 1024;
     private static final Map<AbstractType<?>, TypeSupport<?>> PRIMITIVE_TYPE_DATA_GENS =
     Stream.of(TypeSupport.of(BooleanType.instance, BOOLEAN_GEN),
               TypeSupport.of(ByteType.instance, SourceDSL.integers().between(0, Byte.MAX_VALUE * 2 + 1).map(Integer::byteValue)),
@@ -73,11 +78,11 @@ public final class AbstractTypeGenerators
               TypeSupport.of(LongType.instance, SourceDSL.longs().all()),
               TypeSupport.of(FloatType.instance, SourceDSL.floats().any()),
               TypeSupport.of(DoubleType.instance, SourceDSL.doubles().any()),
-              TypeSupport.of(BytesType.instance, Generators.bytes(1, 1024)),
+              TypeSupport.of(BytesType.instance, Generators.bytes(1, DYNAMIC_TYPE_SIZE)),
               TypeSupport.of(UUIDType.instance, Generators.UUID_RANDOM_GEN),
               TypeSupport.of(InetAddressType.instance, Generators.INET_ADDRESS_UNRESOLVED_GEN), // serialization strips the hostname, only keeps the address
-              TypeSupport.of(AsciiType.instance, SourceDSL.strings().ascii().ofLengthBetween(1, 1024)),
-              TypeSupport.of(UTF8Type.instance, Generators.utf8(1, 1024)),
+              TypeSupport.of(AsciiType.instance, SourceDSL.strings().ascii().ofLengthBetween(1, DYNAMIC_TYPE_SIZE)),
+              TypeSupport.of(UTF8Type.instance, Generators.utf8(1, DYNAMIC_TYPE_SIZE)),
               TypeSupport.of(TimestampType.instance, Generators.DATE_GEN)
               // null is desired here as #decompose will call org.apache.cassandra.serializers.EmptySerializer.serialize which ignores the input and returns empty bytes
 //              TypeSupport.of(EmptyType.instance, rnd -> null)
@@ -108,6 +113,49 @@ public final class AbstractTypeGenerators
 
     public enum TypeKind
     {PRIMITIVE, SET, LIST, MAP, TUPLE, UDT}
+
+    public static long estimateSize(AbstractType<?> type)
+    {
+        int assumedElements = 42;
+        if (type instanceof ListType)
+            return (estimateSize(((ListType<?>) type).getElementsType()) + 4) * assumedElements + 4;
+        if (type instanceof SetType)
+            return (estimateSize(((SetType<?>) type).getElementsType()) + 4) * assumedElements + 4;
+        if (type instanceof MapType)
+        {
+            MapType<?, ?> map = (MapType<?, ?>) type;
+            long size = estimateSize(map.getKeysType()) + + 4 + estimateSize(map.getValuesType()) + 4;
+            return 4 + size * assumedElements;
+        }
+        if (type instanceof TupleType)
+        {
+            long size = 0;
+            for (AbstractType<?> field : type.subTypes())
+                size += estimateSize(field) + 4;
+            return size;
+        }
+        if (type instanceof AsciiType || type instanceof BytesType)
+            return DYNAMIC_TYPE_SIZE;
+        if (type instanceof UTF8Type)
+            return DYNAMIC_TYPE_SIZE * 4; // UTF-8 uses between 1-4 bytes
+
+        ObjectLongMap<AbstractType<?>> sizes = new ObjectLongHashMap<>();
+        sizes.put(BooleanType.instance, 1);
+        sizes.put(ByteType.instance, 1);
+        sizes.put(ShortType.instance, 2);
+        sizes.put(Int32Type.instance, 4);
+        sizes.put(LongType.instance, 8);
+        sizes.put(FloatType.instance, 4);
+        sizes.put(DoubleType.instance, 8);
+        sizes.put(UUIDType.instance, 16);
+        sizes.put(InetAddressType.instance, 16); // assume ipv6
+        sizes.put(TimestampType.instance, 8);
+        sizes.put(EmptyType.instance, 0);
+
+        if (!sizes.containsKey(type))
+            throw new IllegalArgumentException("Unknown type: " + type.getClass());
+        return sizes.get(type);
+    }
 
     private static final Gen<TypeKind> TYPE_KIND_GEN = SourceDSL.arbitrary().enumValuesWithNoOrder(TypeKind.class);
 

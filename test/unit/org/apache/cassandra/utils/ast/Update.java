@@ -20,19 +20,25 @@ package org.apache.cassandra.utils.ast;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.OptionalInt;
+import java.util.OptionalLong;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 import com.google.common.collect.Sets;
 
-import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.utils.CassandraGenerators;
+import org.quicktheories.core.Gen;
+import org.quicktheories.generators.SourceDSL;
 
 import static org.apache.cassandra.utils.ast.Elements.newLine;
 
@@ -44,17 +50,19 @@ public class Update implements Statement
     ;
     public final Kind kind;
     public final TableMetadata table;
-    public final Map<Symbol, Element> values;
+    public final Map<Symbol, Expression> values;
     private final Set<Symbol> primaryColumns, nonPrimaryColumns;
     public final OptionalInt ttl;
+    public final OptionalLong timestamp;
     private final List<Element> orderedElements = new ArrayList<>();
 
-    public Update(Kind kind, TableMetadata table, Map<Symbol, Element> values, OptionalInt ttl)
+    public Update(Kind kind, TableMetadata table, Map<Symbol, Expression> values, OptionalInt ttl, OptionalLong timestamp)
     {
         this.kind = kind;
         this.table = table;
         this.values = values;
         this.ttl = ttl;
+        this.timestamp = timestamp;
 
         // partition key is always required, so validate
         Set<Symbol> partitionColumns = toSet(table.partitionKeyColumns());
@@ -136,9 +144,13 @@ VALUES (column_values)
 
     private void maybeAddTTL(StringBuilder sb, int indent)
     {
-        if (ttl.isPresent())
+        if (ttl.isPresent() || timestamp.isPresent())
         {
-            sb.append("USING TTL ").append(ttl.getAsInt()).append(" ");
+            sb.append("USING ");
+            if (ttl.isPresent())
+                sb.append("TTL ").append(ttl.getAsInt()).append(" ");
+            if (timestamp.isPresent())
+                sb.append(ttl.isPresent() ? "AND " : "").append("TIMESTAMP ").append(timestamp.getAsLong());
             newLine(sb, indent);
         }
     }
@@ -194,6 +206,11 @@ WHERE PK_column_conditions
         newLine(sb, indent);
         sb.append("FROM ").append(table.toString());
         newLine(sb, indent);
+        if (timestamp.isPresent())
+        {
+            sb.append("USING TIMESTAMP ").append(timestamp.getAsLong());
+            newLine(sb, indent);
+        }
         sb.append("WHERE ");
         // in the case of partition delete, need to exclude clustering
         valuesAnd(sb, indent, Sets.intersection(primaryColumns, values.keySet()));
@@ -231,5 +248,60 @@ WHERE PK_column_conditions
     public static Set<Symbol> toSet(Iterable<ColumnMetadata> columns)
     {
         return StreamSupport.stream(columns.spliterator(), false).map(m -> new Symbol(m.name)).collect(Collectors.toSet());
+    }
+
+    public static class GenBuilder
+    {
+        private final TableMetadata metadata;
+        private final Set<Symbol> allColumns;
+        private final Set<Symbol> primaryColumns;
+        private final Set<Symbol> nonPrimaryColumns;
+        private Gen<Update.Kind> kindGen = SourceDSL.arbitrary().enumValues(Update.Kind.class);
+        private Gen<OptionalInt> ttlGen = SourceDSL.integers().between(1, Math.toIntExact(TimeUnit.DAYS.toSeconds(10))).map(i -> i % 2 == 0 ? OptionalInt.empty() : OptionalInt.of(i));
+        private Gen<OptionalLong> timestampGen = SourceDSL.longs().between(1, Long.MAX_VALUE).map(i -> i % 2 == 0 ? OptionalLong.empty() : OptionalLong.of(i));
+        private Gen<Map<Symbol, Expression>> valuesGen;
+
+        public GenBuilder(TableMetadata metadata)
+        {
+            this.metadata = Objects.requireNonNull(metadata);
+            this.allColumns = Update.toSet(metadata.columns());
+            this.primaryColumns = Update.toSet(metadata.primaryKeyColumns());
+            this.nonPrimaryColumns = Sets.difference(allColumns, primaryColumns);
+
+            Map<Symbol, Gen<?>> data = CassandraGenerators.tableDataComposed(metadata)
+                                                          .entrySet().stream()
+                                                          .collect(Collectors.toMap(e -> new Symbol(e.getKey()), e -> e.getValue()));
+            this.valuesGen = rnd -> {
+                Map<Symbol, Expression> map = new HashMap<>();
+                for (Symbol name : allColumns)
+                    map.put(name, new Bind(data.get(name).generate(rnd)));
+                return map;
+            };
+        }
+
+        public GenBuilder withoutTimestamp()
+        {
+            timestampGen = ignore -> OptionalLong.empty();
+            return this;
+        }
+
+        public Gen<Update> build()
+        {
+            return rnd -> {
+                Update.Kind kind = kindGen.generate(rnd);
+                // when there are not non-primary-columns then can't support UPDATE
+                if (nonPrimaryColumns.isEmpty())
+                {
+                    int i;
+                    int maxRetries = 42;
+                    for (i = 0; i < maxRetries && kind == Update.Kind.UPDATE; i++)
+                        kind = kindGen.generate(rnd);
+                    if (i == maxRetries)
+                        throw new IllegalArgumentException("Kind gen kept returning UPDATE, but not supported when there are no non-primary columns");
+                }
+
+                return new Update(kind, metadata, valuesGen.generate(rnd), ttlGen.generate(rnd), timestampGen.generate(rnd));
+            };
+        }
     }
 }

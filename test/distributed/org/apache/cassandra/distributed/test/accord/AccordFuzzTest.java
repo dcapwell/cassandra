@@ -19,32 +19,34 @@
 package org.apache.cassandra.distributed.test.accord;
 
 import java.io.IOException;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
-import com.google.common.base.Throwables;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import accord.coordinate.Preempted;
+import org.apache.cassandra.cql3.ColumnIdentifier;
+import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.db.marshal.ReversedType;
+import org.apache.cassandra.db.marshal.UTF8Type;
+import org.apache.cassandra.db.marshal.UserType;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.distributed.shared.ClusterUtils;
 import org.apache.cassandra.distributed.test.TestBaseImpl;
+import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.accord.AccordService;
-import org.apache.cassandra.utils.AbstractTypeGenerators;
-import org.apache.cassandra.utils.AccordGenerators;
-import org.apache.cassandra.utils.AccordGenerators.Txn;
 import org.apache.cassandra.utils.AssertionUtils;
 import org.apache.cassandra.utils.CassandraGenerators;
 import org.apache.cassandra.utils.FailingConsumer;
 import org.apache.cassandra.utils.Generators;
+import org.apache.cassandra.utils.ast.AccordGenerators;
+import org.apache.cassandra.utils.ast.AccordGenerators.Txn;
 import org.quicktheories.core.Gen;
 import org.quicktheories.generators.SourceDSL;
 
@@ -135,19 +137,10 @@ public class AccordFuzzTest extends TestBaseImpl
                 return sb.toString();
             }
         }
-        Set<String> tables = new HashSet<>();
-        Gen<String> uniqTableNames = rnd -> {
-            String name;
-            while (!tables.add((name = nameGen.generate(rnd))))
-            {
-            }
-            return name;
-        };
+        Gen<String> uniqTableNames = Generators.uniqueSymbolGen();
         Gen<TableMetadata> metadataGen = CassandraGenerators.tableMetadataGenBuilder()
                                                             .withKind(TableMetadata.Kind.REGULAR)
                                                             .withKeyspace(KEYSPACE).withName(uniqTableNames).withColumnName(nameGen)
-                                                            //TODO once bind support is in, use all types
-//                                                            .withType(AbstractTypeGenerators.numericTypeGen())
                                                             .build();
         Gen<C> gen = rnd -> {
             TableMetadata metadata = metadataGen.generate(rnd);
@@ -157,6 +150,9 @@ public class AccordFuzzTest extends TestBaseImpl
         try (Cluster cluster = createCluster())
         {
             qt().withFixedSeed(800226806560166L).withExamples(10).withShrinkCycles(0).forAll(gen).checkAssert(FailingConsumer.orFail(c -> {
+                // create UDTs if present
+                for (ColumnMetadata column : c.metadata.columns())
+                    maybeCreateUDT(cluster, column.type);
                 String createStatement = c.metadata.toCqlString(false, false);
                 logger.info("Creating table\n{}", createStatement);
                 cluster.schemaChange(createStatement);
@@ -171,7 +167,7 @@ public class AccordFuzzTest extends TestBaseImpl
                     {
                         try
                         {
-                            cluster.coordinator(1).execute(t.toCQL(), ConsistencyLevel.ANY, t.binds);
+                            cluster.coordinator(1).execute(t.toCQL(), ConsistencyLevel.ANY, t.binds());
                             break;
                         }
                         catch (Exception e)
@@ -191,6 +187,21 @@ public class AccordFuzzTest extends TestBaseImpl
                 AccordIntegrationTest.awaitAsyncApply(cluster);
             }));
             logger.info("Done");
+        }
+    }
+
+    private static void maybeCreateUDT(Cluster cluster, AbstractType<?> type)
+    {
+        for (AbstractType<?> subtype : type.subTypes())
+            maybeCreateUDT(cluster, subtype);
+        if (type.isUDT())
+        {
+            if (type.isReversed())
+                type = ((ReversedType) type).baseType;
+            UserType udt = (UserType) type;
+            cluster.schemaChange("CREATE KEYSPACE IF NOT EXISTS " + ColumnIdentifier.maybeQuote(udt.keyspace) + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': " + Math.min(3, cluster.size()) + "};");
+            logger.info("Creating UDT {}.{}", ColumnIdentifier.maybeQuote(udt.keyspace), ColumnIdentifier.maybeQuote(UTF8Type.instance.compose(udt.name)));
+            cluster.schemaChange(udt.toCqlString(false, true));
         }
     }
 

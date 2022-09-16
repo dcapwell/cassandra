@@ -69,6 +69,7 @@ import org.quicktheories.generators.SourceDSL;
 import org.quicktheories.impl.Constraint;
 
 import static org.apache.cassandra.utils.AbstractTypeGenerators.allowReversed;
+import static org.apache.cassandra.utils.AbstractTypeGenerators.estimateSize;
 import static org.apache.cassandra.utils.AbstractTypeGenerators.getTypeSupport;
 import static org.apache.cassandra.utils.Generators.IDENTIFIER_GEN;
 import static org.apache.cassandra.utils.Generators.SMALL_TIME_SPAN_NANOS;
@@ -169,6 +170,19 @@ public final class CassandraGenerators
         Gen<TableMetadata.Kind> kindGen = TABLE_KIND_GEN;
         Gen<AbstractType<?>> typeGen = AbstractTypeGenerators.typeGen();
         Gen<Boolean> counterGen = BOOLEAN_GEN;
+        boolean respectSizeLimits = true;
+
+        public TableMetadataGenBuilder withSizeLimitsRespected()
+        {
+            respectSizeLimits = true;
+            return this;
+        }
+
+        public TableMetadataGenBuilder withSizeLimitsNotRespected()
+        {
+            respectSizeLimits = false;
+            return this;
+        }
 
         public TableMetadataGenBuilder withPartitioner(Gen<IPartitioner> partitionerGen)
         {
@@ -272,8 +286,17 @@ public final class CassandraGenerators
                 try
                 {
                     Set<String> createdColumnNames = new HashSet<>();
+                    long estimatedPartitionSize = 0;
                     for (int i = 0; i < numPartitionColumns; i++)
-                        builder.addColumn(createColumnDefinition(ks, name, ColumnMetadata.Kind.PARTITION_KEY, columnNameGen, typeGen, createdColumnNames, rnd));
+                    {
+                        ColumnMetadata columnDefinition = createColumnDefinition(ks, name, ColumnMetadata.Kind.PARTITION_KEY, columnNameGen, typeGen, createdColumnNames, rnd);
+                        long estimatedColumnSize = estimateSize(columnDefinition.type);
+                        if (respectSizeLimits && i > 0 && estimatedPartitionSize + estimatedColumnSize > FBUtilities.MAX_UNSIGNED_SHORT)
+                            // can't accept the column
+                            break;
+                        estimatedPartitionSize += estimatedColumnSize;
+                        builder.addColumn(columnDefinition);
+                    }
                     for (int i = 0; i < numClusteringColumns; i++)
                         builder.addColumn(createColumnDefinition(ks, name, ColumnMetadata.Kind.CLUSTERING, columnNameGen, typeGen, createdColumnNames, rnd));
                     for (int i = 0; i < numStaticColumns; i++)
@@ -289,35 +312,6 @@ public final class CassandraGenerators
                 return builder.build();
             }).describedAs(CassandraGenerators::toStringRecursive);
         }
-    }
-
-    private static TableMetadata createTableMetadata(Gen<String> identifierGen, Gen<AbstractType<?>> typeGen, String ks, RandomnessSource rnd)
-    {
-        String tableName = identifierGen.generate(rnd);
-        TableMetadata.Builder builder = TableMetadata.builder(ks, tableName, TableId.fromUUID(Generators.UUID_RANDOM_GEN.generate(rnd)))
-                                                     .partitioner(PARTITIONER_GEN.generate(rnd))
-                                                     .kind(TABLE_KIND_GEN.generate(rnd))
-                                                     .isCounter(BOOLEAN_GEN.generate(rnd))
-                                                     .params(TableParams.builder().build());
-
-        // generate columns
-        // must have a non-zero amount of partition columns, but may have 0 for the rest; SMALL_POSSITIVE_SIZE_GEN won't return 0
-        int numPartitionColumns = SMALL_POSITIVE_SIZE_GEN.generate(rnd);
-        int numClusteringColumns = SMALL_POSITIVE_SIZE_GEN.generate(rnd) - 1;
-        int numRegularColumns = SMALL_POSITIVE_SIZE_GEN.generate(rnd) - 1;
-        int numStaticColumns = SMALL_POSITIVE_SIZE_GEN.generate(rnd) - 1;
-
-        Set<String> createdColumnNames = new HashSet<>();
-        for (int i = 0; i < numPartitionColumns; i++)
-            builder.addColumn(createColumnDefinition(ks, tableName, ColumnMetadata.Kind.PARTITION_KEY, identifierGen, typeGen, createdColumnNames, rnd));
-        for (int i = 0; i < numClusteringColumns; i++)
-            builder.addColumn(createColumnDefinition(ks, tableName, ColumnMetadata.Kind.CLUSTERING, identifierGen, typeGen, createdColumnNames, rnd));
-        for (int i = 0; i < numStaticColumns; i++)
-            builder.addColumn(createColumnDefinition(ks, tableName, ColumnMetadata.Kind.STATIC, identifierGen, typeGen, createdColumnNames, rnd));
-        for (int i = 0; i < numRegularColumns; i++)
-            builder.addColumn(createColumnDefinition(ks, tableName, ColumnMetadata.Kind.REGULAR, identifierGen, typeGen, createdColumnNames, rnd));
-
-        return builder.build();
     }
 
     private static ColumnMetadata createColumnDefinition(String ks, String table,
@@ -368,19 +362,19 @@ public final class CassandraGenerators
         };
     }
 
-    public static Map<String, Gen<ByteBuffer>> tableData(TableMetadata metadata)
+    public static Map<ColumnIdentifier, Gen<ByteBuffer>> tableData(TableMetadata metadata)
     {
-        Map<String, Gen<ByteBuffer>> output = new HashMap<>();
+        Map<ColumnIdentifier, Gen<ByteBuffer>> output = new HashMap<>();
         for (ColumnMetadata column : metadata.columns())
-            output.put(column.name.toString(), getTypeSupport(column.type).bytesGen());
+            output.put(column.name, getTypeSupport(column.type).bytesGen());
         return output;
     }
 
-    public static Map<String, Gen<?>> tableDataComposed(TableMetadata metadata)
+    public static Map<ColumnIdentifier, Gen<?>> tableDataComposed(TableMetadata metadata)
     {
-        Map<String, Gen<?>> output = new HashMap<>();
+        Map<ColumnIdentifier, Gen<?>> output = new HashMap<>();
         for (ColumnMetadata column : metadata.columns())
-            output.put(column.name.toCQLString(), getTypeSupport(column.type).valueGen);
+            output.put(column.name, getTypeSupport(column.type).valueGen);
         return output;
     }
 
