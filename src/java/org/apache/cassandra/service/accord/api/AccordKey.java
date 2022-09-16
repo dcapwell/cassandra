@@ -320,7 +320,7 @@ public interface AccordKey extends Key
                 position += key.tableId().serialize(dst, accessor, position);
                 ByteBuffer bytes = key.partitionKey().getKey();
                 int numBytes = ByteBufferAccessor.instance.size(bytes);
-                Preconditions.checkState(numBytes <= Short.MAX_VALUE);
+                Preconditions.checkState(numBytes <= Short.MAX_VALUE, "Unable to serialize key; key size %s is too large, must be <= %s", numBytes, Short.MAX_VALUE);
                 position += accessor.putShort(dst, position, (short) numBytes);
                 position += accessor.copyByteBufferTo(bytes, 0, dst, position, numBytes);
                 return position - offset;
