@@ -20,10 +20,12 @@ package org.apache.cassandra.distributed.test;
 
 import java.io.IOException;
 
+import com.google.common.collect.ImmutableMap;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import accord.coordinate.Preempted;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.ReversedType;
@@ -35,12 +37,14 @@ import org.apache.cassandra.distributed.shared.ClusterUtils;
 import org.apache.cassandra.exceptions.RequestTimeoutException;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.service.accord.AccordService;
 import org.apache.cassandra.utils.AssertionUtils;
 import org.apache.cassandra.utils.CassandraGenerators;
 import org.apache.cassandra.utils.FailingConsumer;
 import org.apache.cassandra.utils.Generators;
 import org.apache.cassandra.utils.ast.Select;
 import org.apache.cassandra.utils.ast.Statement;
+import org.apache.cassandra.utils.ast.Txn;
 import org.apache.cassandra.utils.ast.Update;
 import org.quicktheories.core.Gen;
 import org.quicktheories.generators.SourceDSL;
@@ -62,7 +66,9 @@ public class CqlFuzzTest extends TestBaseImpl
 
         Gen<Statement> select = (Gen<Statement>) (Gen<?>) new Select.GenBuilder(metadata).build();
         Gen<Statement> update = (Gen<Statement>) (Gen<?>) new Update.GenBuilder(metadata).build();
-        Gen<Statement> statements = select.mix(update, 75);
+        Gen<Statement> accord = (Gen<Statement>) (Gen<?>) new Txn.GenBuilder(metadata).build();
+        int weight = 100 / 5;
+        Gen<Statement> statements = Generators.mix(ImmutableMap.of(select, weight, update, weight * 3, accord, weight));
 
         try (Cluster cluster = Cluster.build(2).start())
         {
@@ -75,24 +81,45 @@ public class CqlFuzzTest extends TestBaseImpl
             logger.info("Creating table\n{}", createStatement);
             cluster.schemaChange(createStatement);
             ClusterUtils.awaitGossipSchemaMatch(cluster);
+            cluster.forEach(node -> node.runOnInstance(() -> AccordService.instance.createEpochFromConfigUnsafe()));
 
-            qt().withFixedSeed(25179070203791L).withExamples(Integer.MAX_VALUE).withShrinkCycles(0).forAll(statements).checkAssert(FailingConsumer.orFail(stmt -> {
-                logger.info("Trying Statement\n{}", stmt.toCQL());
-                while (true)
+            qt().withFixedSeed(29567794119125L).withExamples(Integer.MAX_VALUE).withShrinkCycles(0).forAll(statements).checkAssert(FailingConsumer.orFail(stmt -> {
+                logger.info("Trying Statement\n{}", stmt.detailedToString());
+                int i;
+                Exception lastException = null;
+                for (i = 0; i < 42; i++)
                 {
                     try
                     {
                         cluster.coordinator(1).execute(stmt.toCQL(), ConsistencyLevel.QUORUM, stmt.binds());
+                        break;
                     }
                     catch (Exception e)
                     {
+                        lastException = e;
                         if (AssertionUtils.isInstanceof(RequestTimeoutException.class).matches(e))
                             continue;
-                        throw e;
+                            if (AssertionUtils.rootCauseIs(Preempted.class).matches(e))
+                            {
+                                logger.info("Preempted, attempt retry...");
+                                continue;
+                            }
+                        throw new RuntimeException(debugString(metadata, stmt), e);
                     }
                 }
+                if (i == 42)
+                    throw new RuntimeException("Too many retries:\n" + debugString(metadata, stmt), lastException);
             }));
         }
+    }
+
+    private static String debugString(TableMetadata metadata, Statement statement)
+    {
+        StringBuilder sb = new StringBuilder();
+        sb.append("CQL:\n").append(metadata.toCqlString(false, false)).append('\n');
+        sb.append("Statement:\n");
+        statement.toCQL(sb, 0);
+        return sb.toString();
     }
 
     private static void maybeCreateUDT(Cluster cluster, AbstractType<?> type)

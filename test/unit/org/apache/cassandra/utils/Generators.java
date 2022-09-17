@@ -26,17 +26,21 @@ import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.Date;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.function.BiPredicate;
+import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.apache.commons.lang3.ArrayUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.assertj.core.api.Assertions;
 import org.quicktheories.core.Gen;
 import org.quicktheories.core.RandomnessSource;
 import org.quicktheories.generators.SourceDSL;
@@ -401,6 +405,41 @@ public final class Generators
         Capture c = new Capture();
         qt().withExamples(1).withShrinkCycles(0).forAll(gen).checkAssert(t -> c.value = t);
         return c.value;
+    }
+
+    public static <T> Gen<T> mix(Gen<T>... gens)
+    {
+        int weight = 100 / gens.length;
+        return mix(Stream.of(gens).collect(Collectors.toMap(Function.identity(), ignore -> weight)));
+    }
+
+    public static <T> Gen<T> mix(Map<Gen<T>, Integer> gens)
+    {
+        int sum = gens.values().stream().mapToInt(Integer::intValue).sum();
+        if (sum > 100)
+            throw new IllegalArgumentException("Weights are more than 100: " + sum);
+        Object[] array = new Object[gens.size()];
+        int[] weights = new int[gens.size()];
+        {
+            sum = 0;
+            int i = 0;
+            for (Map.Entry<Gen<T>, Integer> e : gens.entrySet())
+            {
+                array[i] = e.getKey();
+                weights[i++] = sum += e.getValue();
+            }
+        }
+
+        Constraint c = Constraint.between(0L, 99L);
+        return rnd -> {
+            long picked = rnd.next(c);
+            for (int i = 0; i < weights.length; i++)
+            {
+                if (picked < weights[i])
+                    return ((Gen<T>) array[i]).generate(rnd);
+            }
+            throw new AssertionError();
+        };
     }
 
     private static final class LazySharedBlob

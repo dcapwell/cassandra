@@ -27,11 +27,13 @@ import java.util.concurrent.TimeoutException;
 import com.google.common.annotations.VisibleForTesting;
 
 import accord.api.Result;
+import accord.coordinate.Timeout;
 import accord.impl.SimpleProgressLog;
 import accord.local.Node;
 import accord.messages.Request;
 import accord.txn.Txn;
 import org.apache.cassandra.db.ConsistencyLevel;
+import org.apache.cassandra.exceptions.AccordTimeoutException;
 import org.apache.cassandra.exceptions.ReadTimeoutException;
 import org.apache.cassandra.concurrent.Shutdownable;
 import org.apache.cassandra.net.IVerbHandler;
@@ -108,6 +110,9 @@ public class AccordService implements Shutdownable
         }
         catch (ExecutionException e)
         {
+            Throwable cause = e.getCause();
+            if (cause instanceof Timeout || cause instanceof AccordTimeoutException)
+                throw new ReadTimeoutException(ConsistencyLevel.ANY, 0, 0, false);
             throw new RuntimeException(e);
         }
         catch (InterruptedException e)
