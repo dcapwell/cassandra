@@ -89,12 +89,14 @@ FROM [keyspace_name.] table_name
         }
         else
         {
+            int finalIndent = indent;
             selections.forEach(s -> {
-                s.toCQL(sb, indent);
+                s.toCQL(sb, finalIndent);
                 sb.append(", ");
             });
             sb.setLength(sb.length() - 2); // last ', '
         }
+        indent += 2;
         if (source.isPresent())
         {
             newLine(sb, indent);

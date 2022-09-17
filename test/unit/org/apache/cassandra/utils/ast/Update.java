@@ -127,6 +127,7 @@ VALUES (column_values)
         }
         sb.setLength(sb.length() - 2);
         sb.append(")");
+        indent += 2;
         newLine(sb, indent);
         sb.append("VALUES (");
         for (Symbol name : columnOrder)
@@ -165,6 +166,7 @@ WHERE row_specification
 [IF EXISTS | IF condition [AND condition] . . .] ;
          */
         sb.append("UPDATE ").append(table.toString());
+        indent += 2;
         newLine(sb, indent);
         maybeAddTTL(sb, indent);
         sb.append("SET ");
@@ -203,6 +205,7 @@ WHERE PK_column_conditions
         }
         if (!toDelete.isEmpty())
             sb.setLength(sb.length() - 2);
+        indent += 2;
         newLine(sb, indent);
         sb.append("FROM ").append(table.toString());
         newLine(sb, indent);
