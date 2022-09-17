@@ -51,7 +51,6 @@ import org.apache.cassandra.db.marshal.MapType;
 import org.apache.cassandra.db.marshal.ReversedType;
 import org.apache.cassandra.db.marshal.SetType;
 import org.apache.cassandra.db.marshal.ShortType;
-import org.apache.cassandra.db.marshal.StringType;
 import org.apache.cassandra.db.marshal.TimestampType;
 import org.apache.cassandra.db.marshal.TupleType;
 import org.apache.cassandra.db.marshal.UTF8Type;
@@ -114,6 +113,23 @@ public final class AbstractTypeGenerators
     public enum TypeKind
     {PRIMITIVE, SET, LIST, MAP, TUPLE, UDT}
 
+    private static final ObjectLongMap<AbstractType<?>> SIZES = new ObjectLongHashMap<>();
+
+    static
+    {
+        SIZES.put(BooleanType.instance, 1);
+        SIZES.put(ByteType.instance, 1);
+        SIZES.put(ShortType.instance, 2);
+        SIZES.put(Int32Type.instance, 4);
+        SIZES.put(LongType.instance, 8);
+        SIZES.put(FloatType.instance, 4);
+        SIZES.put(DoubleType.instance, 8);
+        SIZES.put(UUIDType.instance, 16);
+        SIZES.put(InetAddressType.instance, 16); // assume ipv6
+        SIZES.put(TimestampType.instance, 8);
+        SIZES.put(EmptyType.instance, 0);
+    }
+
     public static long estimateSize(AbstractType<?> type)
     {
         int assumedElements = 42;
@@ -139,22 +155,9 @@ public final class AbstractTypeGenerators
         if (type instanceof UTF8Type)
             return DYNAMIC_TYPE_SIZE * 4; // UTF-8 uses between 1-4 bytes
 
-        ObjectLongMap<AbstractType<?>> sizes = new ObjectLongHashMap<>();
-        sizes.put(BooleanType.instance, 1);
-        sizes.put(ByteType.instance, 1);
-        sizes.put(ShortType.instance, 2);
-        sizes.put(Int32Type.instance, 4);
-        sizes.put(LongType.instance, 8);
-        sizes.put(FloatType.instance, 4);
-        sizes.put(DoubleType.instance, 8);
-        sizes.put(UUIDType.instance, 16);
-        sizes.put(InetAddressType.instance, 16); // assume ipv6
-        sizes.put(TimestampType.instance, 8);
-        sizes.put(EmptyType.instance, 0);
-
-        if (!sizes.containsKey(type))
+        if (!SIZES.containsKey(type))
             throw new IllegalArgumentException("Unknown type: " + type.getClass());
-        return sizes.get(type);
+        return SIZES.get(type);
     }
 
     private static final Gen<TypeKind> TYPE_KIND_GEN = SourceDSL.arbitrary().enumValuesWithNoOrder(TypeKind.class);
