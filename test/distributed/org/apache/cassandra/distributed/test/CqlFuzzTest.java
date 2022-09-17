@@ -130,9 +130,7 @@ public class CqlFuzzTest extends TestBaseImpl
 
     private static TableMetadata createTable()
     {
-        TableMetadata metadata = Generators.get(metadataGen).unbuild()
-                                           .params(TableParams.builder().build())
-                                           .build();
+        TableMetadata metadata = Generators.get(metadataGen);
 
         // create UDTs if present
         for (ColumnMetadata column : metadata.columns())
