@@ -320,10 +320,7 @@ public abstract class UserTypes
                 return null;
             if (value == ByteBufferUtil.UNSET_BYTE_BUFFER)
                 return UNSET_VALUE;
-            AbstractType<?> type = receiver.type;
-            if (type.isReversed())
-                type = ((ReversedType<UserType>) type).baseType;
-            return Value.fromSerialized(value, (UserType) type);
+            return Value.fromSerialized(value, (UserType) receiver.type);
         }
     }
 

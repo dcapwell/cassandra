@@ -180,18 +180,6 @@ public class ReversedType<T> extends AbstractType<T>
     }
 
     @Override
-    public List<AbstractType<?>> subTypes()
-    {
-        return baseType.subTypes();
-    }
-
-    @Override
-    public boolean isUDT()
-    {
-        return baseType.isUDT();
-    }
-
-    @Override
     public String toString()
     {
         return getClass().getName() + "(" + baseType + ")";
