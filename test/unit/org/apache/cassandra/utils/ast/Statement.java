@@ -68,7 +68,16 @@ public interface Statement extends Element
         if (value == null)
             return null;
         if (value instanceof ByteBuffer)
-            return ByteBufferUtil.bytesToHex((ByteBuffer) value);
+        {
+            ByteBuffer bb = (ByteBuffer) value;
+            if (bb.remaining() > 100)
+            {
+                bb = bb.duplicate();
+                bb.limit(bb.position() + 100);
+                return ByteBufferUtil.bytesToHex(bb) + "...";
+            }
+            return ByteBufferUtil.bytesToHex(bb);
+        }
         else if (value instanceof Collection)
         {
             Collection<Object> collection = (Collection<Object>) value;
