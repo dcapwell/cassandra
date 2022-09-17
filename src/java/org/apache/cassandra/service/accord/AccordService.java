@@ -34,7 +34,6 @@ import accord.messages.Request;
 import accord.txn.Txn;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.WriteType;
-import org.apache.cassandra.exceptions.AccordTimeoutException;
 import org.apache.cassandra.exceptions.ReadTimeoutException;
 import org.apache.cassandra.concurrent.Shutdownable;
 import org.apache.cassandra.exceptions.WriteTimeoutException;
@@ -113,7 +112,7 @@ public class AccordService implements Shutdownable
         catch (ExecutionException e)
         {
             Throwable cause = e.getCause();
-            if (cause instanceof Timeout || cause instanceof AccordTimeoutException)
+            if (cause instanceof Timeout)
                 throw throwTimeout(txn);
             throw new RuntimeException(e);
         }

@@ -21,9 +21,9 @@ package org.apache.cassandra.service.accord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import accord.coordinate.Timeout;
 import accord.messages.Callback;
 import accord.messages.Reply;
-import org.apache.cassandra.exceptions.AccordTimeoutException;
 import org.apache.cassandra.exceptions.RequestFailureReason;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.Message;
@@ -51,7 +51,7 @@ class AccordCallback<T extends Reply> implements RequestCallback<T>
     {
         logger.debug("Received failure {} from {}", failureReason, from);
         // TODO (now): we should distinguish timeout failures with some placeholder Exception
-        callback.onFailure(EndpointMapping.endpointToId(from), failureReason == RequestFailureReason.TIMEOUT ? new AccordTimeoutException() : new RuntimeException(failureReason.toString()));
+        callback.onFailure(EndpointMapping.endpointToId(from), failureReason == RequestFailureReason.TIMEOUT ? new Timeout(null, null) : new RuntimeException(failureReason.toString()));
     }
 
     @Override
