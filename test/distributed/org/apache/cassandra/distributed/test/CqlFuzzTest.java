@@ -28,6 +28,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import accord.coordinate.Preempted;
+import ch.qos.logback.classic.Level;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.ReversedType;
@@ -40,6 +41,7 @@ import org.apache.cassandra.exceptions.RequestTimeoutException;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.TableParams;
+import org.apache.cassandra.service.accord.AccordMessageSink;
 import org.apache.cassandra.service.accord.AccordService;
 import org.apache.cassandra.utils.AssertionUtils;
 import org.apache.cassandra.utils.CassandraGenerators;
@@ -99,7 +101,12 @@ public class CqlFuzzTest extends TestBaseImpl
 
     private static void fuzz(TableMetadata metadata, Gen<Statement> statements)
     {
-        qt().withFixedSeed(32533285503833L).withExamples(Integer.MAX_VALUE).withShrinkCycles(0).forAll(statements).checkAssert(FailingConsumer.orFail(stmt -> {
+        // txn can be large causing issues when debug logging triggers
+        cluster.forEach(i -> i.runOnInstance(() -> {
+            setLoggerInfo("accord");
+            setLoggerInfo(AccordMessageSink.class.getCanonicalName());
+        }));
+        qt().withFixedSeed(32533285503833L).withShrinkCycles(0).forAll(statements).checkAssert(FailingConsumer.orFail(stmt -> {
             logger.info("Trying Statement\n{}", stmt.detailedToString());
             int i;
             Exception lastException = null;
@@ -126,6 +133,11 @@ public class CqlFuzzTest extends TestBaseImpl
             if (i == 42)
                 throw new RuntimeException("Too many retries:\n" + debugString(metadata, stmt), lastException);
         }));
+    }
+
+    private static void setLoggerInfo(String name)
+    {
+        ((ch.qos.logback.classic.Logger) LoggerFactory.getLogger(name)).setLevel(Level.INFO);
     }
 
     private static TableMetadata createTable()
