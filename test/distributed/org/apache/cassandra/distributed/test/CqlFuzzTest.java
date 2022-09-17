@@ -21,6 +21,8 @@ package org.apache.cassandra.distributed.test;
 import java.io.IOException;
 
 import com.google.common.collect.ImmutableMap;
+import org.junit.AfterClass;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,6 +39,7 @@ import org.apache.cassandra.distributed.shared.ClusterUtils;
 import org.apache.cassandra.exceptions.RequestTimeoutException;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.schema.TableParams;
 import org.apache.cassandra.service.accord.AccordService;
 import org.apache.cassandra.utils.AssertionUtils;
 import org.apache.cassandra.utils.CassandraGenerators;
@@ -47,70 +50,98 @@ import org.apache.cassandra.utils.ast.Statement;
 import org.apache.cassandra.utils.ast.Txn;
 import org.apache.cassandra.utils.ast.Update;
 import org.quicktheories.core.Gen;
-import org.quicktheories.generators.SourceDSL;
 
 import static org.quicktheories.QuickTheory.qt;
 
 public class CqlFuzzTest extends TestBaseImpl
 {
     private static final Logger logger = LoggerFactory.getLogger(CqlFuzzTest.class);
+    private static final Gen<TableMetadata> metadataGen = CassandraGenerators.tableMetadataGenBuilder()
+                                                                             .withKind(TableMetadata.Kind.REGULAR)
+                                                                             .withKeyspace(KEYSPACE).withName(Generators.uniqueSymbolGen())
+                                                                             .build();
+    private static Cluster cluster;
+
+    @BeforeClass
+    public static void setup() throws IOException
+    {
+        cluster = Cluster.build(2).start();
+        init(cluster);
+    }
+
+    @AfterClass
+    public static void teardown()
+    {
+        if (cluster != null)
+            cluster.close();
+    }
 
     @Test
-    public void fuzz() throws IOException
+    public void cql()
     {
-        Gen<TableMetadata> metadataGen = CassandraGenerators.tableMetadataGenBuilder()
-                                                            .withKind(TableMetadata.Kind.REGULAR)
-                                                            .withKeyspace(KEYSPACE).withName(Generators.uniqueSymbolGen())
-                                                            .build();
-        TableMetadata metadata = Generators.get(metadataGen);
-
+        TableMetadata metadata = createTable();
         Gen<Statement> select = (Gen<Statement>) (Gen<?>) new Select.GenBuilder(metadata).build();
         Gen<Statement> update = (Gen<Statement>) (Gen<?>) new Update.GenBuilder(metadata).build();
-        Gen<Statement> accord = (Gen<Statement>) (Gen<?>) new Txn.GenBuilder(metadata).build();
-        int weight = 100 / 5;
-        Gen<Statement> statements = Generators.mix(ImmutableMap.of(select, weight, update, weight * 3, accord, weight));
+        int weight = 100 / 4;
+        Gen<Statement> statements = Generators.mix(ImmutableMap.of(select, weight, update, weight * 3));
+        fuzz(metadata, statements);
+    }
 
-        try (Cluster cluster = Cluster.build(2).start())
-        {
-            init(cluster);
+    @Test
+    public void accord()
+    {
+        TableMetadata metadata = createTable();
+        cluster.forEach(node -> node.runOnInstance(() -> AccordService.instance.createEpochFromConfigUnsafe()));
 
-            // create UDTs if present
-            for (ColumnMetadata column : metadata.columns())
-                maybeCreateUDT(cluster, column.type);
-            String createStatement = metadata.toCqlString(false, false);
-            logger.info("Creating table\n{}", createStatement);
-            cluster.schemaChange(createStatement);
-            ClusterUtils.awaitGossipSchemaMatch(cluster);
-            cluster.forEach(node -> node.runOnInstance(() -> AccordService.instance.createEpochFromConfigUnsafe()));
+        Gen<Statement> statements = (Gen<Statement>) (Gen<?>) new Txn.GenBuilder(metadata).build();
+        fuzz(metadata, statements);
+    }
 
-            qt().withFixedSeed(29567794119125L).withExamples(Integer.MAX_VALUE).withShrinkCycles(0).forAll(statements).checkAssert(FailingConsumer.orFail(stmt -> {
-                logger.info("Trying Statement\n{}", stmt.detailedToString());
-                int i;
-                Exception lastException = null;
-                for (i = 0; i < 42; i++)
+    private static void fuzz(TableMetadata metadata, Gen<Statement> statements)
+    {
+        qt().withFixedSeed(32533285503833L).withExamples(Integer.MAX_VALUE).withShrinkCycles(0).forAll(statements).checkAssert(FailingConsumer.orFail(stmt -> {
+            logger.info("Trying Statement\n{}", stmt.detailedToString());
+            int i;
+            Exception lastException = null;
+            for (i = 0; i < 42; i++)
+            {
+                try
                 {
-                    try
-                    {
-                        cluster.coordinator(1).execute(stmt.toCQL(), ConsistencyLevel.QUORUM, stmt.binds());
-                        break;
-                    }
-                    catch (Exception e)
-                    {
-                        lastException = e;
-                        if (AssertionUtils.isInstanceof(RequestTimeoutException.class).matches(e))
-                            continue;
-                            if (AssertionUtils.rootCauseIs(Preempted.class).matches(e))
-                            {
-                                logger.info("Preempted, attempt retry...");
-                                continue;
-                            }
-                        throw new RuntimeException(debugString(metadata, stmt), e);
-                    }
+                    cluster.coordinator(1).execute(stmt.toCQL(), ConsistencyLevel.QUORUM, stmt.binds());
+                    break;
                 }
-                if (i == 42)
-                    throw new RuntimeException("Too many retries:\n" + debugString(metadata, stmt), lastException);
-            }));
-        }
+                catch (Exception e)
+                {
+                    lastException = e;
+                    if (AssertionUtils.isInstanceof(RequestTimeoutException.class).matches(e))
+                        continue;
+                    if (AssertionUtils.rootCauseIs(Preempted.class).matches(e))
+                    {
+                        logger.info("Preempted, attempt retry...");
+                        continue;
+                    }
+                    throw new RuntimeException(debugString(metadata, stmt), e);
+                }
+            }
+            if (i == 42)
+                throw new RuntimeException("Too many retries:\n" + debugString(metadata, stmt), lastException);
+        }));
+    }
+
+    private static TableMetadata createTable()
+    {
+        TableMetadata metadata = Generators.get(metadataGen).unbuild()
+                                           .params(TableParams.builder().build())
+                                           .build();
+
+        // create UDTs if present
+        for (ColumnMetadata column : metadata.columns())
+            maybeCreateUDT(cluster, column.type);
+        String createStatement = metadata.toCqlString(false, false);
+        logger.info("Creating table\n{}", createStatement);
+        cluster.schemaChange(createStatement);
+        ClusterUtils.awaitGossipSchemaMatch(cluster);
+        return metadata;
     }
 
     private static String debugString(TableMetadata metadata, Statement statement)
