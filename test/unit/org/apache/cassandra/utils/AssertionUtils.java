@@ -121,4 +121,9 @@ public class AssertionUtils
     {
         return rootCause((Condition<Throwable>) (Condition<?>) is(klass));
     }
+
+    public static Condition<Throwable> rootCauseIsInstanceof(Class<? extends Throwable> klass)
+    {
+        return rootCause((Condition<Throwable>) (Condition<?>) isInstanceof(klass));
+    }
 }

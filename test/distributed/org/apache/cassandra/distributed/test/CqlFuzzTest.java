@@ -40,9 +40,9 @@ import org.apache.cassandra.distributed.shared.ClusterUtils;
 import org.apache.cassandra.exceptions.RequestTimeoutException;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
-import org.apache.cassandra.schema.TableParams;
 import org.apache.cassandra.service.accord.AccordMessageSink;
 import org.apache.cassandra.service.accord.AccordService;
+import org.apache.cassandra.service.accord.AccordVerbHandler;
 import org.apache.cassandra.utils.AssertionUtils;
 import org.apache.cassandra.utils.CassandraGenerators;
 import org.apache.cassandra.utils.FailingConsumer;
@@ -94,6 +94,12 @@ public class CqlFuzzTest extends TestBaseImpl
     {
         TableMetadata metadata = createTable();
         cluster.forEach(node -> node.runOnInstance(() -> AccordService.instance.createEpochFromConfigUnsafe()));
+        // txn can be large causing issues when debug logging triggers
+        cluster.forEach(i -> i.runOnInstance(() -> {
+            setLoggerInfo("accord");
+            setLoggerInfo(AccordMessageSink.class.getCanonicalName());
+            setLoggerInfo(AccordVerbHandler.class.getCanonicalName());
+        }));
 
         Gen<Statement> statements = (Gen<Statement>) (Gen<?>) new Txn.GenBuilder(metadata).build();
         fuzz(metadata, statements);
@@ -101,11 +107,6 @@ public class CqlFuzzTest extends TestBaseImpl
 
     private static void fuzz(TableMetadata metadata, Gen<Statement> statements)
     {
-        // txn can be large causing issues when debug logging triggers
-        cluster.forEach(i -> i.runOnInstance(() -> {
-            setLoggerInfo("accord");
-            setLoggerInfo(AccordMessageSink.class.getCanonicalName());
-        }));
         qt().withFixedSeed(32533285503833L).withShrinkCycles(0).forAll(statements).checkAssert(FailingConsumer.orFail(stmt -> {
             logger.info("Trying Statement\n{}", stmt.detailedToString());
             int i;
@@ -115,14 +116,17 @@ public class CqlFuzzTest extends TestBaseImpl
                 try
                 {
                     cluster.coordinator(1).execute(stmt.toCQL(), ConsistencyLevel.QUORUM, stmt.binds());
-                    break;
+                    return;
                 }
                 catch (Exception e)
                 {
                     lastException = e;
-                    if (AssertionUtils.isInstanceof(RequestTimeoutException.class).matches(e))
+                    if (AssertionUtils.rootCauseIsInstanceof(RequestTimeoutException.class).matches(e))
+                    {
+                        logger.info("Timeout seen, attempting retry {}", i);
                         continue;
-                    if (AssertionUtils.rootCauseIs(Preempted.class).matches(e))
+                    }
+                    if (AssertionUtils.rootCauseIsInstanceof(Preempted.class).matches(e))
                     {
                         logger.info("Preempted, attempt retry...");
                         continue;
@@ -130,8 +134,7 @@ public class CqlFuzzTest extends TestBaseImpl
                     throw new RuntimeException(debugString(metadata, stmt), e);
                 }
             }
-            if (i == 42)
-                throw new RuntimeException("Too many retries:\n" + debugString(metadata, stmt), lastException);
+            throw new RuntimeException("Too many retries " + i + ":\n" + debugString(metadata, stmt), lastException);
         }));
     }
 
