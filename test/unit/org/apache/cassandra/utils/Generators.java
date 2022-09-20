@@ -401,9 +401,14 @@ public final class Generators
 
     public static <T> T get(Gen<T> gen)
     {
+        return get(42, gen);
+    }
+
+    public static <T> T get(long seed, Gen<T> gen)
+    {
         class Capture {T value;}
         Capture c = new Capture();
-        qt().withFixedSeed(42).withExamples(1).withShrinkCycles(0).forAll(gen).checkAssert(t -> c.value = t);
+        qt().withFixedSeed(seed).withExamples(1).withShrinkCycles(0).forAll(gen).checkAssert(t -> c.value = t);
         return c.value;
     }
 
