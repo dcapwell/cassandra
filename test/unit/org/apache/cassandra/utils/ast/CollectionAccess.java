@@ -18,6 +18,8 @@
 
 package org.apache.cassandra.utils.ast;
 
+import java.util.stream.Stream;
+
 import org.apache.cassandra.db.marshal.AbstractType;
 
 public class CollectionAccess implements ReferenceExpression
@@ -46,5 +48,11 @@ public class CollectionAccess implements ReferenceExpression
     public AbstractType<?> type()
     {
         return type;
+    }
+
+    @Override
+    public Stream<? extends Element> stream()
+    {
+        return Stream.of(column, element);
     }
 }

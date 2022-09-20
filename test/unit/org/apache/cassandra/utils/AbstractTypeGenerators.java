@@ -341,8 +341,7 @@ public final class AbstractTypeGenerators
     public static <T> TypeSupport<T> getTypeSupport(AbstractType<T> type, Gen<Integer> sizeGen)
     {
         // this doesn't affect the data, only sort order, so drop it
-        if (type.isReversed())
-            type = ((ReversedType<T>) type).baseType;
+        type = type.unwrap();
         // cast is safe since type is a constant and was type cast while inserting into the map
         @SuppressWarnings("unchecked")
         TypeSupport<T> gen = (TypeSupport<T>) PRIMITIVE_TYPE_DATA_GENS.get(type);

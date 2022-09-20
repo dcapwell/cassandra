@@ -40,10 +40,10 @@ public class Where implements Conditional
     }
 
     public final Inequalities kind;
-    public final Symbol symbol;
+    public final ReferenceExpression symbol;
     public final Expression expression;
 
-    public Where(Inequalities kind, Symbol symbol, Expression expression)
+    public Where(Inequalities kind, ReferenceExpression symbol, Expression expression)
     {
         this.kind = kind;
         this.symbol = symbol;

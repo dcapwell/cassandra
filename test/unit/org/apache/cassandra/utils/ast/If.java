@@ -18,27 +18,42 @@
 
 package org.apache.cassandra.utils.ast;
 
+import java.util.List;
 import java.util.stream.Stream;
 
-public class Not implements Conditional
-{
-    private final Conditional child;
+import static org.apache.cassandra.utils.ast.Elements.newLine;
 
-    public Not(Conditional child)
+public class If implements Element
+{
+    private final Conditional conditional;
+    private final List<Update> updates;
+
+    public If(Conditional conditional, List<Update> updates)
     {
-        this.child = child;
+        this.conditional = conditional;
+        this.updates = updates;
     }
 
     @Override
     public void toCQL(StringBuilder sb, int indent)
     {
-        sb.append("NOT ");
-        child.toCQL(sb, indent);
+        sb.append("IF ");
+        conditional.toCQL(sb, indent);
+        sb.append(" THEN");
+        int subIndent = indent + 2;
+        for (Update update : updates)
+        {
+            newLine(sb, subIndent);
+            update.toCQL(sb, subIndent);
+            sb.append(';');
+        }
+        Elements.newLine(sb, indent);
+        sb.append("END IF");
     }
 
     @Override
     public Stream<? extends Element> stream()
     {
-        return Stream.of(child);
+        return Stream.concat(Stream.of(conditional), updates.stream());
     }
 }

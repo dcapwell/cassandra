@@ -190,14 +190,11 @@ public class CqlFuzzTest extends TestBaseImpl
 
     private static void maybeCreateUDT(Cluster cluster, AbstractType<?> type)
     {
-        if (type.isReversed())
-            type = ((ReversedType) type).baseType;
+        type = type.unwrap();
         for (AbstractType<?> subtype : type.subTypes())
             maybeCreateUDT(cluster, subtype);
         if (type.isUDT())
         {
-            if (type.isReversed())
-                type = ((ReversedType) type).baseType;
             UserType udt = (UserType) type;
             cluster.schemaChange("CREATE KEYSPACE IF NOT EXISTS " + ColumnIdentifier.maybeQuote(udt.keyspace) + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': " + Math.min(3, cluster.size()) + "};");
             String cql = udt.toCqlString(false, true);

@@ -203,7 +203,11 @@ FROM [keyspace_name.] table_name
             return rnd -> {
                 int[] indexes = indexGen.generate(rnd);
                 List<Expression> es = new ArrayList<>(indexes.length);
-                IntStream.of(indexes).mapToObj(columns::get).forEach(c -> es.add(new Symbol(c)));
+                IntStream.of(indexes).mapToObj(columns::get).forEach(c -> {
+                    Reference ref = Reference.of(new Symbol(c));
+                    es.add(ref);
+                    Txn.recursiveReferences(ref).forEach(es::add);
+                });
                 return es;
             };
         }

@@ -18,7 +18,14 @@
 
 package org.apache.cassandra.utils.ast;
 
-public interface Conditional extends Element
-{
+import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.db.marshal.BooleanType;
 
+public interface Conditional extends Expression
+{
+    @Override
+    default AbstractType<?> type()
+    {
+        return BooleanType.instance;
+    }
 }

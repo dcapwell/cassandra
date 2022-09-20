@@ -19,6 +19,8 @@
 package org.apache.cassandra.utils.ast;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -51,12 +53,14 @@ public class Txn implements Statement
     public final List<Let> lets;
     // return
     public final Optional<Select> output;
+    public final Optional<If> ifBlock;
     public final List<Update> updates;
 
-    public Txn(List<Let> lets, Optional<Select> output, List<Update> updates)
+    public Txn(List<Let> lets, Optional<Select> output, Optional<If> ifBlock, List<Update> updates)
     {
         this.lets = lets;
         this.output = output;
+        this.ifBlock = ifBlock;
         this.updates = updates;
     }
 
@@ -69,7 +73,8 @@ public class Txn implements Statement
         stream().forEach(e -> {
             newLine(sb, subIndent);
             e.toCQL(sb, subIndent);
-            sb.append(';');
+            if (!(e instanceof If))
+                sb.append(';');
         });
         newLine(sb, indent);
         sb.append("COMMIT TRANSACTION");
@@ -81,6 +86,8 @@ public class Txn implements Statement
         Stream<? extends Element> ret = lets.stream();
         if (output.isPresent())
             ret = Stream.concat(ret, Stream.of(output.get()));
+        if (ifBlock.isPresent())
+            ret = Stream.concat(ret, Stream.of(ifBlock.get()));
         ret = Stream.concat(ret, updates.stream());
         return ret;
     }
@@ -96,6 +103,7 @@ public class Txn implements Statement
         public enum TxReturn { NONE, TABLE, REF}
         private final TableMetadata metadata;
         private Constraint letRange = Constraint.between(0, 10);
+        private Constraint ifUpdateRange = Constraint.between(1, 3);
         private Constraint updateRange = Constraint.between(0, 10);
         private Gen<Select> selectGen;
         private Gen<TxReturn> txReturnGen = SourceDSL.arbitrary().enumValues(TxReturn.class);
@@ -114,6 +122,7 @@ public class Txn implements Statement
 
         public Gen<Txn> build()
         {
+            Gen<Boolean> bool = SourceDSL.booleans().all();
             return rnd -> {
                 TxnBuilder builder = new TxnBuilder();
                 do
@@ -125,13 +134,14 @@ public class Txn implements Statement
                         while (builder.lets.containsKey(name = SYMBOL_GEN.generate(rnd))) {}
                         builder.addLet(name, selectGen.generate(rnd));
                     }
+                    Gen<Reference> refGen = SourceDSL.arbitrary().pick(new ArrayList<>(builder.allowedReferences));
                     switch (txReturnGen.generate(rnd))
                     {
                         case REF:
                         {
                             if (!builder.allowedReferences.isEmpty())
                             {
-                                Gen<List<Reference>> refsGen = SourceDSL.lists().of(SourceDSL.arbitrary().pick(new ArrayList<>(builder.allowedReferences))).ofSizeBetween(1, Math.max(10, builder.allowedReferences.size()));
+                                Gen<List<Reference>> refsGen = SourceDSL.lists().of(refGen).ofSizeBetween(1, Math.max(10, builder.allowedReferences.size()));
                                 builder.addReturn(new Select((List<Expression>) (List<?>) refsGen.generate(rnd)));
                             }
                         }
@@ -140,12 +150,94 @@ public class Txn implements Statement
                             builder.addReturn(selectGen.generate(rnd));
                             break;
                     }
+                    if (!builder.lets.isEmpty() && bool.generate(rnd))
+                    {
+                        Gen<Conditional> conditionalGen = conditionalGen(refGen);
+                        int numUpdates = Math.toIntExact(rnd.next(ifUpdateRange));
+                        List<Update> updates = new ArrayList<>(numUpdates);
+                        for (int i = 0; i < numUpdates; i++)
+                            updates.add(updateGen.generate(rnd));
+                        builder.addIf(new If(conditionalGen.generate(rnd), updates));
+                    }
                     int numUpdates = Math.toIntExact(rnd.next(updateRange));
                     for (int i = 0; i < numUpdates; i++)
                         builder.addUpdate(updateGen.generate(rnd));
                 } while (builder.isEmpty());
                 return builder.build();
             };
+        }
+
+        private static Gen<Conditional> conditionalGen(Gen<Reference> refGen)
+        {
+            Constraint numConditionsConstraint = Constraint.between(1, 10);
+            return rnd -> {
+                //TODO support OR
+                Gen<Where> whereGen = whereGen(refGen.generate(rnd));
+                int size = Math.toIntExact(rnd.next(numConditionsConstraint));
+                Conditional accum = whereGen.generate(rnd);
+                for (int i = 1; i < size; i++)
+                    accum = new And(accum, whereGen.generate(rnd));
+                return accum;
+            };
+        }
+
+        private static Gen<Where> whereGen(Reference ref)
+        {
+            Gen<Where.Inequalities> kindGen = SourceDSL.arbitrary().enumValues(Where.Inequalities.class);
+            Gen<?> dataGen = AbstractTypeGenerators.getTypeSupport(ref.type()).valueGen;
+            return rnd -> {
+                Where.Inequalities kind = kindGen.generate(rnd);
+                return new Where(kind, ref, new Bind(dataGen.generate(rnd), ref.type()));
+            };
+        }
+    }
+
+    public static List<Reference> recursiveReferences(Reference ref)
+    {
+        List<Reference> accum = new ArrayList<>();
+        recursiveReferences(accum, ref);
+        return accum.isEmpty() ? Collections.emptyList() : accum;
+    }
+
+    private static void recursiveReferences(Collection<Reference> accum, Reference ref)
+    {
+        AbstractType<?> type = ref.type().unwrap();
+        if (type.isCollection())
+        {
+            //TODO Caleb to add support for [] like normal read/write supports
+            if (type instanceof SetType)
+            {
+                // [value] syntax
+                SetType set = (SetType) type;
+                AbstractType subType = set.getElementsType();
+                Object value = Generators.get(AbstractTypeGenerators.getTypeSupport(subType).valueGen);
+                Reference subRef = ref.lastAsCollection(l -> new CollectionAccess(l, new Bind(value, subType), subType));
+                accum.add(subRef);
+                recursiveReferences(accum, subRef);
+            }
+            else if (type instanceof MapType)
+            {
+                // [key] syntax
+                MapType map = (MapType) type;
+                AbstractType keyType = map.getKeysType();
+                AbstractType valueType = map.getValuesType();
+
+                Object v = Generators.get(AbstractTypeGenerators.getTypeSupport(keyType).valueGen);
+                Reference subRef = ref.lastAsCollection(l -> new CollectionAccess(l, new Bind(v, keyType), valueType));
+                accum.add(subRef);
+                recursiveReferences(accum, subRef);
+            }
+            // see Selectable.specForElementOrSlice; ListType is not supported
+        }
+        else if (type.isUDT())
+        {
+            UserType udt = (UserType) type;
+            for (int i = 0; i < udt.size(); i++)
+            {
+                Reference subRef = ref.add(udt.fieldName(i).toString(), udt.type(i));
+                accum.add(subRef);
+                recursiveReferences(accum, subRef);
+            }
         }
     }
 
@@ -155,6 +247,7 @@ public class Txn implements Statement
         // no type system so don't need easy lookup to Expression; just existence check
         private final Set<Reference> allowedReferences = new HashSet<>();
         private Optional<Select> output = Optional.empty();
+        private Optional<If> ifBlock = Optional.empty();
         private final List<Update> updates = new ArrayList<>();
 
         boolean isEmpty()
@@ -162,7 +255,7 @@ public class Txn implements Statement
             // don't include output as 'BEGIN TRANSACTION SELECT "000000000000000010000"; COMMIT TRANSACTION' isn't valid
 //            return lets.isEmpty();
             // TransactionStatement defines empty as no SELECT or updates
-            return !output.isPresent() && updates.isEmpty();
+            return !output.isPresent() && !ifBlock.isPresent() && updates.isEmpty();
         }
 
         void addLet(String name, Select select)
@@ -189,65 +282,20 @@ public class Txn implements Statement
             return new UserType(null, null, fieldNames, fieldTypes, false);
         }
 
-        private void maybeAddRecursiveReferences(Reference ref)
-        {
-            AbstractType<?> type = ref.type();
-            if (type.isReversed())
-                type = ((ReversedType) type).baseType;
-            if (type.isCollection())
-            {
-                if (type instanceof SetType)
-                {
-                    // [value] syntax
-                    SetType set = (SetType) type;
-                    AbstractType subType = set.getElementsType();
-                    Object value = Generators.get(AbstractTypeGenerators.getTypeSupport(subType).valueGen);
-                    addAllowedReference(ref.lastAsCollection(l -> new CollectionAccess(l, new Bind(value, subType), subType)));
-
-
-                }
-                else if (type instanceof MapType)
-                {
-                    // [key] syntax
-                    MapType map = (MapType) type;
-                    AbstractType keyType = map.getKeysType();
-                    AbstractType valueType = map.getValuesType();
-
-                    Object v = Generators.get(AbstractTypeGenerators.getTypeSupport(keyType).valueGen);
-                    addAllowedReference(ref.lastAsCollection(l -> new CollectionAccess(l, new Bind(v, keyType), valueType)));
-                }
-                // see Selectable.specForElementOrSlice; ListType is not supported
-//                if (type instanceof ListType)
-//                {
-//                    // supports index
-//                    AbstractType<?> subType = ((ListType<?>) type).getElementsType();
-//                    for (int index : Arrays.asList(0, Integer.MAX_VALUE))
-//                    {
-//                        List<String> path = new ArrayList<>(ref.path.size());
-//                        for (int i = 0; i < ref.path.size() - 1; i++)
-//                            path.add(ref.path.get(i));
-//                        path.add(ref.path.get(ref.path.size() - 1) + "[" + index + "]");
-//                        addAllowedReference(new Reference(path, subType));
-//                    }
-//                }
-            }
-            else if (type.isUDT())
-            {
-                UserType udt = (UserType) type;
-                for (int i = 0; i < udt.size(); i++)
-                    addAllowedReference(ref.add(udt.fieldName(i).toString(), udt.type(i)));
-            }
-        }
-
         private void addAllowedReference(Reference ref)
         {
             allowedReferences.add(ref);
-            maybeAddRecursiveReferences(ref);
+            recursiveReferences(allowedReferences, ref);
         }
 
         void addReturn(Select select)
         {
             output = Optional.of(select);
+        }
+
+        void addIf(If block)
+        {
+            ifBlock = Optional.of(block);
         }
 
         void addUpdate(Update update)
@@ -258,7 +306,7 @@ public class Txn implements Statement
         Txn build()
         {
             List<Let> lets = this.lets.entrySet().stream().map(e -> new Let(e.getKey(), e.getValue())).collect(Collectors.toList());
-            return new Txn(lets, output, new ArrayList<>(updates));
+            return new Txn(lets, output, ifBlock, new ArrayList<>(updates));
         }
     }
 }

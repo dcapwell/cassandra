@@ -23,11 +23,12 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Function;
+import java.util.stream.Stream;
 
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.db.marshal.AbstractType;
 
-public class Reference implements Expression
+public class Reference implements ReferenceExpression
 {
     public final List<ReferenceExpression> path;
 
@@ -75,6 +76,12 @@ public class Reference implements Expression
             sb.append('.');
         });
         sb.setLength(sb.length() - 1); // last .
+    }
+
+    @Override
+    public Stream<? extends Element> stream()
+    {
+        return path.stream();
     }
 
     @Override
