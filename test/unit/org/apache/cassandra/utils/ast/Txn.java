@@ -266,7 +266,7 @@ public class Txn implements Statement
 
             Reference ref = Reference.of(new Symbol(name, toNamedTuple(select)));
             for (Expression e : select.selections)
-                addAllowedReference(ref.add(e.name(), e.type()));
+                addAllowedReference(ref.add(e));
         }
 
         private AbstractType<?> toNamedTuple(Select select)

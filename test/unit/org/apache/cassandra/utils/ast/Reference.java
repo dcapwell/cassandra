@@ -58,6 +58,29 @@ public class Reference implements ReferenceExpression
         return new Reference(path);
     }
 
+    public Reference add(Expression expression)
+    {
+        if (expression instanceof Reference)
+        {
+            Reference other = (Reference) expression;
+            List<ReferenceExpression> path = new ArrayList<>(this.path.size() + other.path.size());
+            path.addAll(this.path);
+            path.addAll(other.path);
+            return new Reference(path);
+        }
+        else if (expression instanceof Symbol)
+        {
+            List<ReferenceExpression> path = new ArrayList<>(this.path.size() + 1);
+            path.addAll(this.path);
+            path.add((Symbol) expression);
+            return new Reference(path);
+        }
+        else
+        {
+            return add(expression.name(), expression.type());
+        }
+    }
+
     public Reference lastAsCollection(Function<ReferenceExpression, CollectionAccess> fn)
     {
         List<ReferenceExpression> path = new ArrayList<>(this.path.size());
@@ -97,5 +120,11 @@ public class Reference implements ReferenceExpression
     public int hashCode()
     {
         return Objects.hash(path);
+    }
+
+    @Override
+    public String toString()
+    {
+        return toCQL();
     }
 }
