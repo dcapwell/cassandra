@@ -171,6 +171,7 @@ public final class CassandraGenerators
         Gen<AbstractType<?>> typeGen = AbstractTypeGenerators.typeGen();
         Gen<Boolean> counterGen = BOOLEAN_GEN;
         boolean respectSizeLimits = true;
+        boolean allowReversed = true;
 
         public TableMetadataGenBuilder withSizeLimitsRespected()
         {
@@ -262,6 +263,17 @@ public final class CassandraGenerators
             return this;
         }
 
+        public TableMetadataGenBuilder withReversed()
+        {
+            allowReversed = true;
+            return this;
+        }
+        public TableMetadataGenBuilder withoutReversed()
+        {
+            allowReversed = false;
+            return this;
+        }
+
         public Gen<TableMetadata> build()
         {
             return gen(rnd -> {
@@ -312,37 +324,37 @@ public final class CassandraGenerators
                 return builder.build();
             }).describedAs(CassandraGenerators::toStringRecursive);
         }
-    }
 
-    private static ColumnMetadata createColumnDefinition(String ks, String table,
-                                                         ColumnMetadata.Kind kind,
-                                                         Gen<String> identifierGen,
-                                                         Gen<AbstractType<?>> typeGen,
-                                                         Set<String> createdColumnNames, /* This is mutated to check for collisions, so has a side effect outside of normal random generation */
-                                                         RandomnessSource rnd)
-    {
-        switch (kind)
+        private ColumnMetadata createColumnDefinition(String ks, String table,
+                                                      ColumnMetadata.Kind kind,
+                                                      Gen<String> identifierGen,
+                                                      Gen<AbstractType<?>> typeGen,
+                                                      Set<String> createdColumnNames, /* This is mutated to check for collisions, so has a side effect outside of normal random generation */
+                                                      RandomnessSource rnd)
         {
-            // partition and clustering keys require frozen types, so make sure all types generated will be frozen
-            // empty type is also not supported, so filter out
-            case PARTITION_KEY:
-            case CLUSTERING:
-                typeGen = Generators.filter(typeGen, t -> t != EmptyType.instance).map(AbstractType::freeze);
-                break;
+            switch (kind)
+            {
+                // partition and clustering keys require frozen types, so make sure all types generated will be frozen
+                // empty type is also not supported, so filter out
+                case PARTITION_KEY:
+                case CLUSTERING:
+                    typeGen = Generators.filter(typeGen, t -> t != EmptyType.instance).map(AbstractType::freeze);
+                    break;
+            }
+            if (kind == ColumnMetadata.Kind.CLUSTERING && allowReversed)
+            {
+                // when working on a clustering column, add in reversed types periodically
+                typeGen = allowReversed(typeGen);
+            }
+            // filter for unique names
+            String str;
+            while (!createdColumnNames.add(str = identifierGen.generate(rnd)))
+            {
+            }
+            ColumnIdentifier name = new ColumnIdentifier(str, true);
+            int position = !kind.isPrimaryKeyKind() ? -1 : (int) rnd.next(Constraint.between(0, 30));
+            return new ColumnMetadata(ks, table, name, typeGen.generate(rnd), position, kind);
         }
-        if (kind == ColumnMetadata.Kind.CLUSTERING)
-        {
-            // when working on a clustering column, add in reversed types periodically
-            typeGen = allowReversed(typeGen);
-        }
-        // filter for unique names
-        String str;
-        while (!createdColumnNames.add(str = identifierGen.generate(rnd)))
-        {
-        }
-        ColumnIdentifier name = new ColumnIdentifier(str, true);
-        int position = !kind.isPrimaryKeyKind() ? -1 : (int) rnd.next(Constraint.between(0, 30));
-        return new ColumnMetadata(ks, table, name, typeGen.generate(rnd), position, kind);
     }
 
     public static Gen<ByteBuffer[]> partitionKeyArrayDataGen(TableMetadata metadata)

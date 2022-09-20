@@ -32,7 +32,6 @@ import accord.coordinate.Preempted;
 import ch.qos.logback.classic.Level;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.db.marshal.AbstractType;
-import org.apache.cassandra.db.marshal.ReversedType;
 import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.db.marshal.UserType;
 import org.apache.cassandra.distributed.Cluster;
@@ -63,6 +62,7 @@ public class CqlFuzzTest extends TestBaseImpl
     private static final Gen<TableMetadata> metadataGen = CassandraGenerators.tableMetadataGenBuilder()
                                                                              .withKind(TableMetadata.Kind.REGULAR)
                                                                              .withKeyspace(KEYSPACE).withName(Generators.uniqueSymbolGen())
+                                                                             .withoutReversed()
                                                                              .build();
     private static Cluster cluster;
 
