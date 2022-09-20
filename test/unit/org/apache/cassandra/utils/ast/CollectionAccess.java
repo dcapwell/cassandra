@@ -20,22 +20,26 @@ package org.apache.cassandra.utils.ast;
 
 import org.apache.cassandra.db.marshal.AbstractType;
 
-public class Literal implements ReferenceExpression
+public class CollectionAccess implements ReferenceExpression
 {
-    private final Object value;
+    private final ReferenceExpression column;
+    private final ReferenceExpression element;
     private final AbstractType<?> type;
 
-    public Literal(Object value, AbstractType<?> type)
+    public CollectionAccess(ReferenceExpression column, ReferenceExpression element, AbstractType<?> type)
     {
-        this.value = value;
+        this.column = column;
+        this.element = element;
         this.type = type;
     }
 
     @Override
     public void toCQL(StringBuilder sb, int indent)
     {
-        //TODO figure out quoting
-        sb.append(value);
+        column.toCQL(sb, indent);
+        sb.append('[');
+        element.toCQL(sb, indent);
+        sb.append(']');
     }
 
     @Override

@@ -403,7 +403,7 @@ public final class Generators
     {
         class Capture {T value;}
         Capture c = new Capture();
-        qt().withExamples(1).withShrinkCycles(0).forAll(gen).checkAssert(t -> c.value = t);
+        qt().withFixedSeed(42).withExamples(1).withShrinkCycles(0).forAll(gen).checkAssert(t -> c.value = t);
         return c.value;
     }
 

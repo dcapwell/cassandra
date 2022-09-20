@@ -18,18 +18,28 @@
 
 package org.apache.cassandra.utils.ast;
 
-public class Bind implements Expression
+import org.apache.cassandra.db.marshal.AbstractType;
+
+public class Bind implements ReferenceExpression
 {
     private final Object value;
+    private final AbstractType<?> type;
 
-    public Bind(Object value)
+    public Bind(Object value, AbstractType<?> type)
     {
         this.value = value;
+        this.type = type;
     }
 
     public Object value()
     {
         return value;
+    }
+
+    @Override
+    public AbstractType<?> type()
+    {
+        return type;
     }
 
     @Override

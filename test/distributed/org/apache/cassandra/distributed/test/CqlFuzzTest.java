@@ -19,7 +19,6 @@
 package org.apache.cassandra.distributed.test;
 
 import java.io.IOException;
-import java.util.regex.Pattern;
 
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;

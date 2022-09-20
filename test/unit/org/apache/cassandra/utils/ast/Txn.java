@@ -19,7 +19,6 @@
 package org.apache.cassandra.utils.ast;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -30,7 +29,15 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import org.apache.cassandra.cql3.FieldIdentifier;
+import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.db.marshal.MapType;
+import org.apache.cassandra.db.marshal.ReversedType;
+import org.apache.cassandra.db.marshal.SetType;
+import org.apache.cassandra.db.marshal.UserType;
 import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.utils.AbstractTypeGenerators;
+import org.apache.cassandra.utils.Generators;
 import org.quicktheories.core.Gen;
 import org.quicktheories.generators.SourceDSL;
 import org.quicktheories.impl.Constraint;
@@ -163,11 +170,79 @@ public class Txn implements Statement
             if (lets.containsKey(name))
                 throw new IllegalArgumentException("Let name " + name + " already exists");
             lets.put(name, select);
-            //TODO add support for touple
-//            allowedReferences.add(new Reference(Arrays.asList(name)));
+
+            Reference ref = Reference.of(new Symbol(name, toNamedTuple(select)));
             for (Expression e : select.selections)
-                //TODO remove " due to current limitation... revert once fixed!
-                allowedReferences.add(new Reference(Arrays.asList(name, e.name().replace("\"", ""))));
+                addAllowedReference(ref.add(e.name(), e.type()));
+        }
+
+        private AbstractType<?> toNamedTuple(Select select)
+        {
+            //TODO don't rely on UserType...
+            List<FieldIdentifier> fieldNames = new ArrayList<>(select.selections.size());
+            List<AbstractType<?>> fieldTypes = new ArrayList<>(select.selections.size());
+            for (Expression e : select.selections)
+            {
+                fieldNames.add(FieldIdentifier.forQuoted(e.name()));
+                fieldTypes.add(e.type());
+            }
+            return new UserType(null, null, fieldNames, fieldTypes, false);
+        }
+
+        private void maybeAddRecursiveReferences(Reference ref)
+        {
+            AbstractType<?> type = ref.type();
+            if (type.isReversed())
+                type = ((ReversedType) type).baseType;
+            if (type.isCollection())
+            {
+                if (type instanceof SetType)
+                {
+                    // [value] syntax
+                    SetType set = (SetType) type;
+                    AbstractType subType = set.getElementsType();
+                    Object value = Generators.get(AbstractTypeGenerators.getTypeSupport(subType).valueGen);
+                    addAllowedReference(ref.lastAsCollection(l -> new CollectionAccess(l, new Bind(value, subType), subType)));
+
+
+                }
+                else if (type instanceof MapType)
+                {
+                    // [key] syntax
+                    MapType map = (MapType) type;
+                    AbstractType keyType = map.getKeysType();
+                    AbstractType valueType = map.getValuesType();
+
+                    Object v = Generators.get(AbstractTypeGenerators.getTypeSupport(keyType).valueGen);
+                    addAllowedReference(ref.lastAsCollection(l -> new CollectionAccess(l, new Bind(v, keyType), valueType)));
+                }
+                // see Selectable.specForElementOrSlice; ListType is not supported
+//                if (type instanceof ListType)
+//                {
+//                    // supports index
+//                    AbstractType<?> subType = ((ListType<?>) type).getElementsType();
+//                    for (int index : Arrays.asList(0, Integer.MAX_VALUE))
+//                    {
+//                        List<String> path = new ArrayList<>(ref.path.size());
+//                        for (int i = 0; i < ref.path.size() - 1; i++)
+//                            path.add(ref.path.get(i));
+//                        path.add(ref.path.get(ref.path.size() - 1) + "[" + index + "]");
+//                        addAllowedReference(new Reference(path, subType));
+//                    }
+//                }
+            }
+            else if (type.isUDT())
+            {
+                UserType udt = (UserType) type;
+                for (int i = 0; i < udt.size(); i++)
+                    addAllowedReference(ref.add(udt.fieldName(i).toString(), udt.type(i)));
+            }
+        }
+
+        private void addAllowedReference(Reference ref)
+        {
+            allowedReferences.add(ref);
+            maybeAddRecursiveReferences(ref);
         }
 
         void addReturn(Select select)

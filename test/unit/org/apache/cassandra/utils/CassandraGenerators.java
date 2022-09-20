@@ -370,11 +370,11 @@ public final class CassandraGenerators
         return output;
     }
 
-    public static Map<ColumnIdentifier, Gen<?>> tableDataComposed(TableMetadata metadata)
+    public static Map<ColumnMetadata, Gen<?>> tableDataComposed(TableMetadata metadata)
     {
-        Map<ColumnIdentifier, Gen<?>> output = new HashMap<>();
+        Map<ColumnMetadata, Gen<?>> output = new HashMap<>();
         for (ColumnMetadata column : metadata.columns())
-            output.put(column.name, getTypeSupport(column.type).valueGen);
+            output.put(column, getTypeSupport(column.type).valueGen);
         return output;
     }
 

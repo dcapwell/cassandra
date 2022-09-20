@@ -203,18 +203,18 @@ FROM [keyspace_name.] table_name
             return rnd -> {
                 int[] indexes = indexGen.generate(rnd);
                 List<Expression> es = new ArrayList<>(indexes.length);
-                IntStream.of(indexes).mapToObj(columns::get).forEach(c -> es.add(new Symbol(c.name)));
+                IntStream.of(indexes).mapToObj(columns::get).forEach(c -> es.add(new Symbol(c)));
                 return es;
             };
         }
 
         private static Gen<Map<Symbol, Expression>> partitionKeyGen(TableMetadata metadata)
         {
-            Map<ColumnIdentifier, Gen<?>> gens = CassandraGenerators.tableDataComposed(metadata);
+            Map<ColumnMetadata, Gen<?>> gens = CassandraGenerators.tableDataComposed(metadata);
 
             Map<Symbol, Gen<Expression>> output = new LinkedHashMap<>();
             for (ColumnMetadata col : metadata.partitionKeyColumns())
-                output.put(new Symbol(col.name), gens.get(col.name).map(Bind::new));
+                output.put(new Symbol(col), gens.get(col).map(o -> new Bind(o, col.type)));
             return rnd -> {
                 Map<Symbol, Expression> data = new LinkedHashMap<>();
                 for (Map.Entry<Symbol, Gen<Expression>> e : output.entrySet())

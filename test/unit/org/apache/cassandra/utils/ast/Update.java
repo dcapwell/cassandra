@@ -250,7 +250,7 @@ WHERE PK_column_conditions
 
     public static Set<Symbol> toSet(Iterable<ColumnMetadata> columns)
     {
-        return StreamSupport.stream(columns.spliterator(), false).map(m -> new Symbol(m.name)).collect(Collectors.toSet());
+        return StreamSupport.stream(columns.spliterator(), false).map(m -> new Symbol(m)).collect(Collectors.toSet());
     }
 
     public static class GenBuilder
@@ -277,7 +277,7 @@ WHERE PK_column_conditions
             this.valuesGen = rnd -> {
                 Map<Symbol, Expression> map = new HashMap<>();
                 for (Symbol name : allColumns)
-                    map.put(name, new Bind(data.get(name).generate(rnd)));
+                    map.put(name, new Bind(data.get(name).generate(rnd), name.type()));
                 return map;
             };
         }

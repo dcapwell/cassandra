@@ -18,29 +18,9 @@
 
 package org.apache.cassandra.utils.ast;
 
-import org.apache.cassandra.db.marshal.AbstractType;
-
-public class Literal implements ReferenceExpression
+/**
+ * Marker interface of what is allowed in a reference
+ */
+public interface ReferenceExpression extends Expression
 {
-    private final Object value;
-    private final AbstractType<?> type;
-
-    public Literal(Object value, AbstractType<?> type)
-    {
-        this.value = value;
-        this.type = type;
-    }
-
-    @Override
-    public void toCQL(StringBuilder sb, int indent)
-    {
-        //TODO figure out quoting
-        sb.append(value);
-    }
-
-    @Override
-    public AbstractType<?> type()
-    {
-        return type;
-    }
 }

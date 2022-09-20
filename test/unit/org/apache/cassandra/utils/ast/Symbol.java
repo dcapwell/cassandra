@@ -21,30 +21,35 @@ package org.apache.cassandra.utils.ast;
 import java.util.Objects;
 
 import org.apache.cassandra.cql3.ColumnIdentifier;
+import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.schema.ColumnMetadata;
 
-public class Symbol implements Expression
+public class Symbol implements ReferenceExpression
 {
     private final String symbol;
+    private final AbstractType<?> type;
 
-    public Symbol(String symbol)
+    public Symbol(ColumnMetadata column)
     {
-        this.symbol = symbol;
+        this(column.name.toString(), column.type);
     }
 
-    public Symbol(ColumnIdentifier columnIdentifier)
+    public Symbol(String symbol, AbstractType<?> type)
     {
-        this(columnIdentifier.toString());
-    }
-
-    public ColumnIdentifier toColumnIdentifier()
-    {
-        return new ColumnIdentifier(symbol, true);
+        this.symbol = Objects.requireNonNull(symbol);
+        this.type = Objects.requireNonNull(type);
     }
 
     @Override
     public void toCQL(StringBuilder sb, int indent)
     {
         sb.append(ColumnIdentifier.maybeQuote(symbol));
+    }
+
+    @Override
+    public AbstractType<?> type()
+    {
+        return type;
     }
 
     @Override

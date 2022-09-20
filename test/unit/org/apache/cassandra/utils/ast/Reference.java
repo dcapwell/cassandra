@@ -18,26 +18,62 @@
 
 package org.apache.cassandra.utils.ast;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Function;
 
 import org.apache.cassandra.cql3.ColumnIdentifier;
+import org.apache.cassandra.db.marshal.AbstractType;
 
 public class Reference implements Expression
 {
-    public final List<String> path;
+    public final List<ReferenceExpression> path;
 
-    public Reference(List<String> path)
+    private Reference(List<ReferenceExpression> path)
     {
         if (path.isEmpty())
             throw new IllegalArgumentException("Reference may not be empty");
         this.path = path;
     }
 
+    public static Reference of(ReferenceExpression top)
+    {
+        return new Reference(Collections.singletonList(Objects.requireNonNull(top)));
+    }
+
+    @Override
+    public AbstractType<?> type()
+    {
+        return path.get(path.size() - 1).type();
+    }
+
+    public Reference add(String symbol, AbstractType<?> subType)
+    {
+        List<ReferenceExpression> path = new ArrayList<>(this.path.size() + 1);
+        path.addAll(this.path);
+        path.add(new Symbol(symbol, subType));
+        return new Reference(path);
+    }
+
+    public Reference lastAsCollection(Function<ReferenceExpression, CollectionAccess> fn)
+    {
+        List<ReferenceExpression> path = new ArrayList<>(this.path.size());
+        for (int i = 0; i < this.path.size() - 1; i++)
+            path.add(this.path.get(i));
+        ReferenceExpression last = this.path.get(this.path.size() - 1);
+        path.add(Objects.requireNonNull(fn.apply(last)));
+        return new Reference(path);
+    }
+
     @Override
     public void toCQL(StringBuilder sb, int indent)
     {
-        path.forEach(p -> sb.append(ColumnIdentifier.maybeQuote(p)).append('.'));
+        path.forEach(p -> {
+            p.toCQL(sb, indent);
+            sb.append('.');
+        });
         sb.setLength(sb.length() - 1); // last .
     }
 

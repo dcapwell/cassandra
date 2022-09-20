@@ -18,8 +18,11 @@
 
 package org.apache.cassandra.utils.ast;
 
+import org.apache.cassandra.db.marshal.AbstractType;
+
 public interface Expression extends Element
 {
+    AbstractType<?> type();
     default String name()
     {
         return toCQL();

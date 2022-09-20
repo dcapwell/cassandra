@@ -20,6 +20,8 @@ package org.apache.cassandra.utils.ast;
 
 import java.util.stream.Stream;
 
+import org.apache.cassandra.db.marshal.AbstractType;
+
 public class As implements Expression
 {
     private final String symbol;
@@ -36,6 +38,12 @@ public class As implements Expression
     {
         child.toCQL(sb, indent);
         sb.append(" AS ").append(symbol);
+    }
+
+    @Override
+    public AbstractType<?> type()
+    {
+        return child.type();
     }
 
     @Override

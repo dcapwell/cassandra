@@ -20,6 +20,9 @@ package org.apache.cassandra.utils.ast;
 
 import java.util.stream.Stream;
 
+import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.db.marshal.EmptyType;
+
 public class Operator implements Expression
 {
     public enum Kind
@@ -44,6 +47,12 @@ public class Operator implements Expression
         this.kind = kind;
         this.left = left;
         this.right = right;
+    }
+
+    @Override
+    public AbstractType<?> type()
+    {
+        return EmptyType.instance;
     }
 
     @Override
