@@ -24,7 +24,7 @@ import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.schema.ColumnMetadata;
 
-public class Symbol implements ReferenceExpression
+public class Symbol implements ReferenceExpression, Comparable<Symbol>
 {
     private final String symbol;
     private final AbstractType<?> type;
@@ -77,5 +77,11 @@ public class Symbol implements ReferenceExpression
     public String toString()
     {
         return toCQL();
+    }
+
+    @Override
+    public int compareTo(Symbol o)
+    {
+        return toCQL().compareTo(o.toCQL());
     }
 }

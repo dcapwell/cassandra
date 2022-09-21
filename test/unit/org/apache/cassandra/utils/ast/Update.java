@@ -20,6 +20,7 @@ package org.apache.cassandra.utils.ast;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -311,7 +312,9 @@ WHERE PK_column_conditions
 
         public Gen<Update> build()
         {
-            Map<Symbol, ColumnMetadata> allColumns = metadata.columns().stream().collect(Collectors.toMap(m -> new Symbol(m), Function.identity()));
+            Map<Symbol, ColumnMetadata> allColumnsMap = metadata.columns().stream().collect(Collectors.toMap(m -> new Symbol(m), Function.identity()));
+            List<Symbol> allColumns = new ArrayList<>(allColumnsMap.keySet());
+            Collections.sort(allColumns);
             Gen<Boolean> bool = SourceDSL.booleans().all();
             return rnd -> {
                 Update.Kind kind = kindGen.generate(rnd);
@@ -327,11 +330,11 @@ WHERE PK_column_conditions
                 }
 
                 Map<Symbol, Expression> values = valuesGen.generate(rnd);
-                if (allowOperators && kind == Kind.UPDATE)
+                if (allowOperators)
                 {
-                    for (Symbol c : nonPrimaryColumns)
+                    for (Symbol c : allColumns)
                     {
-                        if (values.containsKey(c) && supportsOperators(allColumns.get(c).type) && bool.generate(rnd))
+                        if (values.containsKey(c) && supportsOperators(allColumnsMap.get(c).type) && bool.generate(rnd))
                         {
                             Expression e = values.get(c);
                             Gen<Operator> operatorGen = operatorGen(e);

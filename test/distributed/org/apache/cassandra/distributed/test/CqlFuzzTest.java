@@ -109,17 +109,17 @@ public class CqlFuzzTest extends TestBaseImpl
 
         Gen<Statement> statements = (Gen<Statement>) (Gen<?>) new Txn.GenBuilder(metadata).build();
         new Fuzz(metadata, statements) {
-            @Override
-            protected void after(Statement stmt)
-            {
-                awaitAsyncApply();
-            }
-
-            @Override
-            protected void error(Statement stmt, Throwable t)
-            {
-                awaitAsyncApply();
-            }
+//            @Override
+//            protected void after(Statement stmt)
+//            {
+//                awaitAsyncApply();
+//            }
+//
+//            @Override
+//            protected void error(Statement stmt, Throwable t)
+//            {
+//                awaitAsyncApply();
+//            }
         }.run();
     }
 
