@@ -361,8 +361,24 @@ WHERE PK_column_conditions
                     left = other;
                     right = e;
                 }
-                return new Operator(kind.generate(rnd), left, right);
+                return new Operator(kind.generate(rnd), sadPandaWrap(left), sadPandaWrap(right));
             };
+        }
+
+        /**
+         * {@code ? + ?} is not clear to parsing, so rather than assume the type (like we do for literals) we fail and ask
+         * the user to CAST... so need to {@link OperatorSpecialCast} when a {@link Bind} is found.
+         *
+         * Wait, {@link OperatorSpecialCast} and not {@link Cast}?  Yes, we have 2 different cast syntax...  and only
+         * {@link OperatorSpecialCast} works... and the error we return isn't clear; if you google it you get {@code CAST(? AS TYPE)}
+         * which will fail...
+         */
+        private static Expression sadPandaWrap(Expression e)
+        {
+            if (!(e instanceof Bind))
+                return e;
+            // see https://the-asf.slack.com/archives/CK23JSY2K/p1663788235000449
+            return new OperatorSpecialCast(e, e.type());
         }
 
         private static Gen<Value> valueGen(AbstractType<?> type)
