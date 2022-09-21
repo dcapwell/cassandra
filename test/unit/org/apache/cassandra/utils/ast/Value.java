@@ -18,33 +18,6 @@
 
 package org.apache.cassandra.utils.ast;
 
-import org.apache.cassandra.db.marshal.AbstractType;
-
-public class Bind implements Value
+public interface Value extends ReferenceExpression
 {
-    private final Object value;
-    private final AbstractType<?> type;
-
-    public Bind(Object value, AbstractType<?> type)
-    {
-        this.value = value;
-        this.type = type;
-    }
-
-    public Object value()
-    {
-        return value;
-    }
-
-    @Override
-    public AbstractType<?> type()
-    {
-        return type;
-    }
-
-    @Override
-    public void toCQL(StringBuilder sb, int indent)
-    {
-        sb.append('?');
-    }
 }

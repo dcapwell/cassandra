@@ -20,7 +20,7 @@ package org.apache.cassandra.utils.ast;
 
 import org.apache.cassandra.db.marshal.AbstractType;
 
-public class Literal implements ReferenceExpression
+public class Literal implements Value
 {
     private final Object value;
     private final AbstractType<?> type;

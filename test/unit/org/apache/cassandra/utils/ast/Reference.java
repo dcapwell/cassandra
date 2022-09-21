@@ -37,6 +37,8 @@ public class Reference implements ReferenceExpression
         if (path.isEmpty())
             throw new IllegalArgumentException("Reference may not be empty");
         this.path = path;
+        if (path.stream().anyMatch(e -> e.toCQL().contains("\"\"")))
+            new Throwable().printStackTrace();
     }
 
     public static Reference of(ReferenceExpression top)

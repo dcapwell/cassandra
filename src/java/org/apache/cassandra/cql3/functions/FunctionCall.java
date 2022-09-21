@@ -156,6 +156,7 @@ public class FunctionCall extends Term.NonTerminal
 
         public Term prepare(String keyspace, ColumnSpecification receiver) throws InvalidRequestException
         {
+            // terms.stream().map(t -> t.prepare(keyspace, null)).collect(Collectors.toList())
             Function fun = FunctionResolver.get(keyspace, name, terms, receiver.ksName, receiver.cfName, receiver.type);
             if (fun == null)
                 throw invalidRequest("Unknown function %s called", name);

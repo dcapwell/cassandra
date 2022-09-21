@@ -28,14 +28,19 @@ import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 import com.google.common.collect.Sets;
 
+import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.db.marshal.NumberType;
+import org.apache.cassandra.db.marshal.StringType;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.utils.AbstractTypeGenerators;
 import org.apache.cassandra.utils.CassandraGenerators;
 import org.quicktheories.core.Gen;
 import org.quicktheories.generators.SourceDSL;
@@ -263,6 +268,7 @@ WHERE PK_column_conditions
         private Gen<OptionalInt> ttlGen = SourceDSL.integers().between(1, Math.toIntExact(TimeUnit.DAYS.toSeconds(10))).map(i -> i % 2 == 0 ? OptionalInt.empty() : OptionalInt.of(i));
         private Gen<OptionalLong> timestampGen = SourceDSL.longs().between(1, Long.MAX_VALUE).map(i -> i % 2 == 0 ? OptionalLong.empty() : OptionalLong.of(i));
         private Gen<Map<Symbol, Expression>> valuesGen;
+        private boolean allowOperators = true;
 
         public GenBuilder(TableMetadata metadata)
         {
@@ -277,7 +283,10 @@ WHERE PK_column_conditions
             this.valuesGen = rnd -> {
                 Map<Symbol, Expression> map = new HashMap<>();
                 for (Symbol name : allColumns)
-                    map.put(name, new Bind(data.get(name).generate(rnd), name.type()));
+                {
+                    Gen<?> gen = data.get(name);
+                    map.put(name, new Bind(gen.generate(rnd), name.type()));
+                }
                 return map;
             };
         }
@@ -288,8 +297,22 @@ WHERE PK_column_conditions
             return this;
         }
 
+        public GenBuilder withOperators()
+        {
+            allowOperators = true;
+            return this;
+        }
+
+        public GenBuilder withoutOperators()
+        {
+            allowOperators = false;
+            return this;
+        }
+
         public Gen<Update> build()
         {
+            Map<Symbol, ColumnMetadata> allColumns = metadata.columns().stream().collect(Collectors.toMap(m -> new Symbol(m), Function.identity()));
+            Gen<Boolean> bool = SourceDSL.booleans().all();
             return rnd -> {
                 Update.Kind kind = kindGen.generate(rnd);
                 // when there are not non-primary-columns then can't support UPDATE
@@ -303,8 +326,55 @@ WHERE PK_column_conditions
                         throw new IllegalArgumentException("Kind gen kept returning UPDATE, but not supported when there are no non-primary columns");
                 }
 
-                return new Update(kind, metadata, valuesGen.generate(rnd), ttlGen.generate(rnd), timestampGen.generate(rnd));
+                Map<Symbol, Expression> values = valuesGen.generate(rnd);
+                if (allowOperators && kind == Kind.UPDATE)
+                {
+                    for (Symbol c : nonPrimaryColumns)
+                    {
+                        if (values.containsKey(c) && supportsOperators(allColumns.get(c).type) && bool.generate(rnd))
+                        {
+                            Expression e = values.get(c);
+                            Gen<Operator> operatorGen = operatorGen(e);
+                            values.put(c, operatorGen.generate(rnd));
+                        }
+                    }
+                }
+                return new Update(kind, metadata, values, ttlGen.generate(rnd), timestampGen.generate(rnd));
             };
+        }
+
+        private static Gen<Operator> operatorGen(Expression e)
+        {
+            Gen<Operator.Kind> kind = SourceDSL.arbitrary().enumValues(Operator.Kind.class);
+            Gen<Value> valueGen = valueGen(e.type());
+            Gen<Boolean> bool = SourceDSL.booleans().all();
+            return rnd -> {
+                Expression other = valueGen.generate(rnd);
+                Expression left, right;
+                if (bool.generate(rnd))
+                {
+                    left = e;
+                    right = other;
+                }
+                else
+                {
+                    left = other;
+                    right = e;
+                }
+                return new Operator(kind.generate(rnd), left, right);
+            };
+        }
+
+        private static Gen<Value> valueGen(AbstractType<?> type)
+        {
+            //TODO allow literal once literal supports all types with escaping...
+            return AbstractTypeGenerators.getTypeSupport(type).valueGen.map(o -> new Bind(o, type));
+        }
+
+        private static boolean supportsOperators(AbstractType<?> type)
+        {
+            type = type.unwrap();
+            return type instanceof NumberType || type instanceof StringType;
         }
     }
 }

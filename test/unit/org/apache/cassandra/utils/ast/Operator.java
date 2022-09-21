@@ -47,12 +47,14 @@ public class Operator implements Expression
         this.kind = kind;
         this.left = left;
         this.right = right;
+        if (!left.type().equals(right.type()))
+            throw new IllegalArgumentException("Types do not match: left=" + left.type() + ", right=" + right.type());
     }
 
     @Override
     public AbstractType<?> type()
     {
-        return EmptyType.instance;
+        return left.type();
     }
 
     @Override

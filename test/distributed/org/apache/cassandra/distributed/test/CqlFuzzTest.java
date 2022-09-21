@@ -85,7 +85,8 @@ public class CqlFuzzTest extends TestBaseImpl
     {
         TableMetadata metadata = createTable();
         Gen<Statement> select = (Gen<Statement>) (Gen<?>) new Select.GenBuilder(metadata).build();
-        Gen<Statement> update = (Gen<Statement>) (Gen<?>) new Update.GenBuilder(metadata).build();
+        // not doing CAS so can't support operators
+        Gen<Statement> update = (Gen<Statement>) (Gen<?>) new Update.GenBuilder(metadata).withoutOperators().build();
         int weight = 100 / 4;
         Gen<Statement> statements = Generators.mix(ImmutableMap.of(select, weight, update, weight * 3));
         fuzz(metadata, statements);

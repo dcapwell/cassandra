@@ -205,39 +205,40 @@ public class Txn implements Statement
         if (type.isCollection())
         {
             //TODO Caleb to add support for [] like normal read/write supports
-            if (type instanceof SetType)
-            {
-                // [value] syntax
-                SetType set = (SetType) type;
-                AbstractType subType = set.getElementsType();
-                Object value = Generators.get(AbstractTypeGenerators.getTypeSupport(subType).valueGen);
-                Reference subRef = ref.lastAsCollection(l -> new CollectionAccess(l, new Bind(value, subType), subType));
-                accum.add(subRef);
-                recursiveReferences(accum, subRef);
-            }
-            else if (type instanceof MapType)
-            {
-                // [key] syntax
-                MapType map = (MapType) type;
-                AbstractType keyType = map.getKeysType();
-                AbstractType valueType = map.getValuesType();
-
-                Object v = Generators.get(AbstractTypeGenerators.getTypeSupport(keyType).valueGen);
-                Reference subRef = ref.lastAsCollection(l -> new CollectionAccess(l, new Bind(v, keyType), valueType));
-                accum.add(subRef);
-                recursiveReferences(accum, subRef);
-            }
+//            if (type instanceof SetType)
+//            {
+//                // [value] syntax
+//                SetType set = (SetType) type;
+//                AbstractType subType = set.getElementsType();
+//                Object value = Generators.get(AbstractTypeGenerators.getTypeSupport(subType).valueGen);
+//                Reference subRef = ref.lastAsCollection(l -> new CollectionAccess(l, new Bind(value, subType), subType));
+//                accum.add(subRef);
+//                recursiveReferences(accum, subRef);
+//            }
+//            else if (type instanceof MapType)
+//            {
+//                // [key] syntax
+//                MapType map = (MapType) type;
+//                AbstractType keyType = map.getKeysType();
+//                AbstractType valueType = map.getValuesType();
+//
+//                Object v = Generators.get(AbstractTypeGenerators.getTypeSupport(keyType).valueGen);
+//                Reference subRef = ref.lastAsCollection(l -> new CollectionAccess(l, new Bind(v, keyType), valueType));
+//                accum.add(subRef);
+//                recursiveReferences(accum, subRef);
+//            }
             // see Selectable.specForElementOrSlice; ListType is not supported
         }
         else if (type.isUDT())
         {
-            UserType udt = (UserType) type;
-            for (int i = 0; i < udt.size(); i++)
-            {
-                Reference subRef = ref.add(udt.fieldName(i).toString(), udt.type(i));
-                accum.add(subRef);
-                recursiveReferences(accum, subRef);
-            }
+            //TODO Caleb to support multiple nesting
+//            UserType udt = (UserType) type;
+//            for (int i = 0; i < udt.size(); i++)
+//            {
+//                Reference subRef = ref.add(udt.fieldName(i).toString(), udt.type(i));
+//                accum.add(subRef);
+//                recursiveReferences(accum, subRef);
+//            }
         }
     }
 
