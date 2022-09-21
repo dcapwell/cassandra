@@ -111,7 +111,7 @@ public class CqlFuzzTest extends TestBaseImpl
     private static void fuzz(TableMetadata metadata, Gen<Statement> statements)
     {
         qt().withFixedSeed(32533285503833L).withShrinkCycles(0).forAll(statements).checkAssert(FailingConsumer.orFail(stmt -> {
-            logger.info("Trying Statement\n{}", stmt.detailedToString());
+            logger.info("Trying Statement\n{}", stmt.toCQL());
             int i;
             Exception exception = null;
             for (i = 0; i < 10; i++)
