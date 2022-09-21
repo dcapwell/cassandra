@@ -22,12 +22,12 @@ import java.util.stream.Stream;
 
 import org.apache.cassandra.db.marshal.AbstractType;
 
-public class OperatorSpecialCast implements Expression
+public class TypeHint implements Expression
 {
     private final Expression e;
     private final AbstractType<?> type;
 
-    public OperatorSpecialCast(Expression e, AbstractType<?> type)
+    public TypeHint(Expression e, AbstractType<?> type)
     {
         this.e = e;
         this.type = type;
