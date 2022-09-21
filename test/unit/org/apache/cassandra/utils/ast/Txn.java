@@ -159,9 +159,15 @@ public class Txn implements Statement
                             updates.add(updateGen.generate(rnd));
                         builder.addIf(new If(conditionalGen.generate(rnd), updates));
                     }
-                    int numUpdates = Math.toIntExact(rnd.next(updateRange));
-                    for (int i = 0; i < numUpdates; i++)
-                        builder.addUpdate(updateGen.generate(rnd));
+                    else
+                    {
+                        // Current limitation is that mutations are tied to the condition if present; can't have
+                        // a condition and mutations that don't belong to it in v1... once multiple conditions are
+                        // supported then can always attempt to add updates
+                        int numUpdates = Math.toIntExact(rnd.next(updateRange));
+                        for (int i = 0; i < numUpdates; i++)
+                            builder.addUpdate(updateGen.generate(rnd));
+                    }
                 } while (builder.isEmpty());
                 return builder.build();
             };
