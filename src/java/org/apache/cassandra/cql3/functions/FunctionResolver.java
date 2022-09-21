@@ -169,7 +169,7 @@ public final class FunctionResolver
         {
             if (OperationFcts.isOperation(name))
             {
-                if (receiverType != null && containsMarkers(providedArgs))
+                if (receiverType != null && !containsMarkers(providedArgs))
                 {
                     for (Function toTest : compatibles)
                     {
