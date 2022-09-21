@@ -95,7 +95,7 @@ public class Txn implements Statement
     @Override
     public String toString()
     {
-        return detailedToString();
+        return toCQL();
     }
 
     public static class GenBuilder
