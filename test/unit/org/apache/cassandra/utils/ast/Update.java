@@ -390,7 +390,8 @@ WHERE PK_column_conditions
         private static boolean supportsOperators(AbstractType<?> type)
         {
             type = type.unwrap();
-            return type instanceof NumberType || type instanceof StringType;
+            //TODO StringType supports + in CAS but not -... since this logic doesn't know the kind need to ignore String for now
+            return type instanceof NumberType;
         }
     }
 }
