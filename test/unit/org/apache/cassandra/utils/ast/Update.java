@@ -363,7 +363,7 @@ WHERE PK_column_conditions
                     left = other;
                     right = e;
                 }
-                return new Operator(kind.generate(rnd), sadPandaWrap(left), sadPandaWrap(right));
+                return new Operator(kind.generate(rnd), maybeApplyTypeHint(left), maybeApplyTypeHint(right));
             };
         }
 
@@ -373,7 +373,7 @@ WHERE PK_column_conditions
          *
          * Wait, {@link TypeHint} and not {@link Cast}?  See CASSANDRA-17915...
          */
-        private static Expression sadPandaWrap(Expression e)
+        private static Expression maybeApplyTypeHint(Expression e)
         {
             if (!(e instanceof Bind))
                 return e;
