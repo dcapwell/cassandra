@@ -19,6 +19,7 @@
 package org.apache.cassandra.distributed.test;
 
 import java.io.IOException;
+import java.util.concurrent.TimeoutException;
 
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
@@ -37,6 +38,7 @@ import org.apache.cassandra.db.marshal.UserType;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.shared.ClusterUtils;
+import org.apache.cassandra.distributed.test.accord.AccordIntegrationTest;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.exceptions.RequestTimeoutException;
 import org.apache.cassandra.schema.ColumnMetadata;
@@ -89,7 +91,7 @@ public class CqlFuzzTest extends TestBaseImpl
         Gen<Statement> update = (Gen<Statement>) (Gen<?>) new Update.GenBuilder(metadata).withoutOperators().build();
         int weight = 100 / 4;
         Gen<Statement> statements = Generators.mix(ImmutableMap.of(select, weight, update, weight * 3));
-        fuzz(metadata, statements);
+        new Fuzz(metadata, statements).run();
     }
 
     @Test
@@ -102,63 +104,116 @@ public class CqlFuzzTest extends TestBaseImpl
             setLoggerInfo("accord");
             setLoggerInfo(AccordMessageSink.class.getCanonicalName());
             setLoggerInfo(AccordVerbHandler.class.getCanonicalName());
+            setLoggerInfo("org.apache.cassandra.service.accord.AccordCallback");
         }));
 
         Gen<Statement> statements = (Gen<Statement>) (Gen<?>) new Txn.GenBuilder(metadata).build();
-        fuzz(metadata, statements);
+        new Fuzz(metadata, statements) {
+            @Override
+            protected void after(Statement stmt)
+            {
+                awaitAsyncApply();
+            }
+
+            @Override
+            protected void error(Statement stmt, Throwable t)
+            {
+                awaitAsyncApply();
+            }
+        }.run();
     }
 
-    private static void fuzz(TableMetadata metadata, Gen<Statement> statements)
+    private static void awaitAsyncApply()
     {
-        qt().withFixedSeed(32533285503833L).withShrinkCycles(0).forAll(statements).checkAssert(FailingConsumer.orFail(stmt -> {
-            logger.info("Trying Statement\n{}", stmt.toCQL());
-            int i;
-            Exception exception = null;
-            for (i = 0; i < 10; i++)
-            {
-                try
+        try
+        {
+            AccordIntegrationTest.awaitAsyncApply(cluster);
+        }
+        catch (TimeoutException e)
+        {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static class Fuzz
+    {
+        private final TableMetadata metadata;
+        private final Gen<Statement> statements;
+
+        private Fuzz(TableMetadata metadata, Gen<Statement> statements)
+        {
+            this.metadata = metadata;
+            this.statements = statements;
+        }
+
+        protected void before(Statement stmt)
+        {
+        }
+
+        protected void after(Statement stmt)
+        {
+        }
+
+        protected void error(Statement stmt, Throwable t)
+        {
+
+        }
+
+        public void run()
+        {
+            qt().withFixedSeed(32533285503833L).withShrinkCycles(0).forAll(statements).checkAssert(FailingConsumer.orFail(stmt -> {
+                before(stmt);
+                logger.info("Trying Statement\n{}", stmt.toCQL());
+                int i;
+                Exception exception = null;
+                for (i = 0; i < 10; i++)
                 {
-                    cluster.coordinator(1).execute(stmt.toCQL(), ConsistencyLevel.QUORUM, stmt.binds());
-                    return;
-                }
-                catch (Exception e)
-                {
-                    if (exception != null)
+                    try
                     {
-                        if (!exception.getClass().equals(e.getClass()))
-                            exception.addSuppressed(e);
+                        cluster.coordinator(1).execute(stmt.toCQL(), ConsistencyLevel.QUORUM, stmt.binds());
+                        after(stmt);
+                        return;
                     }
-                    else
+                    catch (Exception e)
                     {
-                        exception = e;
-                    }
-                    if (AssertionUtils.rootCauseIsInstanceof(RequestTimeoutException.class).matches(e))
-                    {
-                        logger.info("Timeout seen, attempting retry {}", i);
-                        continue;
-                    }
-                    if (AssertionUtils.rootCauseIsInstanceof(Preempted.class).matches(e))
-                    {
-                        logger.info("Preempted, attempt retry...");
-                        continue;
-                    }
-                    // sometimes the generator produces a schema where the partition key can be "too big" and gets
-                    // rejected... rather than failing we just say "success"...
-                    //TODO fix...
-                    if (AssertionUtils.rootCauseIsInstanceof(InvalidRequestException.class).matches(e))
-                    {
-                        Throwable cause = Throwables.getRootCause(e);
-                        if (cause.getMessage().matches("Key length of %d is longer than maximum of %d"))
+                        error(stmt, e);
+                        if (exception != null)
                         {
-                            logger.warn("Issue with generator; key length is too large", cause);
-                            return;
+                            if (!exception.getClass().equals(e.getClass()))
+                                exception.addSuppressed(e);
                         }
+                        else
+                        {
+                            exception = e;
+                        }
+                        if (AssertionUtils.rootCauseIsInstanceof(RequestTimeoutException.class).matches(e))
+                        {
+                            logger.info("Timeout seen, attempting retry {}", i);
+                            continue;
+                        }
+                        if (AssertionUtils.rootCauseIsInstanceof(Preempted.class).matches(e))
+                        {
+                            logger.info("Preempted, attempt retry...");
+                            continue;
+                        }
+                        // sometimes the generator produces a schema where the partition key can be "too big" and gets
+                        // rejected... rather than failing we just say "success"...
+                        //TODO fix...
+                        if (AssertionUtils.rootCauseIsInstanceof(InvalidRequestException.class).matches(e))
+                        {
+                            Throwable cause = Throwables.getRootCause(e);
+                            if (cause.getMessage().matches("Key length of %d is longer than maximum of %d"))
+                            {
+                                logger.warn("Issue with generator; key length is too large", cause);
+                                return;
+                            }
+                        }
+                        throw new RuntimeException(debugString(metadata, stmt), e);
                     }
-                    throw new RuntimeException(debugString(metadata, stmt), e);
                 }
-            }
-            throw new RuntimeException("Too many retries " + i + ":\n" + debugString(metadata, stmt), exception);
-        }));
+                throw new RuntimeException("Too many retries " + i + ":\n" + debugString(metadata, stmt), exception);
+            }));
+        }
     }
 
     private static void setLoggerInfo(String name)
