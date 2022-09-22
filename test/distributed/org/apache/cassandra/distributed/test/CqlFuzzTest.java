@@ -19,6 +19,8 @@
 package org.apache.cassandra.distributed.test;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeoutException;
 
 import com.google.common.base.Throwables;
@@ -115,31 +117,7 @@ public class CqlFuzzTest extends TestBaseImpl
         }));
 
         Gen<Statement> statements = (Gen<Statement>) (Gen<?>) new Txn.GenBuilder(metadata).build();
-        new Fuzz(metadata, statements) {
-//            @Override
-//            protected void after(Statement stmt)
-//            {
-//                awaitAsyncApply();
-//            }
-//
-//            @Override
-//            protected void error(Statement stmt, Throwable t)
-//            {
-//                awaitAsyncApply();
-//            }
-        }.run();
-    }
-
-    private static void awaitAsyncApply()
-    {
-        try
-        {
-            AccordIntegrationTest.awaitAsyncApply(cluster);
-        }
-        catch (TimeoutException e)
-        {
-            throw new RuntimeException(e);
-        }
+        new Fuzz(metadata, statements).run();
     }
 
     private static class Fuzz
@@ -171,54 +149,42 @@ public class CqlFuzzTest extends TestBaseImpl
             qt().withFixedSeed(32533285503833L).withShrinkCycles(0).forAll(statements).checkAssert(FailingConsumer.orFail(stmt -> {
                 before(stmt);
                 logger.info("Trying Statement\n{}", stmt.toCQL());
-                int i;
-                Exception exception = null;
-                for (i = 0; i < 10; i++)
+                try
                 {
-                    try
+                    cluster.coordinator(1).execute(stmt.toCQL(), ConsistencyLevel.QUORUM, stmt.binds());
+                    after(stmt);
+                    return;
+                }
+                catch (Exception e)
+                {
+                    error(stmt, e);
+                    if (AssertionUtils.rootCauseIsInstanceof(RequestTimeoutException.class).matches(e))
                     {
-                        cluster.coordinator(1).execute(stmt.toCQL(), ConsistencyLevel.QUORUM, stmt.binds());
+                        logger.info("Timeout seen", e);
                         after(stmt);
                         return;
                     }
-                    catch (Exception e)
+                    if (AssertionUtils.rootCauseIsInstanceof(Preempted.class).matches(e))
                     {
-                        error(stmt, e);
-                        if (exception != null)
-                        {
-                            if (!exception.getClass().equals(e.getClass()))
-                                exception.addSuppressed(e);
-                        }
-                        else
-                        {
-                            exception = e;
-                        }
-                        if (AssertionUtils.rootCauseIsInstanceof(RequestTimeoutException.class).matches(e))
-                        {
-                            logger.info("Timeout seen, attempting retry {}", i);
-                            continue;
-                        }
-                        if (AssertionUtils.rootCauseIsInstanceof(Preempted.class).matches(e))
-                        {
-                            logger.info("Preempted, attempt retry...");
-                            continue;
-                        }
-                        // sometimes the generator produces a schema where the partition key can be "too big" and gets
-                        // rejected... rather than failing we just say "success"...
-                        //TODO fix...
-                        if (AssertionUtils.rootCauseIsInstanceof(InvalidRequestException.class).matches(e))
-                        {
-                            Throwable cause = Throwables.getRootCause(e);
-                            if (cause.getMessage().matches("Key length of %d is longer than maximum of %d"))
-                            {
-                                logger.warn("Issue with generator; key length is too large", cause);
-                                return;
-                            }
-                        }
-                        throw new RuntimeException(debugString(metadata, stmt), e);
+                        logger.info("Preempted seen", e);
+                        after(stmt);
+                        return;
                     }
+                    // sometimes the generator produces a schema where the partition key can be "too big" and gets
+                    // rejected... rather than failing we just say "success"...
+                    //TODO fix...
+                    if (AssertionUtils.rootCauseIsInstanceof(InvalidRequestException.class).matches(e))
+                    {
+                        Throwable cause = Throwables.getRootCause(e);
+                        if (cause.getMessage().matches("Key length of %d is longer than maximum of %d"))
+                        {
+                            logger.warn("Issue with generator; key length is too large", cause);
+                            after(stmt);
+                            return;
+                        }
+                    }
+                    throw new RuntimeException(debugString(metadata, stmt), e);
                 }
-                throw new RuntimeException("Too many retries " + i + ":\n" + debugString(metadata, stmt), exception);
             }));
         }
     }
@@ -228,6 +194,7 @@ public class CqlFuzzTest extends TestBaseImpl
         ((ch.qos.logback.classic.Logger) LoggerFactory.getLogger(name)).setLevel(Level.INFO);
     }
 
+    private static final List<String> UDTS = new ArrayList<>();
     private static TableMetadata createTable()
     {
         TableMetadata metadata = Generators.get(metadataGen);
@@ -262,6 +229,7 @@ public class CqlFuzzTest extends TestBaseImpl
             cluster.schemaChange("CREATE KEYSPACE IF NOT EXISTS " + ColumnIdentifier.maybeQuote(udt.keyspace) + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': " + Math.min(3, cluster.size()) + "};");
             String cql = udt.toCqlString(false, true);
             logger.info("Creating UDT {}.{} with CQL:\n{}", ColumnIdentifier.maybeQuote(udt.keyspace), ColumnIdentifier.maybeQuote(UTF8Type.instance.compose(udt.name)), cql);
+            UDTS.add(cql);
             cluster.schemaChange(cql);
         }
     }

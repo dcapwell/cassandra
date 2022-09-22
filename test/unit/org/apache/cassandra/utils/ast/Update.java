@@ -175,20 +175,23 @@ WHERE row_specification
         newLine(sb, indent);
         maybeAddTTL(sb, indent);
         sb.append("SET ");
+        int subindent = indent + 4;
         for (Symbol name : nonPrimaryColumns)
         {
+            newLine(sb, subindent);
             Element value = values.get(name);
-            name.toCQL(sb, indent);
+            name.toCQL(sb, subindent);
             orderedElements.add(name);
             sb.append('=');
-            value.toCQL(sb, indent);
+            value.toCQL(sb, subindent);
             orderedElements.add(value);
             sb.append(", ");
         }
-        sb.setLength(sb.length() - 2);
+        if (!nonPrimaryColumns.isEmpty())
+            sb.setLength(sb.length() - 2);
         newLine(sb, indent);
         sb.append("WHERE ");
-        valuesAnd(sb, indent, primaryColumns);
+        valuesAnd(sb, indent + 2, primaryColumns);
     }
 
     private void toCQLDelete(StringBuilder sb, int indent)
@@ -221,13 +224,14 @@ WHERE PK_column_conditions
         }
         sb.append("WHERE ");
         // in the case of partition delete, need to exclude clustering
-        valuesAnd(sb, indent, Sets.intersection(primaryColumns, values.keySet()));
+        valuesAnd(sb, indent + 2, Sets.intersection(primaryColumns, values.keySet()));
     }
 
     private void valuesAnd(StringBuilder sb, int indent, Collection<Symbol> names)
     {
         for (Symbol name : names)
         {
+            newLine(sb, indent);
             Element value = values.get(name);
             name.toCQL(sb, indent);
             orderedElements.add(name);
@@ -285,7 +289,7 @@ WHERE PK_column_conditions
                 for (Symbol name : allColumns)
                 {
                     Gen<?> gen = data.get(name);
-                    map.put(name, new Bind(gen.generate(rnd), name.type()));
+                    map.put(name, Value.gen(gen.generate(rnd), name.type()).generate(rnd));
                 }
                 return map;
             };
@@ -383,8 +387,8 @@ WHERE PK_column_conditions
 
         private static Gen<Value> valueGen(AbstractType<?> type)
         {
-            //TODO allow literal once literal supports all types with escaping...
-            return AbstractTypeGenerators.getTypeSupport(type).valueGen.map(o -> new Bind(o, type));
+            Gen<?> v = AbstractTypeGenerators.getTypeSupport(type).valueGen;
+            return rnd -> Value.gen(v.generate(rnd), type).generate(rnd);
         }
 
         private static boolean supportsOperators(AbstractType<?> type)

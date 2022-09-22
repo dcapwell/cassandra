@@ -30,7 +30,6 @@ import java.util.Set;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
-import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.CassandraGenerators;
@@ -215,15 +214,13 @@ FROM [keyspace_name.] table_name
         private static Gen<Map<Symbol, Expression>> partitionKeyGen(TableMetadata metadata)
         {
             Map<ColumnMetadata, Gen<?>> gens = CassandraGenerators.tableDataComposed(metadata);
-
-            Map<Symbol, Gen<Expression>> output = new LinkedHashMap<>();
-            for (ColumnMetadata col : metadata.partitionKeyColumns())
-                output.put(new Symbol(col), gens.get(col).map(o -> new Bind(o, col.type)));
             return rnd -> {
-                Map<Symbol, Expression> data = new LinkedHashMap<>();
-                for (Map.Entry<Symbol, Gen<Expression>> e : output.entrySet())
-                    data.put(e.getKey(), e.getValue().generate(rnd));
-                return data;
+                Map<Symbol, Expression> output = new LinkedHashMap<>();
+                for (ColumnMetadata col : metadata.partitionKeyColumns())
+                    output.put(new Symbol(col), gens.get(col)
+                                                    .map(o -> Value.gen(o, col.type).generate(rnd))
+                                                    .generate(rnd));
+                return output;
             };
         }
     }

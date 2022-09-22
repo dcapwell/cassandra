@@ -18,6 +18,20 @@
 
 package org.apache.cassandra.utils.ast;
 
+import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.db.marshal.BytesType;
+import org.quicktheories.core.Gen;
+import org.quicktheories.generators.SourceDSL;
+
 public interface Value extends ReferenceExpression
 {
+    static Gen<Value> gen(Object value, AbstractType<?> type)
+    {
+        Gen<Boolean> bool = SourceDSL.booleans().all();
+        return rnd -> {
+            return bool.generate(rnd) ?
+                   new Bind(value, type)
+                   : new Literal(value, type);
+        };
+    }
 }

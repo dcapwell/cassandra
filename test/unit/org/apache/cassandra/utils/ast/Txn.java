@@ -193,7 +193,7 @@ public class Txn implements Statement
             Gen<?> dataGen = AbstractTypeGenerators.getTypeSupport(ref.type()).valueGen;
             return rnd -> {
                 Where.Inequalities kind = kindGen.generate(rnd);
-                return new Where(kind, ref, new Bind(dataGen.generate(rnd), ref.type()));
+                return new Where(kind, ref, Value.gen(dataGen.generate(rnd), ref.type()).generate(rnd));
             };
         }
     }
