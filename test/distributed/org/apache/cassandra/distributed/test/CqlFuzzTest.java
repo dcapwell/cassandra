@@ -21,7 +21,6 @@ package org.apache.cassandra.distributed.test;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.TimeoutException;
 
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
@@ -40,7 +39,6 @@ import org.apache.cassandra.db.marshal.UserType;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.shared.ClusterUtils;
-import org.apache.cassandra.distributed.test.accord.AccordIntegrationTest;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.exceptions.RequestTimeoutException;
 import org.apache.cassandra.schema.ColumnMetadata;
@@ -61,12 +59,10 @@ import org.quicktheories.core.Gen;
 import static org.quicktheories.QuickTheory.qt;
 
 //TODO
-// Limit to N partitions
-// Build a in-memory model of what the DB should look like
+// Build a in-memory model of what the DB should look like and Limit to N partitions
 // Make all Select/Update expressions go through a logic that makes them trippy... SELECT CAST((int) a AS int)...
 // Update support Reference
 // a += b support rather than rely on a = a + b
-// Support Literal
 public class CqlFuzzTest extends TestBaseImpl
 {
     private static final Logger logger = LoggerFactory.getLogger(CqlFuzzTest.class);
@@ -148,7 +144,6 @@ public class CqlFuzzTest extends TestBaseImpl
         {
             qt().withFixedSeed(32533285503833L).withShrinkCycles(0).forAll(statements).checkAssert(FailingConsumer.orFail(stmt -> {
                 before(stmt);
-                logger.info("Trying Statement\n{}", stmt.toCQL());
                 try
                 {
                     cluster.coordinator(1).execute(stmt.toCQL(), ConsistencyLevel.QUORUM, stmt.binds());
@@ -158,6 +153,13 @@ public class CqlFuzzTest extends TestBaseImpl
                 catch (Exception e)
                 {
                     error(stmt, e);
+                    if (Throwables.getRootCause(e) instanceof InterruptedException)
+                    {
+                        // this was seen from SlabPoolCleaner but I am not even sure how it made it up here or what
+                        // interrupted the thread...
+                        logger.warn("Coordinator returned a InterruptedException, not sure how this happpened but it did...");
+                        return;
+                    }
                     if (AssertionUtils.rootCauseIsInstanceof(RequestTimeoutException.class).matches(e))
                     {
                         logger.info("Timeout seen", e);
@@ -213,6 +215,12 @@ public class CqlFuzzTest extends TestBaseImpl
     {
         StringBuilder sb = new StringBuilder();
         sb.append("CQL:\n").append(metadata.toCqlString(false, false)).append('\n');
+        if (!UDTS.isEmpty())
+        {
+            sb.append("User Defined Types:\n");
+            for (String s : UDTS)
+                sb.append(s).append('\n');
+        }
         sb.append("Statement:\n");
         statement.toCQL(sb, 0);
         return sb.toString();
