@@ -33,13 +33,9 @@ import java.util.stream.Stream;
 
 import org.apache.cassandra.cql3.FieldIdentifier;
 import org.apache.cassandra.db.marshal.AbstractType;
-import org.apache.cassandra.db.marshal.MapType;
-import org.apache.cassandra.db.marshal.ReversedType;
-import org.apache.cassandra.db.marshal.SetType;
 import org.apache.cassandra.db.marshal.UserType;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.AbstractTypeGenerators;
-import org.apache.cassandra.utils.Generators;
 import org.quicktheories.core.Gen;
 import org.quicktheories.generators.SourceDSL;
 import org.quicktheories.impl.Constraint;
@@ -102,21 +98,17 @@ public class Txn implements Statement
     {
         public enum TxReturn { NONE, TABLE, REF}
         private final TableMetadata metadata;
-        private Constraint letRange = Constraint.between(0, 10);
+        private Constraint letRange = Constraint.between(0, 3);
         private Constraint ifUpdateRange = Constraint.between(1, 3);
-        private Constraint updateRange = Constraint.between(0, 10);
+        private Constraint updateRange = Constraint.between(0, 3);
         private Gen<Select> selectGen;
         private Gen<TxReturn> txReturnGen = SourceDSL.arbitrary().enumValues(TxReturn.class);
-        private Gen<Update> updateGen;
 
         public GenBuilder(TableMetadata metadata)
         {
             this.metadata = metadata;
             this.selectGen = new Select.GenBuilder(metadata)
                              .withLimit1()
-                             .build();
-            this.updateGen = new Update.GenBuilder(metadata)
-                             .withoutTimestamp()
                              .build();
         }
 
@@ -150,6 +142,10 @@ public class Txn implements Statement
                             builder.addReturn(selectGen.generate(rnd));
                             break;
                     }
+                    Gen<Update> updateGen = new Update.GenBuilder(metadata)
+                                            .withoutTimestamp()
+                                            .withReferences(new ArrayList<>(builder.allowedReferences))
+                                            .build();
                     if (!builder.lets.isEmpty() && bool.generate(rnd))
                     {
                         Gen<Conditional> conditionalGen = conditionalGen(refGen);
@@ -272,6 +268,7 @@ public class Txn implements Statement
             lets.put(name, select);
 
             Reference ref = Reference.of(new Symbol(name, toNamedTuple(select)));
+//            Reference ref = Reference.of(new Symbol.UnquotedSymbol(name, toNamedTuple(select)));
             for (Expression e : select.selections)
                 addAllowedReference(ref.add(e));
         }

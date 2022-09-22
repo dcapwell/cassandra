@@ -26,7 +26,7 @@ import org.apache.cassandra.schema.ColumnMetadata;
 
 public class Symbol implements ReferenceExpression, Comparable<Symbol>
 {
-    private final String symbol;
+    public final String symbol;
     private final AbstractType<?> type;
 
     public Symbol(ColumnMetadata column)
@@ -83,5 +83,34 @@ public class Symbol implements ReferenceExpression, Comparable<Symbol>
     public int compareTo(Symbol o)
     {
         return toCQL().compareTo(o.toCQL());
+    }
+
+    public static class UnquotedSymbol extends Symbol
+    {
+        public UnquotedSymbol(String symbol, AbstractType<?> type)
+        {
+            super(symbol, type);
+        }
+
+        @Override
+        public void toCQL(StringBuilder sb, int indent)
+        {
+            sb.append(symbol);
+        }
+
+        @Override
+        public boolean equals(Object o)
+        {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            UnquotedSymbol symbol1 = (UnquotedSymbol) o;
+            return Objects.equals(symbol, symbol1.symbol);
+        }
+
+        @Override
+        public int hashCode()
+        {
+            return Objects.hash(symbol);
+        }
     }
 }

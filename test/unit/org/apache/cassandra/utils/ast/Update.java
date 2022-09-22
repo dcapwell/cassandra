@@ -273,6 +273,7 @@ WHERE PK_column_conditions
         private Gen<OptionalLong> timestampGen = SourceDSL.longs().between(1, Long.MAX_VALUE).map(i -> i % 2 == 0 ? OptionalLong.empty() : OptionalLong.of(i));
         private Gen<Map<Symbol, Expression>> valuesGen;
         private boolean allowOperators = true;
+        private Collection<Reference> references;
 
         public GenBuilder(TableMetadata metadata)
         {
@@ -313,6 +314,12 @@ WHERE PK_column_conditions
             return this;
         }
 
+        public GenBuilder withReferences(Collection<Reference> references)
+        {
+            this.references = references;
+            return this;
+        }
+
         public Gen<Update> build()
         {
             Map<Symbol, ColumnMetadata> allColumnsMap = metadata.columns().stream().collect(Collectors.toMap(m -> new Symbol(m), Function.identity()));
@@ -333,6 +340,33 @@ WHERE PK_column_conditions
                 }
 
                 Map<Symbol, Expression> values = valuesGen.generate(rnd);
+                Map<? extends AbstractType<?>, List<Reference>> typeToReference = references.stream().collect(Collectors.groupingBy(Reference::type));
+                if (!typeToReference.isEmpty())
+                {
+                    // Due to being able to discover the partition key *before running*, we don't
+                    // allow WHERE clause to have references, so the type of mutation dicates what columns
+                    // are allowed to be mutated
+                    List<Symbol> allowed;
+                    switch (kind)
+                    {
+                        case INSERT:
+                            allowed = new ArrayList<>(values.keySet());
+                            break;
+                        case DELETE:
+                        case UPDATE:
+                            allowed = nonPrimaryColumns.stream().filter(values::containsKey).collect(Collectors.toList());
+                            break;
+                        default: throw new IllegalArgumentException("Unknown kind: " + kind);
+                    }
+                    for (Symbol s : allowed)
+                    {
+                        List<Reference> matches = typeToReference.get(s.type());
+                        if (matches == null)
+                            continue;
+                        if (bool.generate(rnd))
+                            values.put(s, SourceDSL.arbitrary().pick(matches).generate(rnd));
+                    }
+                }
                 if (allowOperators)
                 {
                     for (Symbol c : allColumns)
