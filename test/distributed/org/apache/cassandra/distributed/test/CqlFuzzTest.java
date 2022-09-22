@@ -58,6 +58,13 @@ import org.quicktheories.core.Gen;
 
 import static org.quicktheories.QuickTheory.qt;
 
+//TODO
+// Limit to N partitions
+// Build a in-memory model of what the DB should look like
+// Make all Select/Update expressions go through a logic that makes them trippy... SELECT CAST((int) a AS int)...
+// Update support Reference
+// a += b support rather than rely on a = a + b
+// Support Literal
 public class CqlFuzzTest extends TestBaseImpl
 {
     private static final Logger logger = LoggerFactory.getLogger(CqlFuzzTest.class);
