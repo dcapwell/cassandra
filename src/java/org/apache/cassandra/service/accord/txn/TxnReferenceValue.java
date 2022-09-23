@@ -131,19 +131,19 @@ public abstract class TxnReferenceValue
             @Override
             public void serialize(Constant constant, DataOutputPlus out, int version) throws IOException
             {
-                ByteBufferUtil.writeWithShortLength(constant.value, out);
+                ByteBufferUtil.writeWithVIntLength(constant.value, out);
             }
 
             @Override
             public Constant deserialize(DataInputPlus in, int version, Kind kind) throws IOException
             {
-                return new Constant(ByteBufferUtil.readWithShortLength(in));
+                return new Constant(ByteBufferUtil.readWithVIntLength(in));
             }
 
             @Override
             public long serializedSize(Constant constant, int version)
             {
-                return ByteBufferUtil.serializedSizeWithShortLength(constant.value);
+                return ByteBufferUtil.serializedSizeWithVIntLength(constant.value);
             }
         };
     }
