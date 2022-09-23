@@ -21,14 +21,17 @@ package org.apache.cassandra.utils.ast;
 import java.util.stream.Stream;
 
 import org.apache.cassandra.db.marshal.AbstractType;
-import org.apache.cassandra.db.marshal.EmptyType;
 
 public class Operator implements Expression
 {
     public enum Kind
     {
         ADD('+'),
-        SUBTRACT('-');
+        SUBTRACT('-'),
+        MULTIPLY('*');
+        //TODO support avoiding 42 / 0 and 42 % 0 as these will fail
+//        DIVIDE('/'),
+//        MOD('%');
 
         private final char value;
 

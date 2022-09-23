@@ -64,6 +64,7 @@ import static org.quicktheories.QuickTheory.qt;
 // a += b support rather than rely on a = a + b
 //Confirm fixed
 // references in WHERE clause (blocked due to needing to know partition accessed, but clustering/regular clusters may also be involved)
+// "InvalidRequestException: value references can't be used with primary key columns" should be more informative; which statement?
 public class CqlFuzzTest extends TestBaseImpl
 {
     private static final Logger logger = LoggerFactory.getLogger(CqlFuzzTest.class);

@@ -21,6 +21,7 @@ package org.apache.cassandra.utils.ast;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,10 +35,13 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
 
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.NumberType;
+import org.apache.cassandra.db.marshal.StringType;
+import org.apache.cassandra.db.marshal.TemporalType;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.AbstractTypeGenerators;
@@ -273,7 +277,7 @@ WHERE PK_column_conditions
         private Gen<OptionalLong> timestampGen = SourceDSL.longs().between(1, Long.MAX_VALUE).map(i -> i % 2 == 0 ? OptionalLong.empty() : OptionalLong.of(i));
         private Gen<Map<Symbol, Expression>> valuesGen;
         private boolean allowOperators = true;
-        private Collection<Reference> references;
+        private Collection<Reference> references = Collections.emptyList();
 
         public GenBuilder(TableMetadata metadata)
         {
@@ -346,18 +350,7 @@ WHERE PK_column_conditions
                     // Due to being able to discover the partition key *before running*, we don't
                     // allow WHERE clause to have references, so the type of mutation dicates what columns
                     // are allowed to be mutated
-                    List<Symbol> allowed;
-                    switch (kind)
-                    {
-                        case INSERT:
-                            allowed = new ArrayList<>(values.keySet());
-                            break;
-                        case DELETE:
-                        case UPDATE:
-                            allowed = nonPrimaryColumns.stream().filter(values::containsKey).collect(Collectors.toList());
-                            break;
-                        default: throw new IllegalArgumentException("Unknown kind: " + kind);
-                    }
+                    List<Symbol> allowed = nonPrimaryColumns.stream().filter(values::containsKey).collect(Collectors.toList());
                     for (Symbol s : allowed)
                     {
                         List<Reference> matches = typeToReference.get(s.type());
@@ -371,10 +364,14 @@ WHERE PK_column_conditions
                 {
                     for (Symbol c : allColumns)
                     {
-                        if (values.containsKey(c) && supportsOperators(allColumnsMap.get(c).type) && bool.generate(rnd))
+                        Set<Operator.Kind> allowed = supportsOperators(allColumnsMap.get(c).type);
+                        if (values.containsKey(c) && !allowed.isEmpty() && bool.generate(rnd))
                         {
                             Expression e = values.get(c);
-                            Gen<Operator> operatorGen = operatorGen(e);
+                            //TODO remove hack; currently INSERT references with operators fails
+                            if (e instanceof Reference)
+                                continue;
+                            Gen<Operator> operatorGen = operatorGen(allowed, e);
                             values.put(c, operatorGen.generate(rnd));
                         }
                     }
@@ -383,9 +380,13 @@ WHERE PK_column_conditions
             };
         }
 
-        private static Gen<Operator> operatorGen(Expression e)
+        private static Gen<Operator> operatorGen(Set<Operator.Kind> allowed, Expression e)
         {
-            Gen<Operator.Kind> kind = SourceDSL.arbitrary().enumValues(Operator.Kind.class);
+            if (allowed.isEmpty())
+                throw new IllegalArgumentException("Unable to create a operator gen for empty set of allowed operators");
+            Gen<Operator.Kind> kind = allowed.size() == 1 ?
+                                      SourceDSL.arbitrary().constant(Iterables.getFirst(allowed, null))
+                                                          : SourceDSL.arbitrary().pick(new ArrayList<>(allowed));
             Gen<Value> valueGen = valueGen(e.type());
             Gen<Boolean> bool = SourceDSL.booleans().all();
             return rnd -> {
@@ -425,11 +426,17 @@ WHERE PK_column_conditions
             return rnd -> Value.gen(v.generate(rnd), type).generate(rnd);
         }
 
-        private static boolean supportsOperators(AbstractType<?> type)
+        private static EnumSet<Operator.Kind> supportsOperators(AbstractType<?> type)
         {
+            // see org.apache.cassandra.cql3.functions.OperationFcts.OPERATION
             type = type.unwrap();
-            //TODO StringType supports + in CAS but not -... since this logic doesn't know the kind need to ignore String for now
-            return type instanceof NumberType;
+            if (type instanceof NumberType)
+                return EnumSet.allOf(Operator.Kind.class);
+            if (type instanceof TemporalType)
+                return EnumSet.of(Operator.Kind.ADD, Operator.Kind.SUBTRACT);
+            if (type instanceof StringType)
+                return EnumSet.of(Operator.Kind.ADD);
+            return EnumSet.noneOf(Operator.Kind.class);
         }
     }
 }
