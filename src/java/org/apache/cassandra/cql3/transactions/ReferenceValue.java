@@ -95,7 +95,7 @@ public abstract class ReferenceValue
             @Override
             public ReferenceValue prepare(ColumnMetadata receiver, VariableSpecifications bindVariables)
             {
-                return new Constant(term.prepare("", receiver));
+                return new Constant(term.prepare(receiver.ksName, receiver));
             }
         }
     }
