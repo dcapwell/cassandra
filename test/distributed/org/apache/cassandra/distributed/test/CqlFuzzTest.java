@@ -53,14 +53,14 @@ import org.apache.cassandra.utils.Generators;
 import org.apache.cassandra.utils.ast.Select;
 import org.apache.cassandra.utils.ast.Statement;
 import org.apache.cassandra.utils.ast.Txn;
-import org.apache.cassandra.utils.ast.Update;
+import org.apache.cassandra.utils.ast.Mutation;
 import org.quicktheories.core.Gen;
 
 import static org.quicktheories.QuickTheory.qt;
 
 //TODO
 // Build a in-memory model of what the DB should look like and Limit to N partitions
-// Make all Select/Update expressions go through a logic that makes them trippy... SELECT CAST((int) a AS int)...
+// Make all Select/Mutation expressions go through a logic that makes them trippy... SELECT CAST((int) a AS int)...
 // a += b support rather than rely on a = a + b
 //Confirm fixed
 // references in WHERE clause (blocked due to needing to know partition accessed, but clustering/regular clusters may also be involved)
@@ -95,9 +95,9 @@ public class CqlFuzzTest extends TestBaseImpl
         TableMetadata metadata = createTable();
         Gen<Statement> select = (Gen<Statement>) (Gen<?>) new Select.GenBuilder(metadata).build();
         // not doing CAS so can't support operators
-        Gen<Statement> update = (Gen<Statement>) (Gen<?>) new Update.GenBuilder(metadata).withoutOperators().build();
+        Gen<Statement> mutation = (Gen<Statement>) (Gen<?>) new Mutation.GenBuilder(metadata).withoutOperators().build();
         int weight = 100 / 4;
-        Gen<Statement> statements = Generators.mix(ImmutableMap.of(select, weight, update, weight * 3));
+        Gen<Statement> statements = Generators.mix(ImmutableMap.of(select, weight, mutation, weight * 3));
         new Fuzz(metadata, statements).run();
     }
 

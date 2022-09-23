@@ -40,7 +40,6 @@ import org.quicktheories.core.Gen;
 import org.quicktheories.generators.SourceDSL;
 import org.quicktheories.impl.Constraint;
 
-import static org.apache.cassandra.utils.Generators.SYMBOL_GEN;
 import static org.apache.cassandra.utils.Generators.SYMBOL_NOT_RESERVED_KEYWORD_GEN;
 import static org.apache.cassandra.utils.ast.Elements.newLine;
 
@@ -51,14 +50,14 @@ public class Txn implements Statement
     // return
     public final Optional<Select> output;
     public final Optional<If> ifBlock;
-    public final List<Update> updates;
+    public final List<Mutation> mutations;
 
-    public Txn(List<Let> lets, Optional<Select> output, Optional<If> ifBlock, List<Update> updates)
+    public Txn(List<Let> lets, Optional<Select> output, Optional<If> ifBlock, List<Mutation> mutations)
     {
         this.lets = lets;
         this.output = output;
         this.ifBlock = ifBlock;
-        this.updates = updates;
+        this.mutations = mutations;
     }
 
     @Override
@@ -85,7 +84,7 @@ public class Txn implements Statement
             ret = Stream.concat(ret, Stream.of(output.get()));
         if (ifBlock.isPresent())
             ret = Stream.concat(ret, Stream.of(ifBlock.get()));
-        ret = Stream.concat(ret, updates.stream());
+        ret = Stream.concat(ret, mutations.stream());
         return ret;
     }
 
@@ -146,7 +145,7 @@ public class Txn implements Statement
                             builder.addReturn(selectGen.generate(rnd));
                             break;
                     }
-                    Gen<Update> updateGen = new Update.GenBuilder(metadata)
+                    Gen<Mutation> updateGen = new Mutation.GenBuilder(metadata)
                                             .withoutTimestamp()
                                             .withReferences(new ArrayList<>(builder.allowedReferences))
                                             .build();
@@ -154,10 +153,10 @@ public class Txn implements Statement
                     {
                         Gen<Conditional> conditionalGen = conditionalGen(refGen);
                         int numUpdates = Math.toIntExact(rnd.next(ifUpdateRange));
-                        List<Update> updates = new ArrayList<>(numUpdates);
+                        List<Mutation> mutations = new ArrayList<>(numUpdates);
                         for (int i = 0; i < numUpdates; i++)
-                            updates.add(updateGen.generate(rnd));
-                        builder.addIf(new If(conditionalGen.generate(rnd), updates));
+                            mutations.add(updateGen.generate(rnd));
+                        builder.addIf(new If(conditionalGen.generate(rnd), mutations));
                     }
                     else
                     {
@@ -255,14 +254,14 @@ public class Txn implements Statement
         private final Set<Reference> allowedReferences = new HashSet<>();
         private Optional<Select> output = Optional.empty();
         private Optional<If> ifBlock = Optional.empty();
-        private final List<Update> updates = new ArrayList<>();
+        private final List<Mutation> mutations = new ArrayList<>();
 
         boolean isEmpty()
         {
             // don't include output as 'BEGIN TRANSACTION SELECT "000000000000000010000"; COMMIT TRANSACTION' isn't valid
 //            return lets.isEmpty();
             // TransactionStatement defines empty as no SELECT or updates
-            return !output.isPresent() && !ifBlock.isPresent() && updates.isEmpty();
+            return !output.isPresent() && !ifBlock.isPresent() && mutations.isEmpty();
         }
 
         void addLet(String name, Select select)
@@ -305,15 +304,15 @@ public class Txn implements Statement
             ifBlock = Optional.of(block);
         }
 
-        void addUpdate(Update update)
+        void addUpdate(Mutation mutation)
         {
-            this.updates.add(Objects.requireNonNull(update));
+            this.mutations.add(Objects.requireNonNull(mutation));
         }
 
         Txn build()
         {
             List<Let> lets = this.lets.entrySet().stream().map(e -> new Let(e.getKey(), e.getValue())).collect(Collectors.toList());
-            return new Txn(lets, output, ifBlock, new ArrayList<>(updates));
+            return new Txn(lets, output, ifBlock, new ArrayList<>(mutations));
         }
     }
 }

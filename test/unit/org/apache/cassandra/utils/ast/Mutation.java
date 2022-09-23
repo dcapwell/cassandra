@@ -35,23 +35,18 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
-import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
 
 import org.apache.cassandra.db.marshal.AbstractType;
-import org.apache.cassandra.db.marshal.NumberType;
-import org.apache.cassandra.db.marshal.StringType;
-import org.apache.cassandra.db.marshal.TemporalType;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
-import org.apache.cassandra.utils.AbstractTypeGenerators;
 import org.apache.cassandra.utils.CassandraGenerators;
 import org.quicktheories.core.Gen;
 import org.quicktheories.generators.SourceDSL;
 
 import static org.apache.cassandra.utils.ast.Elements.newLine;
 
-public class Update implements Statement
+public class Mutation implements Statement
 {
     public enum Kind
     {INSERT, UPDATE, DELETE}
@@ -65,7 +60,7 @@ public class Update implements Statement
     public final OptionalLong timestamp;
     private final List<Element> orderedElements = new ArrayList<>();
 
-    public Update(Kind kind, TableMetadata table, Map<Symbol, Expression> values, OptionalInt ttl, OptionalLong timestamp)
+    public Mutation(Kind kind, TableMetadata table, Map<Symbol, Expression> values, OptionalInt ttl, OptionalLong timestamp)
     {
         this.kind = kind;
         this.table = table;
@@ -186,7 +181,10 @@ WHERE row_specification
             Element value = values.get(name);
             name.toCQL(sb, subindent);
             orderedElements.add(name);
-            sb.append('=');
+            // when a AssignmentOperator the `=` is added there so don't add
+            //TODO this is super hacky...
+            if (!(value instanceof AssignmentOperator))
+                sb.append('=');
             value.toCQL(sb, subindent);
             orderedElements.add(value);
             sb.append(", ");
@@ -272,7 +270,7 @@ WHERE PK_column_conditions
         private final Set<Symbol> allColumns;
         private final Set<Symbol> primaryColumns;
         private final Set<Symbol> nonPrimaryColumns;
-        private Gen<Update.Kind> kindGen = SourceDSL.arbitrary().enumValues(Update.Kind.class);
+        private Gen<Mutation.Kind> kindGen = SourceDSL.arbitrary().enumValues(Mutation.Kind.class);
         private Gen<OptionalInt> ttlGen = SourceDSL.integers().between(1, Math.toIntExact(TimeUnit.DAYS.toSeconds(10))).map(i -> i % 2 == 0 ? OptionalInt.empty() : OptionalInt.of(i));
         private Gen<OptionalLong> timestampGen = SourceDSL.longs().between(1, Long.MAX_VALUE).map(i -> i % 2 == 0 ? OptionalLong.empty() : OptionalLong.of(i));
         private Gen<Map<Symbol, Expression>> valuesGen;
@@ -282,8 +280,8 @@ WHERE PK_column_conditions
         public GenBuilder(TableMetadata metadata)
         {
             this.metadata = Objects.requireNonNull(metadata);
-            this.allColumns = Update.toSet(metadata.columns());
-            this.primaryColumns = Update.toSet(metadata.primaryKeyColumns());
+            this.allColumns = Mutation.toSet(metadata.columns());
+            this.primaryColumns = Mutation.toSet(metadata.primaryKeyColumns());
             this.nonPrimaryColumns = Sets.difference(allColumns, primaryColumns);
 
             Map<Symbol, Gen<?>> data = CassandraGenerators.tableDataComposed(metadata)
@@ -324,20 +322,20 @@ WHERE PK_column_conditions
             return this;
         }
 
-        public Gen<Update> build()
+        public Gen<Mutation> build()
         {
             Map<Symbol, ColumnMetadata> allColumnsMap = metadata.columns().stream().collect(Collectors.toMap(m -> new Symbol(m), Function.identity()));
             List<Symbol> allColumns = new ArrayList<>(allColumnsMap.keySet());
             Collections.sort(allColumns);
             Gen<Boolean> bool = SourceDSL.booleans().all();
             return rnd -> {
-                Update.Kind kind = kindGen.generate(rnd);
+                Mutation.Kind kind = kindGen.generate(rnd);
                 // when there are not non-primary-columns then can't support UPDATE
                 if (nonPrimaryColumns.isEmpty())
                 {
                     int i;
                     int maxRetries = 42;
-                    for (i = 0; i < maxRetries && kind == Update.Kind.UPDATE; i++)
+                    for (i = 0; i < maxRetries && kind == Mutation.Kind.UPDATE; i++)
                         kind = kindGen.generate(rnd);
                     if (i == maxRetries)
                         throw new IllegalArgumentException("Kind gen kept returning UPDATE, but not supported when there are no non-primary columns");
@@ -364,79 +362,29 @@ WHERE PK_column_conditions
                 {
                     for (Symbol c : allColumns)
                     {
-                        Set<Operator.Kind> allowed = supportsOperators(allColumnsMap.get(c).type);
-                        if (values.containsKey(c) && !allowed.isEmpty() && bool.generate(rnd))
+                        Set<Operator.Kind> operatorAllowed = Operator.supportsOperators(allColumnsMap.get(c).type);
+                        EnumSet<AssignmentOperator.Kind> additionOperatorAllowed = AssignmentOperator.supportsOperators(allColumnsMap.get(c).type);
+                        if (values.containsKey(c))
                         {
-                            Expression e = values.get(c);
-                            //TODO remove hack; currently INSERT references with operators fails
-                            if (e instanceof Reference)
-                                continue;
-                            Gen<Operator> operatorGen = operatorGen(allowed, e);
-                            values.put(c, operatorGen.generate(rnd));
+                            if (!operatorAllowed.isEmpty() && bool.generate(rnd))
+                            {
+                                Expression e = values.get(c);
+                                //TODO remove hack; currently INSERT references with operators fails
+                                if (!(e instanceof Reference))
+                                {
+                                    Gen<Operator> operatorGen = Operator.gen(operatorAllowed, e, Value.gen(e.type()));
+                                    values.put(c, operatorGen.generate(rnd));
+                                }
+                            }
+                            if (!additionOperatorAllowed.isEmpty() && kind == Kind.UPDATE && nonPrimaryColumns.contains(c) && bool.generate(rnd))
+                            {
+                                values.put(c, AssignmentOperator.gen(additionOperatorAllowed, values.get(c)).generate(rnd));
+                            }
                         }
                     }
                 }
-                return new Update(kind, metadata, values, ttlGen.generate(rnd), timestampGen.generate(rnd));
+                return new Mutation(kind, metadata, values, ttlGen.generate(rnd), timestampGen.generate(rnd));
             };
-        }
-
-        private static Gen<Operator> operatorGen(Set<Operator.Kind> allowed, Expression e)
-        {
-            if (allowed.isEmpty())
-                throw new IllegalArgumentException("Unable to create a operator gen for empty set of allowed operators");
-            Gen<Operator.Kind> kind = allowed.size() == 1 ?
-                                      SourceDSL.arbitrary().constant(Iterables.getFirst(allowed, null))
-                                                          : SourceDSL.arbitrary().pick(new ArrayList<>(allowed));
-            Gen<Value> valueGen = valueGen(e.type());
-            Gen<Boolean> bool = SourceDSL.booleans().all();
-            return rnd -> {
-                Expression other = valueGen.generate(rnd);
-                Expression left, right;
-                if (bool.generate(rnd))
-                {
-                    left = e;
-                    right = other;
-                }
-                else
-                {
-                    left = other;
-                    right = e;
-                }
-                return new Operator(kind.generate(rnd), maybeApplyTypeHint(left), maybeApplyTypeHint(right));
-            };
-        }
-
-        /**
-         * {@code ? + ?} is not clear to parsing, so rather than assume the type (like we do for literals) we fail and ask
-         * the user to CAST... so need to {@link TypeHint} when a {@link Bind} is found.
-         *
-         * Wait, {@link TypeHint} and not {@link Cast}?  See CASSANDRA-17915...
-         */
-        private static Expression maybeApplyTypeHint(Expression e)
-        {
-            if (!(e instanceof Bind))
-                return e;
-            // see https://the-asf.slack.com/archives/CK23JSY2K/p1663788235000449
-            return new TypeHint(e, e.type());
-        }
-
-        private static Gen<Value> valueGen(AbstractType<?> type)
-        {
-            Gen<?> v = AbstractTypeGenerators.getTypeSupport(type).valueGen;
-            return rnd -> Value.gen(v.generate(rnd), type).generate(rnd);
-        }
-
-        private static EnumSet<Operator.Kind> supportsOperators(AbstractType<?> type)
-        {
-            // see org.apache.cassandra.cql3.functions.OperationFcts.OPERATION
-            type = type.unwrap();
-            if (type instanceof NumberType)
-                return EnumSet.allOf(Operator.Kind.class);
-            if (type instanceof TemporalType)
-                return EnumSet.of(Operator.Kind.ADD, Operator.Kind.SUBTRACT);
-            if (type instanceof StringType)
-                return EnumSet.of(Operator.Kind.ADD);
-            return EnumSet.noneOf(Operator.Kind.class);
         }
     }
 }

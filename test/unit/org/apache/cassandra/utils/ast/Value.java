@@ -19,6 +19,7 @@
 package org.apache.cassandra.utils.ast;
 
 import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.utils.AbstractTypeGenerators;
 import org.quicktheories.core.Gen;
 import org.quicktheories.generators.SourceDSL;
 
@@ -34,5 +35,11 @@ public interface Value extends ReferenceExpression
 //                   new Bind(value, type)
 //                   : new Literal(value, type);
 //        };
+    }
+
+    static Gen<Value> gen(AbstractType<?> type)
+    {
+        Gen<?> v = AbstractTypeGenerators.getTypeSupport(type).valueGen;
+        return rnd -> Value.gen(v.generate(rnd), type).generate(rnd);
     }
 }

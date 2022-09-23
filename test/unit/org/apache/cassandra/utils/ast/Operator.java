@@ -18,9 +18,19 @@
 
 package org.apache.cassandra.utils.ast;
 
+import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.Set;
 import java.util.stream.Stream;
 
+import com.google.common.collect.Iterables;
+
 import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.db.marshal.NumberType;
+import org.apache.cassandra.db.marshal.StringType;
+import org.apache.cassandra.db.marshal.TemporalType;
+import org.quicktheories.core.Gen;
+import org.quicktheories.generators.SourceDSL;
 
 public class Operator implements Expression
 {
@@ -52,6 +62,44 @@ public class Operator implements Expression
         this.right = right;
         if (!left.type().equals(right.type()))
             throw new IllegalArgumentException("Types do not match: left=" + left.type() + ", right=" + right.type());
+    }
+
+    public static EnumSet<Kind> supportsOperators(AbstractType<?> type)
+    {
+        type = type.unwrap();
+        // see org.apache.cassandra.cql3.functions.OperationFcts.OPERATION
+        if (type instanceof NumberType)
+            return EnumSet.allOf(Kind.class);
+        if (type instanceof TemporalType)
+            return EnumSet.of(Kind.ADD, Kind.SUBTRACT);
+        if (type instanceof StringType)
+            return EnumSet.of(Kind.ADD);
+        return EnumSet.noneOf(Kind.class);
+    }
+
+    public static Gen<Operator> gen(Set<Kind> allowed, Expression e, Gen<Value> valueGen)
+    {
+        if (allowed.isEmpty())
+            throw new IllegalArgumentException("Unable to create a operator gen for empty set of allowed operators");
+        Gen<Operator.Kind> kind = allowed.size() == 1 ?
+                                  SourceDSL.arbitrary().constant(Iterables.getFirst(allowed, null))
+                                                      : SourceDSL.arbitrary().pick(new ArrayList<>(allowed));
+        Gen<Boolean> bool = SourceDSL.booleans().all();
+        return rnd -> {
+            Expression other = valueGen.generate(rnd);
+            Expression left, right;
+            if (bool.generate(rnd))
+            {
+                left = e;
+                right = other;
+            }
+            else
+            {
+                left = other;
+                right = e;
+            }
+            return new Operator(kind.generate(rnd), TypeHint.maybeApplyTypeHint(left), TypeHint.maybeApplyTypeHint(right));
+        };
     }
 
     @Override

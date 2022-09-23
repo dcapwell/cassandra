@@ -33,10 +33,24 @@ public class TypeHint implements Expression
         this.type = type;
     }
 
+    /**
+     * {@code ? + ?} is not clear to parsing, so rather than assume the type (like we do for literals) we fail and ask
+     * the user to CAST... so need to {@link TypeHint} when a {@link Bind} is found.
+     *
+     * Wait, {@link TypeHint} and not {@link Cast}?  See CASSANDRA-17915...
+     */
+    public static Expression maybeApplyTypeHint(Expression e)
+    {
+        if (!(e instanceof Bind))
+            return e;
+        // see https://the-asf.slack.com/archives/CK23JSY2K/p1663788235000449
+        return new TypeHint(e, e.type());
+    }
+
     @Override
     public void toCQL(StringBuilder sb, int indent)
     {
-        sb.append("(").append(type.asCQL3Type()).append(") ");
+        sb.append('(').append(type.asCQL3Type()).append(") ");
         e.toCQL(sb, indent);
     }
 

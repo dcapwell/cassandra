@@ -26,12 +26,12 @@ import static org.apache.cassandra.utils.ast.Elements.newLine;
 public class If implements Element
 {
     private final Conditional conditional;
-    private final List<Update> updates;
+    private final List<Mutation> mutations;
 
-    public If(Conditional conditional, List<Update> updates)
+    public If(Conditional conditional, List<Mutation> mutations)
     {
         this.conditional = conditional;
-        this.updates = updates;
+        this.mutations = mutations;
     }
 
     @Override
@@ -41,10 +41,10 @@ public class If implements Element
         conditional.toCQL(sb, indent);
         sb.append(" THEN");
         int subIndent = indent + 2;
-        for (Update update : updates)
+        for (Mutation mutation : mutations)
         {
             newLine(sb, subIndent);
-            update.toCQL(sb, subIndent);
+            mutation.toCQL(sb, subIndent);
             sb.append(';');
         }
         Elements.newLine(sb, indent);
@@ -54,6 +54,6 @@ public class If implements Element
     @Override
     public Stream<? extends Element> stream()
     {
-        return Stream.concat(Stream.of(conditional), updates.stream());
+        return Stream.concat(Stream.of(conditional), mutations.stream());
     }
 }
