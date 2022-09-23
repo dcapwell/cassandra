@@ -41,6 +41,7 @@ import org.quicktheories.generators.SourceDSL;
 import org.quicktheories.impl.Constraint;
 
 import static org.apache.cassandra.utils.Generators.SYMBOL_GEN;
+import static org.apache.cassandra.utils.Generators.SYMBOL_NOT_RESERVED_KEYWORD_GEN;
 import static org.apache.cassandra.utils.ast.Elements.newLine;
 
 public class Txn implements Statement
@@ -122,8 +123,11 @@ public class Txn implements Statement
                     int numLets = Math.toIntExact(rnd.next(letRange));
                     for (int i = 0; i < numLets; i++)
                     {
+                        // LET doesn't use normal symbol logic and acts closer to a common lanaguage; name does not lower
+                        // case... it is possible that a reserved word gets used, so make sure to use a generator that
+                        // filters those out.
                         String name;
-                        while (builder.lets.containsKey(name = SYMBOL_GEN.generate(rnd))) {}
+                        while (builder.lets.containsKey(name = SYMBOL_NOT_RESERVED_KEYWORD_GEN.generate(rnd))) {}
                         builder.addLet(name, selectGen.generate(rnd));
                     }
                     Gen<Reference> refGen = SourceDSL.arbitrary().pick(new ArrayList<>(builder.allowedReferences));
@@ -267,8 +271,7 @@ public class Txn implements Statement
                 throw new IllegalArgumentException("Let name " + name + " already exists");
             lets.put(name, select);
 
-            Reference ref = Reference.of(new Symbol(name, toNamedTuple(select)));
-//            Reference ref = Reference.of(new Symbol.UnquotedSymbol(name, toNamedTuple(select)));
+            Reference ref = Reference.of(new Symbol.UnquotedSymbol(name, toNamedTuple(select)));
             for (Expression e : select.selections)
                 addAllowedReference(ref.add(e));
         }

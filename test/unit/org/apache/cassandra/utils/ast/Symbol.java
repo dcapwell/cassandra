@@ -21,6 +21,7 @@ package org.apache.cassandra.utils.ast;
 import java.util.Objects;
 
 import org.apache.cassandra.cql3.ColumnIdentifier;
+import org.apache.cassandra.cql3.ReservedKeywords;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.schema.ColumnMetadata;
 
@@ -43,7 +44,15 @@ public class Symbol implements ReferenceExpression, Comparable<Symbol>
     @Override
     public void toCQL(StringBuilder sb, int indent)
     {
-        sb.append(ColumnIdentifier.maybeQuote(symbol));
+        if (ReservedKeywords.isReserved(symbol))
+        {
+            // does not matter the casing, if its reserved it MUST be quoted
+            sb.append(ColumnIdentifier.quote(symbol));
+        }
+        else
+        {
+            sb.append(ColumnIdentifier.maybeQuote(symbol));
+        }
     }
 
     @Override

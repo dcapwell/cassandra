@@ -228,6 +228,11 @@ public class ColumnIdentifier implements IMeasurableMemory, Comparable<ColumnIde
     {
         if (UNQUOTED_IDENTIFIER.matcher(text).matches() && !ReservedKeywords.isReserved(text))
             return text;
+        return quote(text);
+    }
+
+    public static String quote(String text)
+    {
         return '"' + PATTERN_DOUBLE_QUOTE.matcher(text).replaceAll(ESCAPED_DOUBLE_QUOTE) + '"';
     }
 }
