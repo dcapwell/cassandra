@@ -115,18 +115,36 @@ public class CqlFuzzTest extends TestBaseImpl
         }));
 
         Gen<Statement> statements = (Gen<Statement>) (Gen<?>) new Txn.GenBuilder(metadata).build();
-        new Fuzz(metadata, statements).run();
+        new Fuzz(metadata, statements)
+        .withSeed(32533285503833L)
+        // accord is much slower so do less
+        .withExamples(500)
+        .run();
     }
 
     private static class Fuzz
     {
         private final TableMetadata metadata;
         private final Gen<Statement> statements;
+        private long seed = System.currentTimeMillis();
+        private int examples = 5000;
 
         private Fuzz(TableMetadata metadata, Gen<Statement> statements)
         {
             this.metadata = metadata;
             this.statements = statements;
+        }
+
+        Fuzz withSeed(long seed)
+        {
+            this.seed = seed;
+            return this;
+        }
+
+        Fuzz withExamples(int examples)
+        {
+            this.examples = examples;
+            return this;
         }
 
         protected void before(Statement stmt)
@@ -144,7 +162,7 @@ public class CqlFuzzTest extends TestBaseImpl
 
         public void run()
         {
-            qt().withFixedSeed(32533285503833L).withShrinkCycles(0).forAll(statements).checkAssert(FailingConsumer.orFail(stmt -> {
+            qt().withFixedSeed(seed).withExamples(examples).withShrinkCycles(0).forAll(statements).checkAssert(FailingConsumer.orFail(stmt -> {
                 before(stmt);
                 try
                 {
