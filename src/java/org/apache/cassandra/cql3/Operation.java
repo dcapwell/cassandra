@@ -89,7 +89,7 @@ public abstract class Operation
      * @param partitionKey partition key for the update.
      * @param params parameters of the update.
      */
-    public abstract void execute(DecoratedKey partitionKey, UpdateParameters params) throws InvalidRequestException;
+    public abstract void execute(DecoratedKey partitionKey, QueryContext params) throws InvalidRequestException;
 
     /**
      * A parsed raw UPDATE operation.

@@ -34,7 +34,7 @@ import org.apache.cassandra.utils.TimeUUID;
 /**
  * Groups the parameters of an update query, and make building updates easier.
  */
-public class UpdateParameters
+public class UpdateParameters implements QueryContext
 {
     public final TableMetadata metadata;
     public final RegularAndStaticColumns updatedColumns;
@@ -137,11 +137,46 @@ public class UpdateParameters
             builder.addRowDeletion(Row.Deletion.regular(deletionTime));
     }
 
+    @Override
+    public QueryOptions options()
+    {
+        return options;
+    }
+
+    @Override
+    public ClientState clientState()
+    {
+        return clientState;
+    }
+
+    @Override
+    public Cell<?> getCell(DecoratedKey key, ColumnMetadata metadata)
+    {
+        assert !metadata.isComplex() : "Unable to access a cell for a complex column";
+        Row row = getRow(key, metadata);
+        return row == null ? null : row.getCell(metadata);
+    }
+
+    @Override
+    public ComplexColumnData getComplexColumnData(DecoratedKey key, ColumnMetadata metadata)
+    {
+        assert metadata.isComplex() : "Unable to access a ComplexColumnData for a non-complex column";
+        Row row = getRow(key, metadata);
+        return row == null ? null : row.getComplexColumnData(metadata);
+    }
+
+    private Row getRow(DecoratedKey key, ColumnMetadata metadata)
+    {
+        return getPrefetchedRow(key, metadata.isStatic() ? Clustering.STATIC_CLUSTERING : currentClustering());
+    }
+
+    @Override
     public void addTombstone(ColumnMetadata column) throws InvalidRequestException
     {
         addTombstone(column, null);
     }
 
+    @Override
     public void addTombstone(ColumnMetadata column, CellPath path) throws InvalidRequestException
     {
         // Deleting individual elements of non-frozen sets and maps involves creating tombstones that contain the value
@@ -199,6 +234,7 @@ public class UpdateParameters
         builder.addComplexDeletion(column, deletionTime);
     }
 
+    @Override
     public void setComplexDeletionTimeForOverwrite(ColumnMetadata column)
     {
         builder.addComplexDeletion(column, new DeletionTime(deletionTime.markedForDeleteAt() - 1, deletionTime.localDeletionTime()));

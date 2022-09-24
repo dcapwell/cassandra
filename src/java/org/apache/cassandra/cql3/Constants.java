@@ -26,7 +26,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.rows.Cell;
-import org.apache.cassandra.db.rows.Row;
+import org.apache.cassandra.db.rows.ColumnData;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.*;
@@ -445,9 +445,10 @@ public abstract class Constants
             super(column, t);
         }
 
-        public void execute(DecoratedKey partitionKey, UpdateParameters params) throws InvalidRequestException
+        @Override
+        public void execute(DecoratedKey partitionKey, QueryContext params) throws InvalidRequestException
         {
-            ByteBuffer value = t.bindAndGet(params.options);
+            ByteBuffer value = params.bindAndGet(t);
             if (value == null)
                 params.addTombstone(column);
             else if (value != ByteBufferUtil.UNSET_BYTE_BUFFER) // use reference equality and not object equality
@@ -467,11 +468,12 @@ public abstract class Constants
             return !(column.type instanceof CounterColumnType);
         }
 
-        public void execute(DecoratedKey partitionKey, UpdateParameters params) throws InvalidRequestException
+        @Override
+        public void execute(DecoratedKey partitionKey, QueryContext params) throws InvalidRequestException
         {
             if (column.type instanceof CounterColumnType)
             {
-                ByteBuffer bytes = t.bindAndGet(params.options);
+                ByteBuffer bytes = params.bindAndGet(t);
                 if (bytes == null)
                     throw new InvalidRequestException("Invalid null value for counter increment");
                 if (bytes == ByteBufferUtil.UNSET_BYTE_BUFFER)
@@ -483,7 +485,7 @@ public abstract class Constants
             else if (column.type instanceof NumberType<?>)
             {
                 @SuppressWarnings("unchecked") NumberType<Number> type = (NumberType<Number>) column.type;
-                ByteBuffer increment = t.bindAndGet(params.options);
+                ByteBuffer increment = params.bindAndGet(t);
                 ByteBuffer current = getCurrentCellBuffer(partitionKey, params);
                 if (current == null)
                     return;
@@ -492,7 +494,7 @@ public abstract class Constants
             }
             else if (column.type instanceof StringType)
             {
-                ByteBuffer append = t.bindAndGet(params.options);
+                ByteBuffer append = params.bindAndGet(t);
                 ByteBuffer current = getCurrentCellBuffer(partitionKey, params);
                 if (current == null)
                     return;
@@ -503,11 +505,10 @@ public abstract class Constants
             }
         }
 
-        private ByteBuffer getCurrentCellBuffer(DecoratedKey key, UpdateParameters params)
+        private ByteBuffer getCurrentCellBuffer(DecoratedKey key, QueryContext params)
         {
-            Row currentRow = params.getPrefetchedRow(key, column.isStatic() ? Clustering.STATIC_CLUSTERING : params.currentClustering());
-            Cell<?> currentCell = currentRow == null ? null : currentRow.getCell(column);
-            return currentCell == null ? null : currentCell.buffer();
+            Cell<?> cell = params.getCell(key, column);
+            return cell == null ? null : cell.buffer();
         }
     }
 
@@ -518,9 +519,9 @@ public abstract class Constants
             super(column, t);
         }
 
-        public void execute(DecoratedKey partitionKey, UpdateParameters params) throws InvalidRequestException
+        public void execute(DecoratedKey partitionKey, QueryContext params) throws InvalidRequestException
         {
-            ByteBuffer bytes = t.bindAndGet(params.options);
+            ByteBuffer bytes = params.bindAndGet(t);
             if (bytes == null)
                 throw new InvalidRequestException("Invalid null value for counter increment");
             if (bytes == ByteBufferUtil.UNSET_BYTE_BUFFER)
@@ -543,7 +544,7 @@ public abstract class Constants
             super(column, null);
         }
 
-        public void execute(DecoratedKey partitionKey, UpdateParameters params) throws InvalidRequestException
+        public void execute(DecoratedKey partitionKey, QueryContext params) throws InvalidRequestException
         {
             if (column.type.isMultiCell())
                 params.setComplexDeletionTime(column);

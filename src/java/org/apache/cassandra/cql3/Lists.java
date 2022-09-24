@@ -40,7 +40,6 @@ import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.db.marshal.ListType;
-import org.apache.cassandra.db.marshal.ReversedType;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.serializers.CollectionSerializer;
 import org.apache.cassandra.serializers.MarshalException;
@@ -394,9 +393,9 @@ public abstract class Lists
             super(column, t);
         }
 
-        public void execute(DecoratedKey partitionKey, UpdateParameters params) throws InvalidRequestException
+        public void execute(DecoratedKey partitionKey, QueryContext params) throws InvalidRequestException
         {
-            Term.Terminal value = t.bind(params.options);
+            Term.Terminal value = t.bind(params.options());
             if (value == UNSET_VALUE)
                 return;
 
@@ -405,15 +404,6 @@ public abstract class Lists
                 params.setComplexDeletionTimeForOverwrite(column);
             Appender.doAppend(value, column, params);
         }
-    }
-
-    private static int existingSize(Row row, ColumnMetadata column)
-    {
-        if (row == null)
-            return 0;
-
-        ComplexColumnData complexData = row.getComplexColumnData(column);
-        return complexData == null ? 0 : complexData.cellsCount();
     }
 
     public static class SetterByIndex extends Operation
@@ -439,31 +429,32 @@ public abstract class Lists
             idx.collectMarkerSpecification(boundNames);
         }
 
-        public void execute(DecoratedKey partitionKey, UpdateParameters params) throws InvalidRequestException
+        public void execute(DecoratedKey partitionKey, QueryContext params) throws InvalidRequestException
         {
             // we should not get here for frozen lists
             assert column.type.isMultiCell() : "Attempted to set an individual element on a frozen list";
 
             Guardrails.readBeforeWriteListOperationsEnabled
-            .ensureEnabled("Setting of list items by index requiring read before write", params.clientState);
+            .ensureEnabled("Setting of list items by index requiring read before write", params.clientState());
 
-            ByteBuffer index = idx.bindAndGet(params.options);
-            ByteBuffer value = t.bindAndGet(params.options);
+            ByteBuffer index = idx.bindAndGet(params.options());
+            ByteBuffer value = t.bindAndGet(params.options());
 
             if (index == null)
                 throw new InvalidRequestException("Invalid null value for list index");
             if (index == ByteBufferUtil.UNSET_BYTE_BUFFER)
                 throw new InvalidRequestException("Invalid unset value for list index");
 
-            Row existingRow = params.getPrefetchedRow(partitionKey, params.currentClustering());
-            int existingSize = existingSize(existingRow, column);
-            int idx = ByteBufferUtil.toInt(index);
-            if (existingSize == 0)
+            ComplexColumnData cd = params.getComplexColumnData(partitionKey, column);
+            if (cd == null)
                 throw new InvalidRequestException("Attempted to set an element on a list which is null");
+            int existingSize = cd.cellsCount();
+            int idx = ByteBufferUtil.toInt(index);
+
             if (idx < 0 || idx >= existingSize)
                 throw new InvalidRequestException(String.format("List index %d out of bound, list has size %d", idx, existingSize));
 
-            CellPath elementPath = existingRow.getComplexColumnData(column).getCellByIndex(idx).path();
+            CellPath elementPath = cd.getCellByIndex(idx).path();
             if (value == null)
                 params.addTombstone(column, elementPath);
             else if (value != ByteBufferUtil.UNSET_BYTE_BUFFER)
@@ -478,14 +469,14 @@ public abstract class Lists
             super(column, t);
         }
 
-        public void execute(DecoratedKey partitionKey, UpdateParameters params) throws InvalidRequestException
+        public void execute(DecoratedKey partitionKey, QueryContext params) throws InvalidRequestException
         {
             assert column.type.isMultiCell() : "Attempted to append to a frozen list";
-            Term.Terminal value = t.bind(params.options);
+            Term.Terminal value = params.bind(t);
             doAppend(value, column, params);
         }
 
-        static void doAppend(Term.Terminal value, ColumnMetadata column, UpdateParameters params) throws InvalidRequestException
+        static void doAppend(Term.Terminal value, ColumnMetadata column, QueryContext params) throws InvalidRequestException
         {
             if (value == null)
             {
@@ -508,7 +499,7 @@ public abstract class Lists
                 // Guardrails about collection size are only checked for the added elements without considering
                 // already existent elements. This is done so to avoid read-before-write, having additional checks
                 // during SSTable write.
-                Guardrails.itemsPerCollection.guard(elements.size(), column.name.toString(), false, params.clientState);
+                Guardrails.itemsPerCollection.guard(elements.size(), column.name.toString(), false, params.clientState());
 
                 int dataSize = 0;
                 for (ByteBuffer buffer : elements)
@@ -517,13 +508,13 @@ public abstract class Lists
                     Cell<?> cell = params.addCell(column, CellPath.create(uuid), buffer);
                     dataSize += cell.dataSize();
                 }
-                Guardrails.collectionSize.guard(dataSize, column.name.toString(), false, params.clientState);
+                Guardrails.collectionSize.guard(dataSize, column.name.toString(), false, params.clientState());
             }
             else
             {
-                Guardrails.itemsPerCollection.guard(elements.size(), column.name.toString(), false, params.clientState);
+                Guardrails.itemsPerCollection.guard(elements.size(), column.name.toString(), false, params.clientState());
                 Cell<?> cell = params.addCell(column, value.get(ProtocolVersion.CURRENT));
-                Guardrails.collectionSize.guard(cell.dataSize(), column.name.toString(), false, params.clientState);
+                Guardrails.collectionSize.guard(cell.dataSize(), column.name.toString(), false, params.clientState());
             }
         }
     }
@@ -535,10 +526,10 @@ public abstract class Lists
             super(column, t);
         }
 
-        public void execute(DecoratedKey partitionKey, UpdateParameters params) throws InvalidRequestException
+        public void execute(DecoratedKey partitionKey, QueryContext params) throws InvalidRequestException
         {
             assert column.type.isMultiCell() : "Attempted to prepend to a frozen list";
-            Term.Terminal value = t.bind(params.options);
+            Term.Terminal value = params.bind(t);
             if (value == null || value == UNSET_VALUE)
                 return;
 
@@ -578,18 +569,17 @@ public abstract class Lists
             return true;
         }
 
-        public void execute(DecoratedKey partitionKey, UpdateParameters params) throws InvalidRequestException
+        public void execute(DecoratedKey partitionKey, QueryContext params) throws InvalidRequestException
         {
             assert column.type.isMultiCell() : "Attempted to delete from a frozen list";
 
             Guardrails.readBeforeWriteListOperationsEnabled
-            .ensureEnabled("Removal of list items requiring read before write", params.clientState);
+            .ensureEnabled("Removal of list items requiring read before write", params.clientState());
 
             // We want to call bind before possibly returning to reject queries where the value provided is not a list.
-            Term.Terminal value = t.bind(params.options);
+            Term.Terminal value = params.bind(t);
 
-            Row existingRow = params.getPrefetchedRow(partitionKey, params.currentClustering());
-            ComplexColumnData complexData = existingRow == null ? null : existingRow.getComplexColumnData(column);
+            ComplexColumnData complexData = params.getComplexColumnData(partitionKey, column);
             if (value == null || value == UNSET_VALUE || complexData == null)
                 return;
 
@@ -619,28 +609,31 @@ public abstract class Lists
             return true;
         }
 
-        public void execute(DecoratedKey partitionKey, UpdateParameters params) throws InvalidRequestException
+        public void execute(DecoratedKey partitionKey, QueryContext params) throws InvalidRequestException
         {
             assert column.type.isMultiCell() : "Attempted to delete an item by index from a frozen list";
 
             Guardrails.readBeforeWriteListOperationsEnabled
-            .ensureEnabled("Removal of list items by index requiring read before write", params.clientState);
+            .ensureEnabled("Removal of list items by index requiring read before write", params.clientState());
 
-            Term.Terminal index = t.bind(params.options);
+            Term.Terminal index = params.bind(t);
             if (index == null)
                 throw new InvalidRequestException("Invalid null value for list index");
             if (index == Constants.UNSET_VALUE)
                 return;
 
-            Row existingRow = params.getPrefetchedRow(partitionKey, params.currentClustering());
-            int existingSize = existingSize(existingRow, column);
-            int idx = ByteBufferUtil.toInt(index.get(params.options.getProtocolVersion()));
+            ComplexColumnData cd = params.getComplexColumnData(partitionKey, column);
+            if (cd == null)
+                return;
+
+            int existingSize = cd.cellsCount();
+            int idx = ByteBufferUtil.toInt(index.get(params.options().getProtocolVersion()));
             if (existingSize == 0)
                 throw new InvalidRequestException("Attempted to delete an element from a list which is null");
             if (idx < 0 || idx >= existingSize)
                 throw new InvalidRequestException(String.format("List index %d out of bound, list has size %d", idx, existingSize));
 
-            params.addTombstone(column, existingRow.getComplexColumnData(column).getCellByIndex(idx).path());
+            params.addTombstone(column, cd.getCellByIndex(idx).path());
         }
     }
 }
