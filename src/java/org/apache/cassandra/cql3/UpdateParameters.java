@@ -20,16 +20,29 @@ package org.apache.cassandra.cql3;
 import java.nio.ByteBuffer;
 import java.util.Map;
 
+import org.apache.cassandra.db.Clustering;
+import org.apache.cassandra.db.ClusteringComparator;
+import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.DeletionPurger;
+import org.apache.cassandra.db.DeletionTime;
+import org.apache.cassandra.db.LivenessInfo;
+import org.apache.cassandra.db.RangeTombstone;
+import org.apache.cassandra.db.RegularAndStaticColumns;
+import org.apache.cassandra.db.Slice;
+import org.apache.cassandra.db.context.CounterContext;
 import org.apache.cassandra.db.guardrails.Guardrails;
+import org.apache.cassandra.db.partitions.Partition;
+import org.apache.cassandra.db.rows.BTreeRow;
+import org.apache.cassandra.db.rows.BufferCell;
+import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.db.rows.CellPath;
+import org.apache.cassandra.db.rows.ComplexColumnData;
+import org.apache.cassandra.db.rows.Row;
+import org.apache.cassandra.db.rows.Rows;
+import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
-import org.apache.cassandra.db.*;
-import org.apache.cassandra.db.context.CounterContext;
-import org.apache.cassandra.db.partitions.Partition;
-import org.apache.cassandra.db.rows.*;
-import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.service.ClientState;
-import org.apache.cassandra.utils.TimeUUID;
 
 /**
  * Groups the parameters of an update query, and make building updates easier.
@@ -191,11 +204,13 @@ public class UpdateParameters implements QueryContext
         builder.addCell(BufferCell.tombstone(column, timestamp, nowInSec, path));
     }
 
+    @Override
     public Cell<?> addCell(ColumnMetadata column, ByteBuffer value) throws InvalidRequestException
     {
         return addCell(column, null, value);
     }
 
+    @Override
     public Cell<?> addCell(ColumnMetadata column, CellPath path, ByteBuffer value) throws InvalidRequestException
     {
         Guardrails.columnValueSize.guard(value.remaining(), column.name.toString(), false, clientState);
@@ -210,6 +225,7 @@ public class UpdateParameters implements QueryContext
         return cell;
     }
 
+    @Override
     public void addCounter(ColumnMetadata column, long increment) throws InvalidRequestException
     {
         assert ttl == LivenessInfo.NO_TTL;
@@ -229,6 +245,7 @@ public class UpdateParameters implements QueryContext
         builder.addCell(BufferCell.live(column, timestamp, CounterContext.instance().createUpdate(increment)));
     }
 
+    @Override
     public void setComplexDeletionTime(ColumnMetadata column)
     {
         builder.addComplexDeletion(column, deletionTime);
@@ -260,11 +277,6 @@ public class UpdateParameters implements QueryContext
     public RangeTombstone makeRangeTombstone(Slice slice)
     {
         return new RangeTombstone(slice, deletionTime);
-    }
-
-    public byte[] nextTimeUUIDAsBytes()
-    {
-        return TimeUUID.Generator.nextTimeUUIDAsBytes();
     }
 
     /**
