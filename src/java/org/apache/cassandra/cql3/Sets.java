@@ -314,9 +314,9 @@ public abstract class Sets
             super(column, t);
         }
 
-        public void execute(DecoratedKey partitionKey, UpdateParameters params) throws InvalidRequestException
+        public void execute(DecoratedKey partitionKey, QueryContext params) throws InvalidRequestException
         {
-            Term.Terminal value = t.bind(params.options);
+            Term.Terminal value = params.bind(t);
             if (value == UNSET_VALUE)
                 return;
 
@@ -334,15 +334,15 @@ public abstract class Sets
             super(column, t);
         }
 
-        public void execute(DecoratedKey partitionKey, UpdateParameters params) throws InvalidRequestException
+        public void execute(DecoratedKey partitionKey, QueryContext params) throws InvalidRequestException
         {
             assert column.type.isMultiCell() : "Attempted to add items to a frozen set";
-            Term.Terminal value = t.bind(params.options);
+            Term.Terminal value = params.bind(t);
             if (value != UNSET_VALUE)
                 doAdd(value, column, params);
         }
 
-        static void doAdd(Term.Terminal value, ColumnMetadata column, UpdateParameters params) throws InvalidRequestException
+        static void doAdd(Term.Terminal value, ColumnMetadata column, QueryContext params) throws InvalidRequestException
         {
             if (value == null)
             {
@@ -363,7 +363,7 @@ public abstract class Sets
                 // Guardrails about collection size are only checked for the added elements without considering
                 // already existent elements. This is done so to avoid read-before-write, having additional checks
                 // during SSTable write.
-                Guardrails.itemsPerCollection.guard(elements.size(), column.name.toString(), false, params.clientState);
+                Guardrails.itemsPerCollection.guard(elements.size(), column.name.toString(), false, params.clientState());
 
                 int dataSize = 0;
                 for (ByteBuffer bb : elements)
@@ -374,13 +374,13 @@ public abstract class Sets
                     Cell<?> cell = params.addCell(column, CellPath.create(bb), ByteBufferUtil.EMPTY_BYTE_BUFFER);
                     dataSize += cell.dataSize();
                 }
-                Guardrails.collectionSize.guard(dataSize, column.name.toString(), false, params.clientState);
+                Guardrails.collectionSize.guard(dataSize, column.name.toString(), false, params.clientState());
             }
             else
             {
-                Guardrails.itemsPerCollection.guard(elements.size(), column.name.toString(), false, params.clientState);
+                Guardrails.itemsPerCollection.guard(elements.size(), column.name.toString(), false, params.clientState());
                 Cell<?> cell = params.addCell(column, value.get(ProtocolVersion.CURRENT));
-                Guardrails.collectionSize.guard(cell.dataSize(), column.name.toString(), false, params.clientState);
+                Guardrails.collectionSize.guard(cell.dataSize(), column.name.toString(), false, params.clientState());
             }
         }
     }
@@ -393,18 +393,18 @@ public abstract class Sets
             super(column, t);
         }
 
-        public void execute(DecoratedKey partitionKey, UpdateParameters params) throws InvalidRequestException
+        public void execute(DecoratedKey partitionKey, QueryContext params) throws InvalidRequestException
         {
             assert column.type.isMultiCell() : "Attempted to remove items from a frozen set";
 
-            Term.Terminal value = t.bind(params.options);
+            Term.Terminal value = params.bind(t);
             if (value == null || value == UNSET_VALUE)
                 return;
 
             // This can be either a set or a single element
             Set<ByteBuffer> toDiscard = value instanceof Sets.Value
                                       ? ((Sets.Value)value).elements
-                                      : Collections.singleton(value.get(params.options.getProtocolVersion()));
+                                      : Collections.singleton(value.get(params.options().getProtocolVersion()));
 
             for (ByteBuffer bb : toDiscard)
                 params.addTombstone(column, CellPath.create(bb));
@@ -418,14 +418,14 @@ public abstract class Sets
             super(column, k);
         }
 
-        public void execute(DecoratedKey partitionKey, UpdateParameters params) throws InvalidRequestException
+        public void execute(DecoratedKey partitionKey, QueryContext params) throws InvalidRequestException
         {
             assert column.type.isMultiCell() : "Attempted to delete a single element in a frozen set";
-            Term.Terminal elt = t.bind(params.options);
+            Term.Terminal elt = params.bind(t);
             if (elt == null)
                 throw new InvalidRequestException("Invalid null set element");
 
-            params.addTombstone(column, CellPath.create(elt.get(params.options.getProtocolVersion())));
+            params.addTombstone(column, CellPath.create(elt.get(params.options().getProtocolVersion())));
         }
     }
 }

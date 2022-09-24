@@ -45,6 +45,7 @@ import org.apache.cassandra.serializers.CollectionSerializer;
 import org.apache.cassandra.serializers.MarshalException;
 import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.TimeUUID;
 
 /**
  * Static helper methods and classes for lists.
@@ -504,7 +505,7 @@ public abstract class Lists
                 int dataSize = 0;
                 for (ByteBuffer buffer : elements)
                 {
-                    ByteBuffer uuid = ByteBuffer.wrap(params.nextTimeUUIDAsBytes());
+                    ByteBuffer uuid = ByteBuffer.wrap(TimeUUID.Generator.nextTimeUUIDAsBytes());
                     Cell<?> cell = params.addCell(column, CellPath.create(uuid), buffer);
                     dataSize += cell.dataSize();
                 }

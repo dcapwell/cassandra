@@ -348,9 +348,9 @@ public abstract class Maps
             super(column, t);
         }
 
-        public void execute(DecoratedKey partitionKey, UpdateParameters params) throws InvalidRequestException
+        public void execute(DecoratedKey partitionKey, QueryContext params) throws InvalidRequestException
         {
-            Term.Terminal value = t.bind(params.options);
+            Term.Terminal value = params.bind(t);
             if (value == UNSET_VALUE)
                 return;
 
@@ -378,11 +378,11 @@ public abstract class Maps
             k.collectMarkerSpecification(boundNames);
         }
 
-        public void execute(DecoratedKey partitionKey, UpdateParameters params) throws InvalidRequestException
+        public void execute(DecoratedKey partitionKey, QueryContext params) throws InvalidRequestException
         {
             assert column.type.isMultiCell() : "Attempted to set a value for a single key on a frozen map";
-            ByteBuffer key = k.bindAndGet(params.options);
-            ByteBuffer value = t.bindAndGet(params.options);
+            ByteBuffer key = params.bindAndGet(k);
+            ByteBuffer value = params.bindAndGet(t);
             if (key == null)
                 throw new InvalidRequestException("Invalid null map key");
             if (key == ByteBufferUtil.UNSET_BYTE_BUFFER)
@@ -408,15 +408,15 @@ public abstract class Maps
             super(column, t);
         }
 
-        public void execute(DecoratedKey partitionKey, UpdateParameters params) throws InvalidRequestException
+        public void execute(DecoratedKey partitionKey, QueryContext params) throws InvalidRequestException
         {
             assert column.type.isMultiCell() : "Attempted to add items to a frozen map";
-            Term.Terminal value = t.bind(params.options);
+            Term.Terminal value = params.bind(t);
             if (value != UNSET_VALUE)
                 doPut(value, column, params);
         }
 
-        static void doPut(Term.Terminal value, ColumnMetadata column, UpdateParameters params) throws InvalidRequestException
+        static void doPut(Term.Terminal value, ColumnMetadata column, QueryContext params) throws InvalidRequestException
         {
             if (value == null)
             {
@@ -437,7 +437,7 @@ public abstract class Maps
                 // Guardrails about collection size are only checked for the added elements without considering
                 // already existent elements. This is done so to avoid read-before-write, having additional checks
                 // during SSTable write.
-                Guardrails.itemsPerCollection.guard(elements.size(), column.name.toString(), false, params.clientState);
+                Guardrails.itemsPerCollection.guard(elements.size(), column.name.toString(), false, params.clientState());
 
                 int dataSize = 0;
                 for (Map.Entry<ByteBuffer, ByteBuffer> entry : elements.entrySet())
@@ -445,13 +445,13 @@ public abstract class Maps
                     Cell<?> cell = params.addCell(column, CellPath.create(entry.getKey()), entry.getValue());
                     dataSize += cell.dataSize();
                 }
-                Guardrails.collectionSize.guard(dataSize, column.name.toString(), false, params.clientState);
+                Guardrails.collectionSize.guard(dataSize, column.name.toString(), false, params.clientState());
             }
             else
             {
-                Guardrails.itemsPerCollection.guard(elements.size(), column.name.toString(), false, params.clientState);
+                Guardrails.itemsPerCollection.guard(elements.size(), column.name.toString(), false, params.clientState());
                 Cell<?> cell = params.addCell(column, value.get(ProtocolVersion.CURRENT));
-                Guardrails.collectionSize.guard(cell.dataSize(), column.name.toString(), false, params.clientState);
+                Guardrails.collectionSize.guard(cell.dataSize(), column.name.toString(), false, params.clientState());
             }
         }
     }
@@ -463,16 +463,16 @@ public abstract class Maps
             super(column, k);
         }
 
-        public void execute(DecoratedKey partitionKey, UpdateParameters params) throws InvalidRequestException
+        public void execute(DecoratedKey partitionKey, QueryContext params) throws InvalidRequestException
         {
             assert column.type.isMultiCell() : "Attempted to delete a single key in a frozen map";
-            Term.Terminal key = t.bind(params.options);
+            Term.Terminal key = params.bind(t);
             if (key == null)
                 throw new InvalidRequestException("Invalid null map key");
             if (key == Constants.UNSET_VALUE)
                 throw new InvalidRequestException("Invalid unset map key");
 
-            params.addTombstone(column, CellPath.create(key.get(params.options.getProtocolVersion())));
+            params.addTombstone(column, CellPath.create(key.get(params.options().getProtocolVersion())));
         }
     }
 }
