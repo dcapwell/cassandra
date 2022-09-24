@@ -331,9 +331,9 @@ public abstract class UserTypes
             super(column, t);
         }
 
-        public void execute(DecoratedKey partitionKey, UpdateParameters params) throws InvalidRequestException
+        public void execute(DecoratedKey partitionKey, QueryContext params) throws InvalidRequestException
         {
-            Term.Terminal value = t.bind(params.options);
+            Term.Terminal value = params.bind(t);
             if (value == UNSET_VALUE)
                 return;
 
@@ -363,7 +363,7 @@ public abstract class UserTypes
                 if (value == null)
                     params.addTombstone(column);
                 else
-                    params.addCell(column, value.get(params.options.getProtocolVersion()));
+                    params.addCell(column, value.get(params.options().getProtocolVersion()));
             }
         }
     }
@@ -378,12 +378,12 @@ public abstract class UserTypes
             this.field = field;
         }
 
-        public void execute(DecoratedKey partitionKey, UpdateParameters params) throws InvalidRequestException
+        public void execute(DecoratedKey partitionKey, QueryContext params) throws InvalidRequestException
         {
             // we should not get here for frozen UDTs
             assert column.type.isMultiCell() : "Attempted to set an individual field on a frozen UDT";
 
-            Term.Terminal value = t.bind(params.options);
+            Term.Terminal value = params.bind(t);
             if (value == UNSET_VALUE)
                 return;
 
@@ -391,7 +391,7 @@ public abstract class UserTypes
             if (value == null)
                 params.addTombstone(column, fieldPath);
             else
-                params.addCell(column, fieldPath, value.get(params.options.getProtocolVersion()));
+                params.addCell(column, fieldPath, value.get(params.options().getProtocolVersion()));
         }
     }
 
@@ -405,7 +405,7 @@ public abstract class UserTypes
             this.field = field;
         }
 
-        public void execute(DecoratedKey partitionKey, UpdateParameters params) throws InvalidRequestException
+        public void execute(DecoratedKey partitionKey, QueryContext params) throws InvalidRequestException
         {
             // we should not get here for frozen UDTs
             assert column.type.isMultiCell() : "Attempted to delete a single field from a frozen UDT";
