@@ -1990,7 +1990,7 @@ jobs:
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - REPEATED_TESTS_STOP_ON_FAILURE: false
-    - REPEATED_UTESTS: org.apache.cassandra.auth.CassandraAuthorizerTruncatingTest,org.apache.cassandra.config.DatabaseDescriptorTest,org.apache.cassandra.config.EncryptionOptionsTest,org.apache.cassandra.cql3.BatchTest,org.apache.cassandra.cql3.KeywordSplit1Test,org.apache.cassandra.cql3.KeywordSplit2Test,org.apache.cassandra.cql3.MemtableQuickTest,org.apache.cassandra.cql3.MemtableSizeTest,org.apache.cassandra.cql3.selection.SelectorSerializationTest,org.apache.cassandra.cql3.statements.DescribeStatementTest,org.apache.cassandra.cql3.validation.entities.CollectionsTest,org.apache.cassandra.cql3.validation.entities.TimestampTest,org.apache.cassandra.cql3.validation.entities.TupleTypeTest,org.apache.cassandra.cql3.validation.entities.UserTypesTest,org.apache.cassandra.cql3.validation.entities.WritetimeOrTTLTest,org.apache.cassandra.cql3.validation.operations.AlterTest,org.apache.cassandra.cql3.validation.operations.CreateTest,org.apache.cassandra.cql3.validation.operations.InsertTest,org.apache.cassandra.db.ClusteringBoundTest,org.apache.cassandra.db.ClusteringHeapSizeTest,org.apache.cassandra.db.ColumnFamilyStoreTest,org.apache.cassandra.db.DirectoriesTest,org.apache.cassandra.db.DiskBoundaryManagerTest,org.apache.cassandra.db.ReadCommandTest,org.apache.cassandra.db.SchemaCQLHelperTest,org.apache.cassandra.db.SystemKeyspaceTest,org.apache.cassandra.db.aggregation.GroupMakerTest,org.apache.cassandra.db.compaction.CancelCompactionsTest,org.apache.cassandra.db.compaction.CompactionControllerTest,org.apache.cassandra.db.compaction.CompactionStrategyManagerTest,org.apache.cassandra.db.compaction.CompactionsBytemanTest,org.apache.cassandra.db.compaction.CompactionsCQLTest,org.apache.cassandra.db.guardrails.GuardrailAllowUncompressedTablesTest,org.apache.cassandra.db.guardrails.GuardrailMinimumReplicationFactorTest,org.apache.cassandra.db.guardrails.GuardrailSecondaryIndexTest,org.apache.cassandra.db.guardrails.GuardrailSecondaryIndexesPerTableTest,org.apache.cassandra.db.guardrails.GuardrailsTest,org.apache.cassandra.db.lifecycle.RealTransactionsTest,org.apache.cassandra.db.marshal.DynamicCompositeTypeTest,org.apache.cassandra.db.marshal.TypeValidationTest,org.apache.cassandra.db.repair.PendingAntiCompactionTest,org.apache.cassandra.db.streaming.CassandraStreamManagerTest,org.apache.cassandra.db.virtual.SSTableTasksTableTest,org.apache.cassandra.dht.KeyCollisionTest,org.apache.cassandra.io.DiskSpaceMetricsTest,org.apache.cassandra.io.sstable.IndexSummaryRedistributionTest,org.apache.cassandra.io.sstable.SSTableLoaderTest,org.apache.cassandra.io.sstable.SSTableMetadataTest,org.apache.cassandra.io.sstable.SSTableReaderTest,org.apache.cassandra.io.sstable.SSTableRewriterTest,org.apache.cassandra.metrics.SamplerTest,org.apache.cassandra.net.HandshakeTest,org.apache.cassandra.net.MessagingServiceTest,org.apache.cassandra.repair.messages.RepairOptionTest,org.apache.cassandra.schema.SchemaKeyspaceTest,org.apache.cassandra.security.DefaultSslContextFactoryTest,org.apache.cassandra.security.PEMBasedSslContextFactoryTest,org.apache.cassandra.security.SSLFactoryTest,org.apache.cassandra.service.ActiveRepairServiceTest,org.apache.cassandra.service.StartupChecksTest,org.apache.cassandra.service.StorageServiceTest,org.apache.cassandra.service.snapshot.SnapshotLoaderTest,org.apache.cassandra.service.snapshot.SnapshotManagerTest,org.apache.cassandra.service.snapshot.SnapshotManifestTest,org.apache.cassandra.service.snapshot.TableSnapshotTest,org.apache.cassandra.tools.BulkLoaderTest,org.apache.cassandra.tools.GetVersionTest,org.apache.cassandra.tools.SSTableExpiredBlockersTest,org.apache.cassandra.tools.SSTableExportSchemaLoadingTest,org.apache.cassandra.tools.SSTableExportTest,org.apache.cassandra.tools.SSTableLevelResetterTest,org.apache.cassandra.tools.SSTableMetadataViewerTest,org.apache.cassandra.tools.SSTableOfflineRelevelTest,org.apache.cassandra.tools.SSTableRepairedAtSetterTest,org.apache.cassandra.tools.ToolsSchemaLoadingTest,org.apache.cassandra.tools.TopPartitionsTest,org.apache.cassandra.tools.nodetool.ClearSnapshotTest,org.apache.cassandra.tools.nodetool.CompactionStatsTest,org.apache.cassandra.tools.nodetool.GetAuthCacheConfigTest,org.apache.cassandra.tools.nodetool.InvalidatePermissionsCacheTest,org.apache.cassandra.tools.nodetool.SetAuthCacheConfigTest,org.apache.cassandra.transport.SerDeserTest,org.apache.cassandra.utils.UUIDTest
+    - REPEATED_UTESTS: null
     - REPEATED_UTESTS_COUNT: 500
     - REPEATED_UTESTS_FQLTOOL: null
     - REPEATED_UTESTS_FQLTOOL_COUNT: 500
@@ -2808,6 +2808,163 @@ jobs:
         destination: logs
         path: /tmp/cassandra/build/test/logs
     working_directory: ~/
+  j11_utests_fqltool_repeat:
+    docker:
+    - image: apache/cassandra-testing-ubuntu2004-java11:latest
+    environment:
+    - ANT_HOME: /usr/share/ant
+    - JAVA11_HOME: /usr/lib/jvm/java-11-openjdk-amd64
+    - JAVA8_HOME: /usr/lib/jvm/java-8-openjdk-amd64
+    - LANG: en_US.UTF-8
+    - KEEP_TEST_DIR: true
+    - DEFAULT_DIR: /home/cassandra/cassandra-dtest
+    - PYTHONIOENCODING: utf-8
+    - PYTHONUNBUFFERED: true
+    - CASS_DRIVER_NO_EXTENSIONS: true
+    - CASS_DRIVER_NO_CYTHON: true
+    - CASSANDRA_SKIP_SYNC: true
+    - DTEST_REPO: https://github.com/apache/cassandra-dtest.git
+    - DTEST_BRANCH: trunk
+    - CCM_MAX_HEAP_SIZE: 1024M
+    - CCM_HEAP_NEWSIZE: 256M
+    - REPEATED_TESTS_STOP_ON_FAILURE: false
+    - REPEATED_UTESTS: null
+    - REPEATED_UTESTS_COUNT: 500
+    - REPEATED_UTESTS_FQLTOOL: null
+    - REPEATED_UTESTS_FQLTOOL_COUNT: 500
+    - REPEATED_UTESTS_LONG: null
+    - REPEATED_UTESTS_LONG_COUNT: 100
+    - REPEATED_UTESTS_STRESS: null
+    - REPEATED_UTESTS_STRESS_COUNT: 500
+    - REPEATED_SIMULATOR_DTESTS: null
+    - REPEATED_SIMULATOR_DTESTS_COUNT: 500
+    - REPEATED_JVM_DTESTS: null
+    - REPEATED_JVM_DTESTS_COUNT: 500
+    - REPEATED_JVM_UPGRADE_DTESTS: null
+    - REPEATED_JVM_UPGRADE_DTESTS_COUNT: 500
+    - REPEATED_DTESTS: null
+    - REPEATED_DTESTS_COUNT: 500
+    - REPEATED_UPGRADE_DTESTS: null
+    - REPEATED_UPGRADE_DTESTS_COUNT: 25
+    - REPEATED_ANT_TEST_TARGET: testsome
+    - REPEATED_ANT_TEST_CLASS: null
+    - REPEATED_ANT_TEST_METHODS: null
+    - REPEATED_ANT_TEST_VNODES: false
+    - REPEATED_ANT_TEST_COUNT: 500
+    - JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
+    - JDK_HOME: /usr/lib/jvm/java-11-openjdk-amd64
+    - CASSANDRA_USE_JDK11: true
+    parallelism: 20
+    resource_class: xlarge
+    shell: /bin/bash -eo pipefail -l
+    steps:
+    - attach_workspace:
+        at: /home/cassandra
+    - run:
+        command: 'echo ''*** id ***''
+
+          id
+
+          echo ''*** cat /proc/cpuinfo ***''
+
+          cat /proc/cpuinfo
+
+          echo ''*** free -m ***''
+
+          free -m
+
+          echo ''*** df -m ***''
+
+          df -m
+
+          echo ''*** ifconfig -a ***''
+
+          ifconfig -a
+
+          echo ''*** uname -a ***''
+
+          uname -a
+
+          echo ''*** mount ***''
+
+          mount
+
+          echo ''*** env ***''
+
+          env
+
+          echo ''*** java ***''
+
+          which java
+
+          java -version
+
+          '
+        name: Log Environment Information
+    - run:
+        command: "set -x\nexport PATH=$JAVA_HOME/bin:$PATH\ntime mv ~/cassandra /tmp\n\
+          cd /tmp/cassandra\nif [ -d ~/dtest_jars ]; then\n  cp ~/dtest_jars/dtest*\
+          \ /tmp/cassandra/build/\nfi\n\n# Calculate the number of test iterations\
+          \ to be run by the current parallel runner.\ncount=$((${REPEATED_UTESTS_FQLTOOL_COUNT}\
+          \ / CIRCLE_NODE_TOTAL))\nif (($CIRCLE_NODE_INDEX < (${REPEATED_UTESTS_FQLTOOL_COUNT}\
+          \ % CIRCLE_NODE_TOTAL))); then\n  count=$((count+1))\nfi\n\n# Put manually\
+          \ specified tests and automatically detected tests together, removing duplicates\n\
+          tests=$(echo ${REPEATED_UTESTS_FQLTOOL} | sed -e \"s/<nil>//\" | sed -e\
+          \ \"s/ //\" | tr \",\" \"\\n\" | tr \" \" \"\\n\" | sort -n | uniq -u)\n\
+          echo \"Tests to be repeated: ${tests}\"\n\n# Prepare the JVM dtests vnodes\
+          \ argument, which is optional.\nvnodes=false\nvnodes_args=\"\"\nif [ \"\
+          $vnodes\" = true ] ; then\n  vnodes_args=\"-Dtest.jvm.args='-Dcassandra.dtest.num_tokens=16'\"\
+          \nfi\n\n# Prepare the testtag for the target, used by the test macro in\
+          \ build.xml to group the output files\ntarget=fqltool-test\ntesttag=\"\"\
+          \nif [[ $target == \"test-cdc\" ]]; then\n  testtag=\"cdc\"\nelif [[ $target\
+          \ == \"test-compression\" ]]; then\n  testtag=\"compression\"\nelif [[ $target\
+          \ == \"test-system-keyspace-directory\" ]]; then\n  testtag=\"system_keyspace_directory\"\
+          \nfi\n\n# Run each test class as many times as requested.\nexit_code=\"\
+          $?\"\nfor test in $tests; do\n\n    # Split class and method names from\
+          \ the test name\n    if [[ $test =~ \"#\" ]]; then\n      class=${test%\"\
+          #\"*}\n      method=${test#*\"#\"}\n    else\n      class=$test\n      method=\"\
+          \"\n    fi\n\n    # Prepare the -Dtest.name argument.\n    # It can be the\
+          \ fully qualified class name or the short class name, depending on the target.\n\
+          \    if [[ $target == \"test\" || \\\n          $target == \"test-cdc\"\
+          \ || \\\n          $target == \"test-compression\" || \\\n          $target\
+          \ == \"test-system-keyspace-directory\" || \\\n          $target == \"fqltool-test\"\
+          \ || \\\n          $target == \"long-test\" || \\\n          $target ==\
+          \ \"stress-test\" || \\\n          $target == \"test-simulator-dtest\" ]];\
+          \ then\n      name_arg=\"-Dtest.name=${class##*.}\"\n    else\n      name_arg=\"\
+          -Dtest.name=$class\"\n    fi\n\n    # Prepare the -Dtest.methods argument,\
+          \ which is optional\n    if [[ $method == \"\" ]]; then\n      methods_arg=\"\
+          \"\n    else\n      methods_arg=\"-Dtest.methods=$method\"\n    fi\n\n \
+          \   for i in $(seq -w 1 $count); do\n      echo \"Running test $test, iteration\
+          \ $i of $count\"\n\n      # run the test\n      status=\"passes\"\n    \
+          \  if !( set -o pipefail && \\\n            ant fqltool-test $name_arg $methods_arg\
+          \ $vnodes_args -Dno-build-test=true | \\\n            tee stdout.txt \\\n\
+          \          ); then\n        status=\"fails\"\n        exit_code=1\n    \
+          \  fi\n\n      # move the stdout output file\n      dest=/tmp/results/repeated_utests/stdout/${status}/${i}\n\
+          \      mkdir -p $dest\n      mv stdout.txt $dest/${test}.txt\n\n      #\
+          \ move the XML output files\n      source=build/test/output/${testtag}\n\
+          \      dest=/tmp/results/repeated_utests/output/${status}/${i}\n      mkdir\
+          \ -p $dest\n      if [[ -d $source && -n \"$(ls $source)\" ]]; then\n  \
+          \      mv $source/* $dest/\n      fi\n\n      # move the log files\n   \
+          \   source=build/test/logs/${testtag}\n      dest=/tmp/results/repeated_utests/logs/${status}/${i}\n\
+          \      mkdir -p $dest\n      if [[ -d $source && -n \"$(ls $source)\" ]];\
+          \ then\n        mv $source/* $dest/\n      fi\n      \n      # maybe stop\
+          \ iterations on test failure\n      if [[ ${REPEATED_TESTS_STOP_ON_FAILURE}\
+          \ = true ]] && (( $exit_code > 0 )); then\n        break\n      fi\n   \
+          \ done\ndone\n(exit ${exit_code})\n"
+        name: Repeatedly run new or modifed JUnit tests
+        no_output_timeout: 15m
+    - store_test_results:
+        path: /tmp/results/repeated_utests/output
+    - store_artifacts:
+        destination: stdout
+        path: /tmp/results/repeated_utests/stdout
+    - store_artifacts:
+        destination: junitxml
+        path: /tmp/results/repeated_utests/output
+    - store_artifacts:
+        destination: logs
+        path: /tmp/results/repeated_utests/logs
+    working_directory: ~/
   j11_utests_long:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11:latest
@@ -2899,7 +3056,7 @@ jobs:
     - REPEATED_UTESTS_COUNT: 500
     - REPEATED_UTESTS_FQLTOOL: null
     - REPEATED_UTESTS_FQLTOOL_COUNT: 500
-    - REPEATED_UTESTS_LONG: org.apache.cassandra.db.compaction.LongLeveledCompactionStrategyTest
+    - REPEATED_UTESTS_LONG: null
     - REPEATED_UTESTS_LONG_COUNT: 100
     - REPEATED_UTESTS_STRESS: null
     - REPEATED_UTESTS_STRESS_COUNT: 500
@@ -3098,6 +3255,163 @@ jobs:
     - store_artifacts:
         destination: logs
         path: /tmp/cassandra/build/test/logs
+    working_directory: ~/
+  j11_utests_stress_repeat:
+    docker:
+    - image: apache/cassandra-testing-ubuntu2004-java11:latest
+    environment:
+    - ANT_HOME: /usr/share/ant
+    - JAVA11_HOME: /usr/lib/jvm/java-11-openjdk-amd64
+    - JAVA8_HOME: /usr/lib/jvm/java-8-openjdk-amd64
+    - LANG: en_US.UTF-8
+    - KEEP_TEST_DIR: true
+    - DEFAULT_DIR: /home/cassandra/cassandra-dtest
+    - PYTHONIOENCODING: utf-8
+    - PYTHONUNBUFFERED: true
+    - CASS_DRIVER_NO_EXTENSIONS: true
+    - CASS_DRIVER_NO_CYTHON: true
+    - CASSANDRA_SKIP_SYNC: true
+    - DTEST_REPO: https://github.com/apache/cassandra-dtest.git
+    - DTEST_BRANCH: trunk
+    - CCM_MAX_HEAP_SIZE: 1024M
+    - CCM_HEAP_NEWSIZE: 256M
+    - REPEATED_TESTS_STOP_ON_FAILURE: false
+    - REPEATED_UTESTS: null
+    - REPEATED_UTESTS_COUNT: 500
+    - REPEATED_UTESTS_FQLTOOL: null
+    - REPEATED_UTESTS_FQLTOOL_COUNT: 500
+    - REPEATED_UTESTS_LONG: null
+    - REPEATED_UTESTS_LONG_COUNT: 100
+    - REPEATED_UTESTS_STRESS: null
+    - REPEATED_UTESTS_STRESS_COUNT: 500
+    - REPEATED_SIMULATOR_DTESTS: null
+    - REPEATED_SIMULATOR_DTESTS_COUNT: 500
+    - REPEATED_JVM_DTESTS: null
+    - REPEATED_JVM_DTESTS_COUNT: 500
+    - REPEATED_JVM_UPGRADE_DTESTS: null
+    - REPEATED_JVM_UPGRADE_DTESTS_COUNT: 500
+    - REPEATED_DTESTS: null
+    - REPEATED_DTESTS_COUNT: 500
+    - REPEATED_UPGRADE_DTESTS: null
+    - REPEATED_UPGRADE_DTESTS_COUNT: 25
+    - REPEATED_ANT_TEST_TARGET: testsome
+    - REPEATED_ANT_TEST_CLASS: null
+    - REPEATED_ANT_TEST_METHODS: null
+    - REPEATED_ANT_TEST_VNODES: false
+    - REPEATED_ANT_TEST_COUNT: 500
+    - JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
+    - JDK_HOME: /usr/lib/jvm/java-11-openjdk-amd64
+    - CASSANDRA_USE_JDK11: true
+    parallelism: 20
+    resource_class: xlarge
+    shell: /bin/bash -eo pipefail -l
+    steps:
+    - attach_workspace:
+        at: /home/cassandra
+    - run:
+        command: 'echo ''*** id ***''
+
+          id
+
+          echo ''*** cat /proc/cpuinfo ***''
+
+          cat /proc/cpuinfo
+
+          echo ''*** free -m ***''
+
+          free -m
+
+          echo ''*** df -m ***''
+
+          df -m
+
+          echo ''*** ifconfig -a ***''
+
+          ifconfig -a
+
+          echo ''*** uname -a ***''
+
+          uname -a
+
+          echo ''*** mount ***''
+
+          mount
+
+          echo ''*** env ***''
+
+          env
+
+          echo ''*** java ***''
+
+          which java
+
+          java -version
+
+          '
+        name: Log Environment Information
+    - run:
+        command: "set -x\nexport PATH=$JAVA_HOME/bin:$PATH\ntime mv ~/cassandra /tmp\n\
+          cd /tmp/cassandra\nif [ -d ~/dtest_jars ]; then\n  cp ~/dtest_jars/dtest*\
+          \ /tmp/cassandra/build/\nfi\n\n# Calculate the number of test iterations\
+          \ to be run by the current parallel runner.\ncount=$((${REPEATED_UTESTS_STRESS_COUNT}\
+          \ / CIRCLE_NODE_TOTAL))\nif (($CIRCLE_NODE_INDEX < (${REPEATED_UTESTS_STRESS_COUNT}\
+          \ % CIRCLE_NODE_TOTAL))); then\n  count=$((count+1))\nfi\n\n# Put manually\
+          \ specified tests and automatically detected tests together, removing duplicates\n\
+          tests=$(echo ${REPEATED_UTESTS_STRESS} | sed -e \"s/<nil>//\" | sed -e \"\
+          s/ //\" | tr \",\" \"\\n\" | tr \" \" \"\\n\" | sort -n | uniq -u)\necho\
+          \ \"Tests to be repeated: ${tests}\"\n\n# Prepare the JVM dtests vnodes\
+          \ argument, which is optional.\nvnodes=false\nvnodes_args=\"\"\nif [ \"\
+          $vnodes\" = true ] ; then\n  vnodes_args=\"-Dtest.jvm.args='-Dcassandra.dtest.num_tokens=16'\"\
+          \nfi\n\n# Prepare the testtag for the target, used by the test macro in\
+          \ build.xml to group the output files\ntarget=stress-test-some\ntesttag=\"\
+          \"\nif [[ $target == \"test-cdc\" ]]; then\n  testtag=\"cdc\"\nelif [[ $target\
+          \ == \"test-compression\" ]]; then\n  testtag=\"compression\"\nelif [[ $target\
+          \ == \"test-system-keyspace-directory\" ]]; then\n  testtag=\"system_keyspace_directory\"\
+          \nfi\n\n# Run each test class as many times as requested.\nexit_code=\"\
+          $?\"\nfor test in $tests; do\n\n    # Split class and method names from\
+          \ the test name\n    if [[ $test =~ \"#\" ]]; then\n      class=${test%\"\
+          #\"*}\n      method=${test#*\"#\"}\n    else\n      class=$test\n      method=\"\
+          \"\n    fi\n\n    # Prepare the -Dtest.name argument.\n    # It can be the\
+          \ fully qualified class name or the short class name, depending on the target.\n\
+          \    if [[ $target == \"test\" || \\\n          $target == \"test-cdc\"\
+          \ || \\\n          $target == \"test-compression\" || \\\n          $target\
+          \ == \"test-system-keyspace-directory\" || \\\n          $target == \"fqltool-test\"\
+          \ || \\\n          $target == \"long-test\" || \\\n          $target ==\
+          \ \"stress-test\" || \\\n          $target == \"test-simulator-dtest\" ]];\
+          \ then\n      name_arg=\"-Dtest.name=${class##*.}\"\n    else\n      name_arg=\"\
+          -Dtest.name=$class\"\n    fi\n\n    # Prepare the -Dtest.methods argument,\
+          \ which is optional\n    if [[ $method == \"\" ]]; then\n      methods_arg=\"\
+          \"\n    else\n      methods_arg=\"-Dtest.methods=$method\"\n    fi\n\n \
+          \   for i in $(seq -w 1 $count); do\n      echo \"Running test $test, iteration\
+          \ $i of $count\"\n\n      # run the test\n      status=\"passes\"\n    \
+          \  if !( set -o pipefail && \\\n            ant stress-test-some $name_arg\
+          \ $methods_arg $vnodes_args -Dno-build-test=true | \\\n            tee stdout.txt\
+          \ \\\n          ); then\n        status=\"fails\"\n        exit_code=1\n\
+          \      fi\n\n      # move the stdout output file\n      dest=/tmp/results/repeated_utests/stdout/${status}/${i}\n\
+          \      mkdir -p $dest\n      mv stdout.txt $dest/${test}.txt\n\n      #\
+          \ move the XML output files\n      source=build/test/output/${testtag}\n\
+          \      dest=/tmp/results/repeated_utests/output/${status}/${i}\n      mkdir\
+          \ -p $dest\n      if [[ -d $source && -n \"$(ls $source)\" ]]; then\n  \
+          \      mv $source/* $dest/\n      fi\n\n      # move the log files\n   \
+          \   source=build/test/logs/${testtag}\n      dest=/tmp/results/repeated_utests/logs/${status}/${i}\n\
+          \      mkdir -p $dest\n      if [[ -d $source && -n \"$(ls $source)\" ]];\
+          \ then\n        mv $source/* $dest/\n      fi\n      \n      # maybe stop\
+          \ iterations on test failure\n      if [[ ${REPEATED_TESTS_STOP_ON_FAILURE}\
+          \ = true ]] && (( $exit_code > 0 )); then\n        break\n      fi\n   \
+          \ done\ndone\n(exit ${exit_code})\n"
+        name: Repeatedly run new or modifed JUnit tests
+        no_output_timeout: 15m
+    - store_test_results:
+        path: /tmp/results/repeated_utests/output
+    - store_artifacts:
+        destination: stdout
+        path: /tmp/results/repeated_utests/stdout
+    - store_artifacts:
+        destination: junitxml
+        path: /tmp/results/repeated_utests/output
+    - store_artifacts:
+        destination: logs
+        path: /tmp/results/repeated_utests/logs
     working_directory: ~/
   j11_utests_system_keyspace_directory:
     docker:
@@ -5219,7 +5533,7 @@ jobs:
     - REPEATED_SIMULATOR_DTESTS_COUNT: 500
     - REPEATED_JVM_DTESTS: null
     - REPEATED_JVM_DTESTS_COUNT: 500
-    - REPEATED_JVM_UPGRADE_DTESTS: org.apache.cassandra.distributed.upgrade.BatchUpgradeTest,org.apache.cassandra.distributed.upgrade.CompactStorageColumnDeleteTest,org.apache.cassandra.distributed.upgrade.CompactStorageHiddenColumnTest,org.apache.cassandra.distributed.upgrade.CompactStorageImplicitNullInClusteringTest,org.apache.cassandra.distributed.upgrade.CompactStoragePagingTest,org.apache.cassandra.distributed.upgrade.DropCompactStorageNullClusteringValuesTest,org.apache.cassandra.distributed.upgrade.DropCompactStorageTest,org.apache.cassandra.distributed.upgrade.GroupByTest,org.apache.cassandra.distributed.upgrade.MixedModeAvailabilityV3XOneAllTest,org.apache.cassandra.distributed.upgrade.MixedModeFrom3ReplicationTest,org.apache.cassandra.distributed.upgrade.MixedModeGossipTest,org.apache.cassandra.distributed.upgrade.MixedModeMessageForwardTest,org.apache.cassandra.distributed.upgrade.MixedModeReadRepairDeleteTest,org.apache.cassandra.distributed.upgrade.MixedModeReadRepairWriteTest,org.apache.cassandra.distributed.upgrade.MixedModeReadTest,org.apache.cassandra.distributed.upgrade.MixedModeRepairTest,org.apache.cassandra.distributed.upgrade.Pre40MessageFilterTest,org.apache.cassandra.distributed.upgrade.UpgradeTest
+    - REPEATED_JVM_UPGRADE_DTESTS: null
     - REPEATED_JVM_UPGRADE_DTESTS_COUNT: 500
     - REPEATED_DTESTS: null
     - REPEATED_DTESTS_COUNT: 500
@@ -5645,6 +5959,162 @@ jobs:
         destination: logs
         path: /tmp/cassandra/build/test/logs
     working_directory: ~/
+  j8_simulator_dtests_repeat:
+    docker:
+    - image: apache/cassandra-testing-ubuntu2004-java11-w-dependencies:latest
+    environment:
+    - ANT_HOME: /usr/share/ant
+    - JAVA11_HOME: /usr/lib/jvm/java-11-openjdk-amd64
+    - JAVA8_HOME: /usr/lib/jvm/java-8-openjdk-amd64
+    - LANG: en_US.UTF-8
+    - KEEP_TEST_DIR: true
+    - DEFAULT_DIR: /home/cassandra/cassandra-dtest
+    - PYTHONIOENCODING: utf-8
+    - PYTHONUNBUFFERED: true
+    - CASS_DRIVER_NO_EXTENSIONS: true
+    - CASS_DRIVER_NO_CYTHON: true
+    - CASSANDRA_SKIP_SYNC: true
+    - DTEST_REPO: https://github.com/apache/cassandra-dtest.git
+    - DTEST_BRANCH: trunk
+    - CCM_MAX_HEAP_SIZE: 1024M
+    - CCM_HEAP_NEWSIZE: 256M
+    - REPEATED_TESTS_STOP_ON_FAILURE: false
+    - REPEATED_UTESTS: null
+    - REPEATED_UTESTS_COUNT: 500
+    - REPEATED_UTESTS_FQLTOOL: null
+    - REPEATED_UTESTS_FQLTOOL_COUNT: 500
+    - REPEATED_UTESTS_LONG: null
+    - REPEATED_UTESTS_LONG_COUNT: 100
+    - REPEATED_UTESTS_STRESS: null
+    - REPEATED_UTESTS_STRESS_COUNT: 500
+    - REPEATED_SIMULATOR_DTESTS: null
+    - REPEATED_SIMULATOR_DTESTS_COUNT: 500
+    - REPEATED_JVM_DTESTS: null
+    - REPEATED_JVM_DTESTS_COUNT: 500
+    - REPEATED_JVM_UPGRADE_DTESTS: null
+    - REPEATED_JVM_UPGRADE_DTESTS_COUNT: 500
+    - REPEATED_DTESTS: null
+    - REPEATED_DTESTS_COUNT: 500
+    - REPEATED_UPGRADE_DTESTS: null
+    - REPEATED_UPGRADE_DTESTS_COUNT: 25
+    - REPEATED_ANT_TEST_TARGET: testsome
+    - REPEATED_ANT_TEST_CLASS: null
+    - REPEATED_ANT_TEST_METHODS: null
+    - REPEATED_ANT_TEST_VNODES: false
+    - REPEATED_ANT_TEST_COUNT: 500
+    - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
+    - JDK_HOME: /usr/lib/jvm/java-8-openjdk-amd64
+    parallelism: 20
+    resource_class: xlarge
+    shell: /bin/bash -eo pipefail -l
+    steps:
+    - attach_workspace:
+        at: /home/cassandra
+    - run:
+        command: 'echo ''*** id ***''
+
+          id
+
+          echo ''*** cat /proc/cpuinfo ***''
+
+          cat /proc/cpuinfo
+
+          echo ''*** free -m ***''
+
+          free -m
+
+          echo ''*** df -m ***''
+
+          df -m
+
+          echo ''*** ifconfig -a ***''
+
+          ifconfig -a
+
+          echo ''*** uname -a ***''
+
+          uname -a
+
+          echo ''*** mount ***''
+
+          mount
+
+          echo ''*** env ***''
+
+          env
+
+          echo ''*** java ***''
+
+          which java
+
+          java -version
+
+          '
+        name: Log Environment Information
+    - run:
+        command: "set -x\nexport PATH=$JAVA_HOME/bin:$PATH\ntime mv ~/cassandra /tmp\n\
+          cd /tmp/cassandra\nif [ -d ~/dtest_jars ]; then\n  cp ~/dtest_jars/dtest*\
+          \ /tmp/cassandra/build/\nfi\n\n# Calculate the number of test iterations\
+          \ to be run by the current parallel runner.\ncount=$((${REPEATED_SIMULATOR_DTESTS_COUNT}\
+          \ / CIRCLE_NODE_TOTAL))\nif (($CIRCLE_NODE_INDEX < (${REPEATED_SIMULATOR_DTESTS_COUNT}\
+          \ % CIRCLE_NODE_TOTAL))); then\n  count=$((count+1))\nfi\n\n# Put manually\
+          \ specified tests and automatically detected tests together, removing duplicates\n\
+          tests=$(echo ${REPEATED_SIMULATOR_DTESTS} | sed -e \"s/<nil>//\" | sed -e\
+          \ \"s/ //\" | tr \",\" \"\\n\" | tr \" \" \"\\n\" | sort -n | uniq -u)\n\
+          echo \"Tests to be repeated: ${tests}\"\n\n# Prepare the JVM dtests vnodes\
+          \ argument, which is optional.\nvnodes=false\nvnodes_args=\"\"\nif [ \"\
+          $vnodes\" = true ] ; then\n  vnodes_args=\"-Dtest.jvm.args='-Dcassandra.dtest.num_tokens=16'\"\
+          \nfi\n\n# Prepare the testtag for the target, used by the test macro in\
+          \ build.xml to group the output files\ntarget=test-simulator-dtest\ntesttag=\"\
+          \"\nif [[ $target == \"test-cdc\" ]]; then\n  testtag=\"cdc\"\nelif [[ $target\
+          \ == \"test-compression\" ]]; then\n  testtag=\"compression\"\nelif [[ $target\
+          \ == \"test-system-keyspace-directory\" ]]; then\n  testtag=\"system_keyspace_directory\"\
+          \nfi\n\n# Run each test class as many times as requested.\nexit_code=\"\
+          $?\"\nfor test in $tests; do\n\n    # Split class and method names from\
+          \ the test name\n    if [[ $test =~ \"#\" ]]; then\n      class=${test%\"\
+          #\"*}\n      method=${test#*\"#\"}\n    else\n      class=$test\n      method=\"\
+          \"\n    fi\n\n    # Prepare the -Dtest.name argument.\n    # It can be the\
+          \ fully qualified class name or the short class name, depending on the target.\n\
+          \    if [[ $target == \"test\" || \\\n          $target == \"test-cdc\"\
+          \ || \\\n          $target == \"test-compression\" || \\\n          $target\
+          \ == \"test-system-keyspace-directory\" || \\\n          $target == \"fqltool-test\"\
+          \ || \\\n          $target == \"long-test\" || \\\n          $target ==\
+          \ \"stress-test\" || \\\n          $target == \"test-simulator-dtest\" ]];\
+          \ then\n      name_arg=\"-Dtest.name=${class##*.}\"\n    else\n      name_arg=\"\
+          -Dtest.name=$class\"\n    fi\n\n    # Prepare the -Dtest.methods argument,\
+          \ which is optional\n    if [[ $method == \"\" ]]; then\n      methods_arg=\"\
+          \"\n    else\n      methods_arg=\"-Dtest.methods=$method\"\n    fi\n\n \
+          \   for i in $(seq -w 1 $count); do\n      echo \"Running test $test, iteration\
+          \ $i of $count\"\n\n      # run the test\n      status=\"passes\"\n    \
+          \  if !( set -o pipefail && \\\n            ant test-simulator-dtest $name_arg\
+          \ $methods_arg $vnodes_args -Dno-build-test=true | \\\n            tee stdout.txt\
+          \ \\\n          ); then\n        status=\"fails\"\n        exit_code=1\n\
+          \      fi\n\n      # move the stdout output file\n      dest=/tmp/results/repeated_utests/stdout/${status}/${i}\n\
+          \      mkdir -p $dest\n      mv stdout.txt $dest/${test}.txt\n\n      #\
+          \ move the XML output files\n      source=build/test/output/${testtag}\n\
+          \      dest=/tmp/results/repeated_utests/output/${status}/${i}\n      mkdir\
+          \ -p $dest\n      if [[ -d $source && -n \"$(ls $source)\" ]]; then\n  \
+          \      mv $source/* $dest/\n      fi\n\n      # move the log files\n   \
+          \   source=build/test/logs/${testtag}\n      dest=/tmp/results/repeated_utests/logs/${status}/${i}\n\
+          \      mkdir -p $dest\n      if [[ -d $source && -n \"$(ls $source)\" ]];\
+          \ then\n        mv $source/* $dest/\n      fi\n      \n      # maybe stop\
+          \ iterations on test failure\n      if [[ ${REPEATED_TESTS_STOP_ON_FAILURE}\
+          \ = true ]] && (( $exit_code > 0 )); then\n        break\n      fi\n   \
+          \ done\ndone\n(exit ${exit_code})\n"
+        name: Repeatedly run new or modifed JUnit tests
+        no_output_timeout: 15m
+    - store_test_results:
+        path: /tmp/results/repeated_utests/output
+    - store_artifacts:
+        destination: stdout
+        path: /tmp/results/repeated_utests/stdout
+    - store_artifacts:
+        destination: junitxml
+        path: /tmp/results/repeated_utests/output
+    - store_artifacts:
+        destination: logs
+        path: /tmp/results/repeated_utests/logs
+    working_directory: ~/
   j8_unit_tests:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11-w-dependencies:latest
@@ -5814,7 +6284,7 @@ jobs:
     - CCM_MAX_HEAP_SIZE: 1024M
     - CCM_HEAP_NEWSIZE: 256M
     - REPEATED_TESTS_STOP_ON_FAILURE: false
-    - REPEATED_UTESTS: org.apache.cassandra.auth.CassandraAuthorizerTruncatingTest,org.apache.cassandra.config.DatabaseDescriptorTest,org.apache.cassandra.config.EncryptionOptionsTest,org.apache.cassandra.cql3.BatchTest,org.apache.cassandra.cql3.KeywordSplit1Test,org.apache.cassandra.cql3.KeywordSplit2Test,org.apache.cassandra.cql3.MemtableQuickTest,org.apache.cassandra.cql3.MemtableSizeTest,org.apache.cassandra.cql3.selection.SelectorSerializationTest,org.apache.cassandra.cql3.statements.DescribeStatementTest,org.apache.cassandra.cql3.validation.entities.CollectionsTest,org.apache.cassandra.cql3.validation.entities.TimestampTest,org.apache.cassandra.cql3.validation.entities.TupleTypeTest,org.apache.cassandra.cql3.validation.entities.UserTypesTest,org.apache.cassandra.cql3.validation.entities.WritetimeOrTTLTest,org.apache.cassandra.cql3.validation.operations.AlterTest,org.apache.cassandra.cql3.validation.operations.CreateTest,org.apache.cassandra.cql3.validation.operations.InsertTest,org.apache.cassandra.db.ClusteringBoundTest,org.apache.cassandra.db.ClusteringHeapSizeTest,org.apache.cassandra.db.ColumnFamilyStoreTest,org.apache.cassandra.db.DirectoriesTest,org.apache.cassandra.db.DiskBoundaryManagerTest,org.apache.cassandra.db.ReadCommandTest,org.apache.cassandra.db.SchemaCQLHelperTest,org.apache.cassandra.db.SystemKeyspaceTest,org.apache.cassandra.db.aggregation.GroupMakerTest,org.apache.cassandra.db.compaction.CancelCompactionsTest,org.apache.cassandra.db.compaction.CompactionControllerTest,org.apache.cassandra.db.compaction.CompactionStrategyManagerTest,org.apache.cassandra.db.compaction.CompactionsBytemanTest,org.apache.cassandra.db.compaction.CompactionsCQLTest,org.apache.cassandra.db.guardrails.GuardrailAllowUncompressedTablesTest,org.apache.cassandra.db.guardrails.GuardrailMinimumReplicationFactorTest,org.apache.cassandra.db.guardrails.GuardrailSecondaryIndexTest,org.apache.cassandra.db.guardrails.GuardrailSecondaryIndexesPerTableTest,org.apache.cassandra.db.guardrails.GuardrailsTest,org.apache.cassandra.db.lifecycle.RealTransactionsTest,org.apache.cassandra.db.marshal.DynamicCompositeTypeTest,org.apache.cassandra.db.marshal.TypeValidationTest,org.apache.cassandra.db.repair.PendingAntiCompactionTest,org.apache.cassandra.db.streaming.CassandraStreamManagerTest,org.apache.cassandra.db.virtual.SSTableTasksTableTest,org.apache.cassandra.dht.KeyCollisionTest,org.apache.cassandra.io.DiskSpaceMetricsTest,org.apache.cassandra.io.sstable.IndexSummaryRedistributionTest,org.apache.cassandra.io.sstable.SSTableLoaderTest,org.apache.cassandra.io.sstable.SSTableMetadataTest,org.apache.cassandra.io.sstable.SSTableReaderTest,org.apache.cassandra.io.sstable.SSTableRewriterTest,org.apache.cassandra.metrics.SamplerTest,org.apache.cassandra.net.HandshakeTest,org.apache.cassandra.net.MessagingServiceTest,org.apache.cassandra.repair.messages.RepairOptionTest,org.apache.cassandra.schema.SchemaKeyspaceTest,org.apache.cassandra.security.DefaultSslContextFactoryTest,org.apache.cassandra.security.PEMBasedSslContextFactoryTest,org.apache.cassandra.security.SSLFactoryTest,org.apache.cassandra.service.ActiveRepairServiceTest,org.apache.cassandra.service.StartupChecksTest,org.apache.cassandra.service.StorageServiceTest,org.apache.cassandra.service.snapshot.SnapshotLoaderTest,org.apache.cassandra.service.snapshot.SnapshotManagerTest,org.apache.cassandra.service.snapshot.SnapshotManifestTest,org.apache.cassandra.service.snapshot.TableSnapshotTest,org.apache.cassandra.tools.BulkLoaderTest,org.apache.cassandra.tools.GetVersionTest,org.apache.cassandra.tools.SSTableExpiredBlockersTest,org.apache.cassandra.tools.SSTableExportSchemaLoadingTest,org.apache.cassandra.tools.SSTableExportTest,org.apache.cassandra.tools.SSTableLevelResetterTest,org.apache.cassandra.tools.SSTableMetadataViewerTest,org.apache.cassandra.tools.SSTableOfflineRelevelTest,org.apache.cassandra.tools.SSTableRepairedAtSetterTest,org.apache.cassandra.tools.ToolsSchemaLoadingTest,org.apache.cassandra.tools.TopPartitionsTest,org.apache.cassandra.tools.nodetool.ClearSnapshotTest,org.apache.cassandra.tools.nodetool.CompactionStatsTest,org.apache.cassandra.tools.nodetool.GetAuthCacheConfigTest,org.apache.cassandra.tools.nodetool.InvalidatePermissionsCacheTest,org.apache.cassandra.tools.nodetool.SetAuthCacheConfigTest,org.apache.cassandra.transport.SerDeserTest,org.apache.cassandra.utils.UUIDTest
+    - REPEATED_UTESTS: null
     - REPEATED_UTESTS_COUNT: 500
     - REPEATED_UTESTS_FQLTOOL: null
     - REPEATED_UTESTS_FQLTOOL_COUNT: 500
@@ -6754,6 +7224,162 @@ jobs:
         destination: logs
         path: /tmp/cassandra/build/test/logs
     working_directory: ~/
+  j8_utests_fqltool_repeat:
+    docker:
+    - image: apache/cassandra-testing-ubuntu2004-java11-w-dependencies:latest
+    environment:
+    - ANT_HOME: /usr/share/ant
+    - JAVA11_HOME: /usr/lib/jvm/java-11-openjdk-amd64
+    - JAVA8_HOME: /usr/lib/jvm/java-8-openjdk-amd64
+    - LANG: en_US.UTF-8
+    - KEEP_TEST_DIR: true
+    - DEFAULT_DIR: /home/cassandra/cassandra-dtest
+    - PYTHONIOENCODING: utf-8
+    - PYTHONUNBUFFERED: true
+    - CASS_DRIVER_NO_EXTENSIONS: true
+    - CASS_DRIVER_NO_CYTHON: true
+    - CASSANDRA_SKIP_SYNC: true
+    - DTEST_REPO: https://github.com/apache/cassandra-dtest.git
+    - DTEST_BRANCH: trunk
+    - CCM_MAX_HEAP_SIZE: 1024M
+    - CCM_HEAP_NEWSIZE: 256M
+    - REPEATED_TESTS_STOP_ON_FAILURE: false
+    - REPEATED_UTESTS: null
+    - REPEATED_UTESTS_COUNT: 500
+    - REPEATED_UTESTS_FQLTOOL: null
+    - REPEATED_UTESTS_FQLTOOL_COUNT: 500
+    - REPEATED_UTESTS_LONG: null
+    - REPEATED_UTESTS_LONG_COUNT: 100
+    - REPEATED_UTESTS_STRESS: null
+    - REPEATED_UTESTS_STRESS_COUNT: 500
+    - REPEATED_SIMULATOR_DTESTS: null
+    - REPEATED_SIMULATOR_DTESTS_COUNT: 500
+    - REPEATED_JVM_DTESTS: null
+    - REPEATED_JVM_DTESTS_COUNT: 500
+    - REPEATED_JVM_UPGRADE_DTESTS: null
+    - REPEATED_JVM_UPGRADE_DTESTS_COUNT: 500
+    - REPEATED_DTESTS: null
+    - REPEATED_DTESTS_COUNT: 500
+    - REPEATED_UPGRADE_DTESTS: null
+    - REPEATED_UPGRADE_DTESTS_COUNT: 25
+    - REPEATED_ANT_TEST_TARGET: testsome
+    - REPEATED_ANT_TEST_CLASS: null
+    - REPEATED_ANT_TEST_METHODS: null
+    - REPEATED_ANT_TEST_VNODES: false
+    - REPEATED_ANT_TEST_COUNT: 500
+    - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
+    - JDK_HOME: /usr/lib/jvm/java-8-openjdk-amd64
+    parallelism: 20
+    resource_class: xlarge
+    shell: /bin/bash -eo pipefail -l
+    steps:
+    - attach_workspace:
+        at: /home/cassandra
+    - run:
+        command: 'echo ''*** id ***''
+
+          id
+
+          echo ''*** cat /proc/cpuinfo ***''
+
+          cat /proc/cpuinfo
+
+          echo ''*** free -m ***''
+
+          free -m
+
+          echo ''*** df -m ***''
+
+          df -m
+
+          echo ''*** ifconfig -a ***''
+
+          ifconfig -a
+
+          echo ''*** uname -a ***''
+
+          uname -a
+
+          echo ''*** mount ***''
+
+          mount
+
+          echo ''*** env ***''
+
+          env
+
+          echo ''*** java ***''
+
+          which java
+
+          java -version
+
+          '
+        name: Log Environment Information
+    - run:
+        command: "set -x\nexport PATH=$JAVA_HOME/bin:$PATH\ntime mv ~/cassandra /tmp\n\
+          cd /tmp/cassandra\nif [ -d ~/dtest_jars ]; then\n  cp ~/dtest_jars/dtest*\
+          \ /tmp/cassandra/build/\nfi\n\n# Calculate the number of test iterations\
+          \ to be run by the current parallel runner.\ncount=$((${REPEATED_UTESTS_FQLTOOL_COUNT}\
+          \ / CIRCLE_NODE_TOTAL))\nif (($CIRCLE_NODE_INDEX < (${REPEATED_UTESTS_FQLTOOL_COUNT}\
+          \ % CIRCLE_NODE_TOTAL))); then\n  count=$((count+1))\nfi\n\n# Put manually\
+          \ specified tests and automatically detected tests together, removing duplicates\n\
+          tests=$(echo ${REPEATED_UTESTS_FQLTOOL} | sed -e \"s/<nil>//\" | sed -e\
+          \ \"s/ //\" | tr \",\" \"\\n\" | tr \" \" \"\\n\" | sort -n | uniq -u)\n\
+          echo \"Tests to be repeated: ${tests}\"\n\n# Prepare the JVM dtests vnodes\
+          \ argument, which is optional.\nvnodes=false\nvnodes_args=\"\"\nif [ \"\
+          $vnodes\" = true ] ; then\n  vnodes_args=\"-Dtest.jvm.args='-Dcassandra.dtest.num_tokens=16'\"\
+          \nfi\n\n# Prepare the testtag for the target, used by the test macro in\
+          \ build.xml to group the output files\ntarget=fqltool-test\ntesttag=\"\"\
+          \nif [[ $target == \"test-cdc\" ]]; then\n  testtag=\"cdc\"\nelif [[ $target\
+          \ == \"test-compression\" ]]; then\n  testtag=\"compression\"\nelif [[ $target\
+          \ == \"test-system-keyspace-directory\" ]]; then\n  testtag=\"system_keyspace_directory\"\
+          \nfi\n\n# Run each test class as many times as requested.\nexit_code=\"\
+          $?\"\nfor test in $tests; do\n\n    # Split class and method names from\
+          \ the test name\n    if [[ $test =~ \"#\" ]]; then\n      class=${test%\"\
+          #\"*}\n      method=${test#*\"#\"}\n    else\n      class=$test\n      method=\"\
+          \"\n    fi\n\n    # Prepare the -Dtest.name argument.\n    # It can be the\
+          \ fully qualified class name or the short class name, depending on the target.\n\
+          \    if [[ $target == \"test\" || \\\n          $target == \"test-cdc\"\
+          \ || \\\n          $target == \"test-compression\" || \\\n          $target\
+          \ == \"test-system-keyspace-directory\" || \\\n          $target == \"fqltool-test\"\
+          \ || \\\n          $target == \"long-test\" || \\\n          $target ==\
+          \ \"stress-test\" || \\\n          $target == \"test-simulator-dtest\" ]];\
+          \ then\n      name_arg=\"-Dtest.name=${class##*.}\"\n    else\n      name_arg=\"\
+          -Dtest.name=$class\"\n    fi\n\n    # Prepare the -Dtest.methods argument,\
+          \ which is optional\n    if [[ $method == \"\" ]]; then\n      methods_arg=\"\
+          \"\n    else\n      methods_arg=\"-Dtest.methods=$method\"\n    fi\n\n \
+          \   for i in $(seq -w 1 $count); do\n      echo \"Running test $test, iteration\
+          \ $i of $count\"\n\n      # run the test\n      status=\"passes\"\n    \
+          \  if !( set -o pipefail && \\\n            ant fqltool-test $name_arg $methods_arg\
+          \ $vnodes_args -Dno-build-test=true | \\\n            tee stdout.txt \\\n\
+          \          ); then\n        status=\"fails\"\n        exit_code=1\n    \
+          \  fi\n\n      # move the stdout output file\n      dest=/tmp/results/repeated_utests/stdout/${status}/${i}\n\
+          \      mkdir -p $dest\n      mv stdout.txt $dest/${test}.txt\n\n      #\
+          \ move the XML output files\n      source=build/test/output/${testtag}\n\
+          \      dest=/tmp/results/repeated_utests/output/${status}/${i}\n      mkdir\
+          \ -p $dest\n      if [[ -d $source && -n \"$(ls $source)\" ]]; then\n  \
+          \      mv $source/* $dest/\n      fi\n\n      # move the log files\n   \
+          \   source=build/test/logs/${testtag}\n      dest=/tmp/results/repeated_utests/logs/${status}/${i}\n\
+          \      mkdir -p $dest\n      if [[ -d $source && -n \"$(ls $source)\" ]];\
+          \ then\n        mv $source/* $dest/\n      fi\n      \n      # maybe stop\
+          \ iterations on test failure\n      if [[ ${REPEATED_TESTS_STOP_ON_FAILURE}\
+          \ = true ]] && (( $exit_code > 0 )); then\n        break\n      fi\n   \
+          \ done\ndone\n(exit ${exit_code})\n"
+        name: Repeatedly run new or modifed JUnit tests
+        no_output_timeout: 15m
+    - store_test_results:
+        path: /tmp/results/repeated_utests/output
+    - store_artifacts:
+        destination: stdout
+        path: /tmp/results/repeated_utests/stdout
+    - store_artifacts:
+        destination: junitxml
+        path: /tmp/results/repeated_utests/output
+    - store_artifacts:
+        destination: logs
+        path: /tmp/results/repeated_utests/logs
+    working_directory: ~/
   j8_utests_long:
     docker:
     - image: apache/cassandra-testing-ubuntu2004-java11-w-dependencies:latest
@@ -6844,7 +7470,7 @@ jobs:
     - REPEATED_UTESTS_COUNT: 500
     - REPEATED_UTESTS_FQLTOOL: null
     - REPEATED_UTESTS_FQLTOOL_COUNT: 500
-    - REPEATED_UTESTS_LONG: org.apache.cassandra.db.compaction.LongLeveledCompactionStrategyTest
+    - REPEATED_UTESTS_LONG: null
     - REPEATED_UTESTS_LONG_COUNT: 100
     - REPEATED_UTESTS_STRESS: null
     - REPEATED_UTESTS_STRESS_COUNT: 500
@@ -7041,6 +7667,162 @@ jobs:
     - store_artifacts:
         destination: logs
         path: /tmp/cassandra/build/test/logs
+    working_directory: ~/
+  j8_utests_stress_repeat:
+    docker:
+    - image: apache/cassandra-testing-ubuntu2004-java11-w-dependencies:latest
+    environment:
+    - ANT_HOME: /usr/share/ant
+    - JAVA11_HOME: /usr/lib/jvm/java-11-openjdk-amd64
+    - JAVA8_HOME: /usr/lib/jvm/java-8-openjdk-amd64
+    - LANG: en_US.UTF-8
+    - KEEP_TEST_DIR: true
+    - DEFAULT_DIR: /home/cassandra/cassandra-dtest
+    - PYTHONIOENCODING: utf-8
+    - PYTHONUNBUFFERED: true
+    - CASS_DRIVER_NO_EXTENSIONS: true
+    - CASS_DRIVER_NO_CYTHON: true
+    - CASSANDRA_SKIP_SYNC: true
+    - DTEST_REPO: https://github.com/apache/cassandra-dtest.git
+    - DTEST_BRANCH: trunk
+    - CCM_MAX_HEAP_SIZE: 1024M
+    - CCM_HEAP_NEWSIZE: 256M
+    - REPEATED_TESTS_STOP_ON_FAILURE: false
+    - REPEATED_UTESTS: null
+    - REPEATED_UTESTS_COUNT: 500
+    - REPEATED_UTESTS_FQLTOOL: null
+    - REPEATED_UTESTS_FQLTOOL_COUNT: 500
+    - REPEATED_UTESTS_LONG: null
+    - REPEATED_UTESTS_LONG_COUNT: 100
+    - REPEATED_UTESTS_STRESS: null
+    - REPEATED_UTESTS_STRESS_COUNT: 500
+    - REPEATED_SIMULATOR_DTESTS: null
+    - REPEATED_SIMULATOR_DTESTS_COUNT: 500
+    - REPEATED_JVM_DTESTS: null
+    - REPEATED_JVM_DTESTS_COUNT: 500
+    - REPEATED_JVM_UPGRADE_DTESTS: null
+    - REPEATED_JVM_UPGRADE_DTESTS_COUNT: 500
+    - REPEATED_DTESTS: null
+    - REPEATED_DTESTS_COUNT: 500
+    - REPEATED_UPGRADE_DTESTS: null
+    - REPEATED_UPGRADE_DTESTS_COUNT: 25
+    - REPEATED_ANT_TEST_TARGET: testsome
+    - REPEATED_ANT_TEST_CLASS: null
+    - REPEATED_ANT_TEST_METHODS: null
+    - REPEATED_ANT_TEST_VNODES: false
+    - REPEATED_ANT_TEST_COUNT: 500
+    - JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
+    - JDK_HOME: /usr/lib/jvm/java-8-openjdk-amd64
+    parallelism: 20
+    resource_class: xlarge
+    shell: /bin/bash -eo pipefail -l
+    steps:
+    - attach_workspace:
+        at: /home/cassandra
+    - run:
+        command: 'echo ''*** id ***''
+
+          id
+
+          echo ''*** cat /proc/cpuinfo ***''
+
+          cat /proc/cpuinfo
+
+          echo ''*** free -m ***''
+
+          free -m
+
+          echo ''*** df -m ***''
+
+          df -m
+
+          echo ''*** ifconfig -a ***''
+
+          ifconfig -a
+
+          echo ''*** uname -a ***''
+
+          uname -a
+
+          echo ''*** mount ***''
+
+          mount
+
+          echo ''*** env ***''
+
+          env
+
+          echo ''*** java ***''
+
+          which java
+
+          java -version
+
+          '
+        name: Log Environment Information
+    - run:
+        command: "set -x\nexport PATH=$JAVA_HOME/bin:$PATH\ntime mv ~/cassandra /tmp\n\
+          cd /tmp/cassandra\nif [ -d ~/dtest_jars ]; then\n  cp ~/dtest_jars/dtest*\
+          \ /tmp/cassandra/build/\nfi\n\n# Calculate the number of test iterations\
+          \ to be run by the current parallel runner.\ncount=$((${REPEATED_UTESTS_STRESS_COUNT}\
+          \ / CIRCLE_NODE_TOTAL))\nif (($CIRCLE_NODE_INDEX < (${REPEATED_UTESTS_STRESS_COUNT}\
+          \ % CIRCLE_NODE_TOTAL))); then\n  count=$((count+1))\nfi\n\n# Put manually\
+          \ specified tests and automatically detected tests together, removing duplicates\n\
+          tests=$(echo ${REPEATED_UTESTS_STRESS} | sed -e \"s/<nil>//\" | sed -e \"\
+          s/ //\" | tr \",\" \"\\n\" | tr \" \" \"\\n\" | sort -n | uniq -u)\necho\
+          \ \"Tests to be repeated: ${tests}\"\n\n# Prepare the JVM dtests vnodes\
+          \ argument, which is optional.\nvnodes=false\nvnodes_args=\"\"\nif [ \"\
+          $vnodes\" = true ] ; then\n  vnodes_args=\"-Dtest.jvm.args='-Dcassandra.dtest.num_tokens=16'\"\
+          \nfi\n\n# Prepare the testtag for the target, used by the test macro in\
+          \ build.xml to group the output files\ntarget=stress-test-some\ntesttag=\"\
+          \"\nif [[ $target == \"test-cdc\" ]]; then\n  testtag=\"cdc\"\nelif [[ $target\
+          \ == \"test-compression\" ]]; then\n  testtag=\"compression\"\nelif [[ $target\
+          \ == \"test-system-keyspace-directory\" ]]; then\n  testtag=\"system_keyspace_directory\"\
+          \nfi\n\n# Run each test class as many times as requested.\nexit_code=\"\
+          $?\"\nfor test in $tests; do\n\n    # Split class and method names from\
+          \ the test name\n    if [[ $test =~ \"#\" ]]; then\n      class=${test%\"\
+          #\"*}\n      method=${test#*\"#\"}\n    else\n      class=$test\n      method=\"\
+          \"\n    fi\n\n    # Prepare the -Dtest.name argument.\n    # It can be the\
+          \ fully qualified class name or the short class name, depending on the target.\n\
+          \    if [[ $target == \"test\" || \\\n          $target == \"test-cdc\"\
+          \ || \\\n          $target == \"test-compression\" || \\\n          $target\
+          \ == \"test-system-keyspace-directory\" || \\\n          $target == \"fqltool-test\"\
+          \ || \\\n          $target == \"long-test\" || \\\n          $target ==\
+          \ \"stress-test\" || \\\n          $target == \"test-simulator-dtest\" ]];\
+          \ then\n      name_arg=\"-Dtest.name=${class##*.}\"\n    else\n      name_arg=\"\
+          -Dtest.name=$class\"\n    fi\n\n    # Prepare the -Dtest.methods argument,\
+          \ which is optional\n    if [[ $method == \"\" ]]; then\n      methods_arg=\"\
+          \"\n    else\n      methods_arg=\"-Dtest.methods=$method\"\n    fi\n\n \
+          \   for i in $(seq -w 1 $count); do\n      echo \"Running test $test, iteration\
+          \ $i of $count\"\n\n      # run the test\n      status=\"passes\"\n    \
+          \  if !( set -o pipefail && \\\n            ant stress-test-some $name_arg\
+          \ $methods_arg $vnodes_args -Dno-build-test=true | \\\n            tee stdout.txt\
+          \ \\\n          ); then\n        status=\"fails\"\n        exit_code=1\n\
+          \      fi\n\n      # move the stdout output file\n      dest=/tmp/results/repeated_utests/stdout/${status}/${i}\n\
+          \      mkdir -p $dest\n      mv stdout.txt $dest/${test}.txt\n\n      #\
+          \ move the XML output files\n      source=build/test/output/${testtag}\n\
+          \      dest=/tmp/results/repeated_utests/output/${status}/${i}\n      mkdir\
+          \ -p $dest\n      if [[ -d $source && -n \"$(ls $source)\" ]]; then\n  \
+          \      mv $source/* $dest/\n      fi\n\n      # move the log files\n   \
+          \   source=build/test/logs/${testtag}\n      dest=/tmp/results/repeated_utests/logs/${status}/${i}\n\
+          \      mkdir -p $dest\n      if [[ -d $source && -n \"$(ls $source)\" ]];\
+          \ then\n        mv $source/* $dest/\n      fi\n      \n      # maybe stop\
+          \ iterations on test failure\n      if [[ ${REPEATED_TESTS_STOP_ON_FAILURE}\
+          \ = true ]] && (( $exit_code > 0 )); then\n        break\n      fi\n   \
+          \ done\ndone\n(exit ${exit_code})\n"
+        name: Repeatedly run new or modifed JUnit tests
+        no_output_timeout: 15m
+    - store_test_results:
+        path: /tmp/results/repeated_utests/output
+    - store_artifacts:
+        destination: stdout
+        path: /tmp/results/repeated_utests/stdout
+    - store_artifacts:
+        destination: junitxml
+        path: /tmp/results/repeated_utests/output
+    - store_artifacts:
+        destination: logs
+        path: /tmp/results/repeated_utests/logs
     working_directory: ~/
   j8_utests_system_keyspace_directory:
     docker:
@@ -7356,8 +8138,11 @@ workflows:
     - j11_unit_tests:
         requires:
         - j11_build
+    - start_j11_unit_tests_repeat:
+        type: approval
     - j11_unit_tests_repeat:
         requires:
+        - start_j11_unit_tests_repeat
         - j11_build
     - j11_jvm_dtests:
         requires:
@@ -7398,8 +8183,11 @@ workflows:
         requires:
         - start_j11_utests_long
         - j11_build
+    - start_j11_utests_long_repeat:
+        type: approval
     - j11_utests_long_repeat:
         requires:
+        - start_j11_utests_long_repeat
         - j11_build
     - start_j11_utests_cdc:
         type: approval
@@ -7431,11 +8219,23 @@ workflows:
         requires:
         - start_j11_utests_stress
         - j11_build
+    - start_j11_utests_stress_repeat:
+        type: approval
+    - j11_utests_stress_repeat:
+        requires:
+        - start_j11_utests_stress_repeat
+        - j11_build
     - start_j11_utests_fqltool:
         type: approval
     - j11_utests_fqltool:
         requires:
         - start_j11_utests_fqltool
+        - j11_build
+    - start_j11_utests_fqltool_repeat:
+        type: approval
+    - j11_utests_fqltool_repeat:
+        requires:
+        - start_j11_utests_fqltool_repeat
         - j11_build
     - start_j11_utests_system_keyspace_directory:
         type: approval
@@ -7455,8 +8255,11 @@ workflows:
     - j8_unit_tests:
         requires:
         - j8_build
+    - start_j8_unit_tests_repeat:
+        type: approval
     - j8_unit_tests_repeat:
         requires:
+        - start_j8_unit_tests_repeat
         - j8_build
     - j8_jvm_dtests:
         requires:
@@ -7473,14 +8276,23 @@ workflows:
     - j8_simulator_dtests:
         requires:
         - j8_build
+    - start_j8_simulator_dtests_repeat:
+        type: approval
+    - j8_simulator_dtests_repeat:
+        requires:
+        - start_j8_simulator_dtests_repeat
+        - j8_build
     - j8_cqlshlib_tests:
         requires:
         - j8_build
     - j8_utests_long:
         requires:
         - j8_build
+    - start_j8_utests_long_repeat:
+        type: approval
     - j8_utests_long_repeat:
         requires:
+        - start_j8_utests_long_repeat
         - j8_build
     - start_j8_utests_cdc:
         type: approval
@@ -7506,8 +8318,20 @@ workflows:
     - j8_utests_stress:
         requires:
         - j8_build
+    - start_j8_utests_stress_repeat:
+        type: approval
+    - j8_utests_stress_repeat:
+        requires:
+        - start_j8_utests_stress_repeat
+        - j8_build
     - j8_utests_fqltool:
         requires:
+        - j8_build
+    - start_j8_utests_fqltool_repeat:
+        type: approval
+    - j8_utests_fqltool_repeat:
+        requires:
+        - start_j8_utests_fqltool_repeat
         - j8_build
     - j8_utests_system_keyspace_directory:
         requires:
@@ -7524,8 +8348,11 @@ workflows:
     - j8_jvm_upgrade_dtests:
         requires:
         - j8_dtest_jars_build
+    - start_jvm_upgrade_dtests_repeat:
+        type: approval
     - j8_jvm_upgrade_dtests_repeat:
         requires:
+        - start_jvm_upgrade_dtests_repeat
         - j8_dtest_jars_build
     - j8_dtests:
         requires:
