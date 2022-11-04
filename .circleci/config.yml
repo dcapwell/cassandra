@@ -7392,50 +7392,32 @@ workflows:
     - j11_cqlsh_dtests_py38_vnode:
         requires:
         - j11_build
-    - start_j11_utests_long:
-        type: approval
     - j11_utests_long:
         requires:
-        - start_j11_utests_long
         - j11_build
     - j11_utests_long_repeat:
         requires:
         - j11_build
-    - start_j11_utests_cdc:
-        type: approval
     - j11_utests_cdc:
         requires:
-        - start_j11_utests_cdc
         - j11_build
     - j11_utests_cdc_repeat:
         requires:
         - j11_build
-    - start_j11_utests_compression:
-        type: approval
     - j11_utests_compression:
         requires:
-        - start_j11_utests_compression
         - j11_build
     - j11_utests_compression_repeat:
         requires:
         - j11_build
-    - start_j11_utests_stress:
-        type: approval
     - j11_utests_stress:
         requires:
-        - start_j11_utests_stress
         - j11_build
-    - start_j11_utests_fqltool:
-        type: approval
     - j11_utests_fqltool:
         requires:
-        - start_j11_utests_fqltool
         - j11_build
-    - start_j11_utests_system_keyspace_directory:
-        type: approval
     - j11_utests_system_keyspace_directory:
         requires:
-        - start_j11_utests_system_keyspace_directory
         - j11_build
     - j11_utests_system_keyspace_directory_repeat:
         requires:
