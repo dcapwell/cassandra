@@ -49,10 +49,10 @@ import accord.primitives.Timestamp;
 import accord.primitives.AbstractKeys;
 import accord.primitives.TxnId;
 import org.apache.cassandra.service.accord.api.PartitionKey;
+import accord.utils.async.AsyncChain;
 import org.apache.cassandra.service.accord.async.AsyncContext;
 import org.apache.cassandra.service.accord.async.AsyncOperation;
 import org.apache.cassandra.utils.Clock;
-import org.apache.cassandra.utils.concurrent.Future;
 import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
 
 public class AccordCommandStore extends CommandStore implements SafeCommandStore
@@ -327,11 +327,9 @@ public class AccordCommandStore extends CommandStore implements SafeCommandStore
     }
 
     @Override
-    public <T> Future<T> submit(PreLoadContext loadCtx, Function<? super SafeCommandStore, T> function)
+    public <T> AsyncChain<T> submit(PreLoadContext loadCtx, Function<? super SafeCommandStore, T> function)
     {
-        AsyncOperation<T> operation = AsyncOperation.create(this, loadCtx, function);
-        executor.execute(operation);
-        return operation;
+        return AsyncOperation.create(this, loadCtx, function);
     }
 
     @Override
@@ -388,11 +386,9 @@ public class AccordCommandStore extends CommandStore implements SafeCommandStore
     }
 
     @Override
-    public Future<Void> execute(PreLoadContext preLoadContext, Consumer<? super SafeCommandStore> consumer)
+    public AsyncChain<Void> execute(PreLoadContext preLoadContext, Consumer<? super SafeCommandStore> consumer)
     {
-        AsyncOperation<Void> operation = AsyncOperation.create(this, preLoadContext, consumer);
-        executor.execute(operation);
-        return operation;
+        return AsyncOperation.create(this, preLoadContext, consumer);
     }
 
     public void executeBlocking(Runnable runnable)

@@ -34,6 +34,7 @@ import org.slf4j.LoggerFactory;
 import accord.coordinate.Preempted;
 import accord.coordinate.Timeout;
 import accord.primitives.Txn;
+import accord.utils.async.AsyncResults;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.cql3.statements.SelectStatement;
@@ -134,7 +135,7 @@ public class PairOfSequencesAccordSimulation extends AbstractPairOfSequencesPaxo
     {
         try
         {
-            TxnData result = (TxnData) AccordService.instance().node.coordinate(txn).get();
+            TxnData result = (TxnData) AsyncResults.getUninterruptibly(AccordService.instance().node.coordinate(txn));
             Assert.assertNotNull(result);
             QueryResults.Builder builder = QueryResults.builder();
             boolean addedHeader = false;
@@ -154,11 +155,7 @@ public class PairOfSequencesAccordSimulation extends AbstractPairOfSequencesPaxo
 
             return builder.build().toObjectArrays();
         }
-        catch (InterruptedException e)
-        {
-            throw new AssertionError(e);
-        }
-        catch (ExecutionException e)
+        catch (RuntimeException e)
         {
             if (e.getCause() instanceof Preempted)
                 return null;

@@ -53,6 +53,7 @@ import org.apache.cassandra.service.accord.api.PartitionKey;
 import org.apache.cassandra.utils.FBUtilities;
 
 import static accord.local.PreLoadContext.contextFor;
+import static accord.utils.async.AsyncChains.awaitUninterruptibly;
 import static java.util.Collections.emptyList;
 import static java.util.Collections.singleton;
 import static org.apache.cassandra.cql3.statements.schema.CreateTableStatement.parse;
@@ -93,10 +94,10 @@ public class AsyncOperationTest
         Txn txn = createTxn((int)clock.incrementAndGet());
         PartitionKey key = (PartitionKey) Iterables.getOnlyElement(txn.keys());
 
-        commandStore.execute(contextFor(txnId), instance -> {
+        awaitUninterruptibly(commandStore.execute(contextFor(txnId), instance -> {
             Command command = instance.ifPresent(txnId);
             Assert.assertNull(command);
-        }).get();
+        }));
 
         UntypedResultSet result = AccordKeyspace.loadCommandRow(commandStore, txnId);
         Assert.assertTrue(result.isEmpty());
@@ -109,10 +110,10 @@ public class AsyncOperationTest
         Txn txn = createTxn((int)clock.incrementAndGet());
         PartitionKey key = (PartitionKey) Iterables.getOnlyElement(txn.keys());
 
-        commandStore.execute(contextFor(Collections.emptyList(), Keys.of(key)),instance -> {
+        awaitUninterruptibly(commandStore.execute(contextFor(Collections.emptyList(), Keys.of(key)),instance -> {
             CommandsForKey cfk = commandStore.maybeCommandsForKey(key);
             Assert.assertNull(cfk);
-        }).get();
+        }));
 
         int nowInSeconds = FBUtilities.nowInSeconds();
         SinglePartitionReadCommand command = AccordKeyspace.getCommandsForKeyRead(commandStore, key, nowInSeconds);
@@ -219,6 +220,6 @@ public class AsyncOperationTest
 
         commandStore.executor().submit(operation);
 
-        Futures.getUnchecked(operation);
+        awaitUninterruptibly(operation);
     }
 }

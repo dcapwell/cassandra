@@ -73,6 +73,8 @@ import org.apache.cassandra.service.accord.txn.TxnRead;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
 
+import static accord.utils.async.AsyncChains.awaitUninterruptibly;
+import static accord.utils.async.AsyncChains.getUninterruptibly;
 import static java.lang.String.format;
 
 public class AccordTestUtils
@@ -135,7 +137,7 @@ public class AccordTestUtils
     public static void processCommandResult(AccordCommandStore commandStore, Command command) throws Throwable
     {
 
-        commandStore.execute(PreLoadContext.contextFor(Collections.emptyList(), command.partialTxn().keys()),
+        awaitUninterruptibly(commandStore.execute(PreLoadContext.contextFor(Collections.emptyList(), command.partialTxn().keys()),
                                        instance -> {
             PartialTxn txn = command.partialTxn();
             TxnRead read = (TxnRead) txn.read();
@@ -158,7 +160,7 @@ public class AccordTestUtils
             Write write = txn.update().apply(readData);
             ((AccordCommand)command).setWrites(new Writes(command.executeAt(), (Keys)txn.keys(), write));
             ((AccordCommand)command).setResult(txn.query().compute(command.txnId(), readData, txn.read(), txn.update()));
-        }).get();
+        }));
     }
 
     public static Txn createTxn(String query)

@@ -41,13 +41,13 @@ import accord.local.Status;
 import accord.primitives.Timestamp;
 import accord.primitives.TxnId;
 import org.apache.cassandra.service.accord.api.PartitionKey;
+import accord.utils.async.AsyncResult;
 import org.apache.cassandra.service.accord.store.StoredLong;
 import org.apache.cassandra.service.accord.store.StoredNavigableMap;
 import org.apache.cassandra.service.accord.store.StoredSet;
 import org.apache.cassandra.service.accord.store.StoredValue;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.ObjectSizes;
-import org.apache.cassandra.utils.concurrent.Future;
 import org.assertj.core.util.VisibleForTesting;
 
 import static accord.local.CommandsForKey.CommandTimeseries.TestDep.ANY_DEPS;
@@ -73,7 +73,7 @@ public class AccordCommandsForKey extends CommandsForKey implements AccordState<
 
     public static class WriteOnly extends AccordCommandsForKey implements AccordState.WriteOnly<PartitionKey, AccordCommandsForKey>
     {
-        private Future<?> future = null;
+        private AsyncResult<Void> future = null;
 
         public WriteOnly(AccordCommandStore commandStore, PartitionKey key)
         {
@@ -81,15 +81,15 @@ public class AccordCommandsForKey extends CommandsForKey implements AccordState<
         }
 
         @Override
-        public void future(Future<?> future)
+        public void notifier(AsyncResult<Void> notifier)
         {
             Preconditions.checkArgument(this.future == null);
-            this.future = future;
+            this.future = notifier;
 
         }
 
         @Override
-        public Future<?> future()
+        public AsyncResult<Void> notifier()
         {
             return future;
         }

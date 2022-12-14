@@ -31,6 +31,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import accord.primitives.TxnId;
+import accord.utils.async.AsyncResult;
+import accord.utils.async.AsyncResults;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.service.accord.AccordCommand;
 import org.apache.cassandra.service.accord.AccordCommandStore;
@@ -39,10 +41,11 @@ import org.apache.cassandra.service.accord.AccordKeyspace;
 import org.apache.cassandra.service.accord.AccordStateCache;
 import org.apache.cassandra.service.accord.AccordState;
 import org.apache.cassandra.service.accord.api.PartitionKey;
-import org.apache.cassandra.utils.concurrent.Future;
-import org.apache.cassandra.utils.concurrent.FutureCombiner;
+
+import static accord.utils.async.AsyncResults.ofRunnable;
 
 
+// FIXME: rename future -> notifer
 public class AsyncLoader
 {
     private static final Logger logger = LoggerFactory.getLogger(AsyncLoader.class);
@@ -60,7 +63,7 @@ public class AsyncLoader
     private final Iterable<TxnId> txnIds;
     private final Iterable<PartitionKey> keys;
 
-    protected Future<?> readFuture;
+    protected AsyncResult<?> readFuture;
 
     public AsyncLoader(AccordCommandStore commandStore, Iterable<TxnId> txnIds, Iterable<PartitionKey> keys)
     {
@@ -69,14 +72,14 @@ public class AsyncLoader
         this.keys = keys;
     }
 
-    private <K, V extends AccordState<K>> Future<?> referenceAndDispatch(K key,
-                                                                         AccordStateCache.Instance<K, V> cache,
-                                                                         Map<K, V> context,
-                                                                         Function<V, Future<?>> readFunction,
-                                                                         Object callback)
+    private <K, V extends AccordState<K>> AsyncResult<Void> referenceAndDispatch(K key,
+                                                                                 AccordStateCache.Instance<K, V> cache,
+                                                                                 Map<K, V> context,
+                                                                                 Function<V, AsyncResult<Void>> readFunction,
+                                                                                 Object callback)
     {
         V item;
-        Future<?> future = cache.getLoadFuture(key);
+        AsyncResult<Void> future = cache.getLoadFuture(key);
         if (future != null)
         {
             // if a load future exists for this, it must be present in the cache
@@ -105,16 +108,16 @@ public class AsyncLoader
     }
 
 
-    private <K, V extends AccordState<K>> List<Future<?>> referenceAndDispatchReads(Iterable<K> keys,
+    private <K, V extends AccordState<K>> List<AsyncResult<Void>> referenceAndDispatchReads(Iterable<K> keys,
                                                                                            AccordStateCache.Instance<K, V> cache,
                                                                                            Map<K, V> context,
-                                                                                           Function<V, Future<?>> readFunction,
-                                                                                           List<Future<?>> futures,
+                                                                                           Function<V, AsyncResult<Void>> readFunction,
+                                                                                           List<AsyncResult<Void>> futures,
                                                                                            Object callback)
     {
         for (K key : keys)
         {
-            Future<?> future = referenceAndDispatch(key, cache, context, readFunction, callback);
+            AsyncResult<Void> future = referenceAndDispatch(key, cache, context, readFunction, callback);
             if (future == null)
                 continue;
 
@@ -128,9 +131,9 @@ public class AsyncLoader
     }
 
     @VisibleForTesting
-    Function<AccordCommand, Future<?>> loadCommandFunction(Object callback)
+    Function<AccordCommand, AsyncResult<Void>> loadCommandFunction(Object callback)
     {
-        return command -> Stage.READ.submit(() -> {
+        return command -> ofRunnable(Stage.READ.executor(), () -> {
             try
             {
                 logger.trace("Starting load of {} for {}", command.txnId(), callback);
@@ -146,9 +149,9 @@ public class AsyncLoader
     }
 
     @VisibleForTesting
-    Function<AccordCommandsForKey, Future<?>> loadCommandsPerKeyFunction(Object callback)
+    Function<AccordCommandsForKey, AsyncResult<Void>> loadCommandsPerKeyFunction(Object callback)
     {
-        return cfk -> Stage.READ.submit(() -> {
+        return cfk -> ofRunnable(Stage.READ.executor(), () -> {
             try
             {
                 logger.trace("Starting load of {} for {}", cfk.key(), callback);
@@ -163,9 +166,9 @@ public class AsyncLoader
         });
     }
 
-    private Future<?> referenceAndDispatchReads(AsyncContext context, Object callback)
+    private AsyncResult<Void> referenceAndDispatchReads(AsyncContext context, Object callback)
     {
-        List<Future<?>> futures = null;
+        List<AsyncResult<Void>> futures = null;
 
         futures = referenceAndDispatchReads(txnIds,
                                             commandStore.commandCache(),
@@ -181,7 +184,7 @@ public class AsyncLoader
                                             futures,
                                             callback);
 
-        return futures != null ? FutureCombiner.allOf(futures) : null;
+        return futures != null ? AsyncResults.reduce(futures, (a, b ) -> null).beginAsResult() : null;
     }
 
     @VisibleForTesting

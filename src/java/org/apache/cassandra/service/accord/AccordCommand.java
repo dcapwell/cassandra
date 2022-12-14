@@ -57,14 +57,15 @@ import accord.primitives.TxnId;
 import accord.primitives.Writes;
 import accord.utils.DeterministicIdentitySet;
 import org.apache.cassandra.service.accord.api.PartitionKey;
+import accord.utils.async.AsyncChain;
+import accord.utils.async.AsyncResult;
+import accord.utils.async.AsyncResults;
 import org.apache.cassandra.service.accord.async.AsyncContext;
 import org.apache.cassandra.service.accord.store.StoredNavigableMap;
 import org.apache.cassandra.service.accord.store.StoredSet;
 import org.apache.cassandra.service.accord.store.StoredValue;
 import org.apache.cassandra.service.accord.txn.TxnData;
 import org.apache.cassandra.utils.ObjectSizes;
-import org.apache.cassandra.utils.concurrent.AsyncPromise;
-import org.apache.cassandra.utils.concurrent.Future;
 
 import static accord.local.Status.Durability.Local;
 import static accord.local.Status.Durability.NotDurable;
@@ -82,7 +83,7 @@ public class AccordCommand extends Command implements AccordState<TxnId>
 
     public static class WriteOnly extends AccordCommand implements AccordState.WriteOnly<TxnId, AccordCommand>
     {
-        private Future<?> future = null;
+        private AsyncResult<Void> notifier = null;
 
         public WriteOnly(TxnId txnId)
         {
@@ -90,16 +91,16 @@ public class AccordCommand extends Command implements AccordState<TxnId>
         }
 
         @Override
-        public void future(Future<?> future)
+        public void notifier(AsyncResult<Void> notifier)
         {
-            Preconditions.checkArgument(this.future == null);
-            this.future = future;
+            Preconditions.checkArgument(this.notifier == null);
+            this.notifier = notifier;
         }
 
         @Override
-        public Future<?> future()
+        public AsyncResult<Void> notifier()
         {
-            return future;
+            return notifier;
         }
 
         @Override
@@ -652,59 +653,66 @@ public class AccordCommand extends Command implements AccordState<TxnId>
         return true;
     }
 
-    private Future<Void> applyWithCorrectScope(CommandStore unsafeStore)
+    private AsyncResult<Void> applyWithCorrectScope(CommandStore unsafeStore)
     {
         TxnId txnId = txnId();
-        AsyncPromise<Void> promise = new AsyncPromise<>();
+        AsyncResult.Settable<Void> notifier = AsyncResults.settable();
         unsafeStore.execute(this, safeStore -> {
             AccordCommand command = (AccordCommand) safeStore.command(txnId);
-            command.apply(safeStore, false).addCallback((v, throwable) -> {
-                if (throwable != null)
-                    promise.tryFailure(throwable);
-                else
-                    promise.trySuccess(null);
-            });
+            command.applyChain(safeStore, false).begin(notifier.settingCallback());
+        }).begin((unused, throwable) -> {
+            if (throwable != null)
+                notifier.tryFailure(throwable);
         });
-        return promise;
+        return notifier;
     }
 
-    private Future<Void> apply(SafeCommandStore safeStore, boolean canReschedule)
+    private AsyncChain<Void> applyChain(SafeCommandStore safeStore, boolean canReschedule)
     {
         AccordStateCache.Instance<TxnId, AccordCommand> cache = ((AccordCommandStore) safeStore).commandCache();
-        Future<Void> future = cache.getWriteFuture(txnId);
-        if (future != null)
-            return future;
-
-        // this can be called via a listener callback, in which case we won't
-        // have the appropriate commandsForKey in scope, so start a new operation
-        // with the correct scope and notify the caller when that completes
-        if (!canApplyWithCurrentScope(safeStore))
+        AsyncResult<Void> notifier = cache.getWriteFuture(txnId);
+        if (notifier != null)
         {
-            Preconditions.checkArgument(canReschedule);
-            return applyWithCorrectScope(safeStore.commandStore());
+            return notifier.toChain();
         }
 
-        future = super.apply(safeStore);
-        cache.setWriteFuture(txnId, future);
-        return future;
+        if (canApplyWithCurrentScope(safeStore))
+        {
+            AsyncChain<Void> chain = super.applyChain(safeStore);
+            notifier = AsyncResults.forChain(chain);
+        }
+        else
+        {
+            // this can be called via a listener callback, in which case we won't
+            // have the appropriate commandsForKey in scope, so start a new operation
+            // with the correct scope and notify the caller when that completes
+            Preconditions.checkArgument(canReschedule);
+            notifier = applyWithCorrectScope(safeStore.commandStore());
+        }
+        cache.setWriteFuture(txnId, notifier);
+
+        return notifier.toChain();
     }
 
     @Override
-    public Future<Void> apply(SafeCommandStore safeStore)
+    protected AsyncChain<Void> applyChain(SafeCommandStore safeStore)
     {
-        return apply(safeStore, true);
+
+        return applyChain(safeStore, true);
     }
 
     @Override
-    public Future<Data> read(SafeCommandStore safeStore)
+    public AsyncChain<Data> read(SafeCommandStore safeStore)
     {
         AccordStateCache.Instance<TxnId, AccordCommand> cache = ((AccordCommandStore) safeStore).commandCache();
-        Future<Data> future = cache.getReadFuture(txnId);
-        if (future != null)
-            return future;
-        future = super.read(safeStore);
-        cache.setReadFuture(txnId, future);
-        return future;
+        AsyncResult<Data> notifier = cache.getReadFuture(txnId);
+        if (notifier != null)
+            return notifier.toChain();
+
+        AsyncChain<Data> chain = super.read(safeStore);
+        notifier = AsyncResults.forChain(chain);
+        cache.setReadFuture(txnId, notifier);
+        return notifier.toChain();
     }
 
     private CommandListener maybeWrapListener(CommandListener listener)

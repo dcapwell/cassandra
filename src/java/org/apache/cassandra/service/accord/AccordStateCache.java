@@ -35,10 +35,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import accord.api.Data;
+import accord.utils.async.AsyncResult;
+import accord.utils.async.AsyncResults;
 import org.apache.cassandra.utils.ObjectSizes;
-import org.apache.cassandra.utils.concurrent.Future;
-import org.apache.cassandra.utils.concurrent.FutureCombiner;
 
+// FIXME (now): rename future methods/members to notifier
 /**
  * Cache for AccordCommand and AccordCommandsForKey, available memory is shared between the two object types.
  *
@@ -85,7 +86,7 @@ public class AccordStateCache
                 AccordState.WriteOnly<K, V> item = items.get(0);
 
                 // we can't remove items out of order, so if we encounter a write is still pending, we stop
-                if (item.future() == null || !item.future().isDone())
+                if (item.notifier() == null || !item.notifier().isDone())
                     break;
 
                 items.remove(0);
@@ -154,11 +155,11 @@ public class AccordStateCache
     private final Map<Object, WriteOnlyGroup<?, ?>> pendingWriteOnly = new HashMap<>();
     private final Set<Instance<?, ?>> instances = new HashSet<>();
 
-    private final NamedMap<Object, Future<?>> loadFutures = new NamedMap<>("loadFutures");
-    private final NamedMap<Object, Future<?>> saveFutures = new NamedMap<>("saveFutures");
+    private final NamedMap<Object, AsyncResult<Void>> loadFutures = new NamedMap<>("loadNotifiers");
+    private final NamedMap<Object, AsyncResult<Void>> saveFutures = new NamedMap<>("saveNotifiers");
 
-    private final NamedMap<Object, Future<Data>> readFutures = new NamedMap<>("readFutures");
-    private final NamedMap<Object, Future<?>> writeFutures = new NamedMap<>("writeFutures");
+    private final NamedMap<Object, AsyncResult<Data>> readFutures = new NamedMap<>("readNotifiers");
+    private final NamedMap<Object, AsyncResult<?>> writeFutures = new NamedMap<>("writeNotifiers");
 
     Node<?, ?> head;
     Node<?, ?> tail;
@@ -232,8 +233,8 @@ public class AccordStateCache
     private boolean canEvict(Object key)
     {
         // getFuture only returns a future if it is running, so don't need to check if its still running
-        Future<?> future = getFuture(saveFutures, key);
-        return future == null;
+        AsyncResult<?> future = getFuture(saveFutures, key);
+        return future == null || future.isDone();
     }
 
     private void maybeEvict()
@@ -260,7 +261,7 @@ public class AccordStateCache
         }
     }
 
-    private static <K, F extends Future<?>> F getFuture(NamedMap<Object, F> futuresMap, K key)
+    private static <K, F extends AsyncResult<?>> F getFuture(NamedMap<Object, F> futuresMap, K key)
     {
         F r = futuresMap.get(key);
         if (r == null)
@@ -275,19 +276,19 @@ public class AccordStateCache
         return null;
     }
 
-    private static <K, F extends Future<?>> void setFuture(Map<Object, F> futuresMap, K key, F future)
+    private static <K, F extends AsyncResult<?>> void setFuture(Map<Object, F> futuresMap, K key, F future)
     {
         Preconditions.checkState(!futuresMap.containsKey(key));
         futuresMap.put(key, future);
     }
 
-    private static <K> void mergeFuture(Map<Object, Future<?>> futuresMap, K key, Future<?> future)
+    private static <K> void mergeFuture(Map<Object, AsyncResult<Void>> futuresMap, K key, AsyncResult<Void> future)
     {
-        Future<?> existing = futuresMap.get(key);
+        AsyncResult<Void> existing = futuresMap.get(key);
         if (existing != null && !existing.isDone())
         {
             logger.trace("Merging future {} with existing {}", future, existing);
-            future = FutureCombiner.allOf(ImmutableList.of(existing, future));
+            future = AsyncResults.reduce(ImmutableList.of(existing, future), (a, b) -> null).beginAsResult();
         }
 
         futuresMap.put(key, future);
@@ -312,8 +313,8 @@ public class AccordStateCache
         for (AccordState.WriteOnly<K, V> writeOnly : group.items)
         {
             writeOnly.applyChanges(instance);
-            if (!writeOnly.future().isDone())
-                mergeFuture(saveFutures, instance.key(), writeOnly.future());
+            if (!writeOnly.notifier().isDone())
+                mergeFuture(saveFutures, instance.key(), writeOnly.notifier());
         }
     }
 
@@ -462,7 +463,7 @@ public class AccordStateCache
         public void addWriteOnly(AccordState.WriteOnly<K, V> writeOnly)
         {
             K key = writeOnly.key();
-            Preconditions.checkArgument(writeOnly.future() != null);
+            Preconditions.checkArgument(writeOnly.notifier() != null);
             WriteOnlyGroup<K, V> group = (WriteOnlyGroup<K, V>) pendingWriteOnly.computeIfAbsent(key, k -> new WriteOnlyGroup<>());
 
             // if a load future exists for the key we're creating a write group for, we need to lock
@@ -495,7 +496,7 @@ public class AccordStateCache
             return group != null ? group.items.size() : 0;
         }
 
-        public Future<?> getLoadFuture(K key)
+        public AsyncResult<Void> getLoadFuture(K key)
         {
             return getFuture(loadFutures, key);
         }
@@ -511,17 +512,17 @@ public class AccordStateCache
             return loadFutures.get(key) != null;
         }
 
-        public void setLoadFuture(K key, Future<?> future)
+        public void setLoadFuture(K key, AsyncResult<Void> future)
         {
             setFuture(loadFutures, key, future);
         }
 
-        public Future<?> getSaveFuture(K key)
+        public AsyncResult<?> getSaveFuture(K key)
         {
             return getFuture(saveFutures, key);
         }
 
-        public void addSaveFuture(K key, Future<?> future)
+        public void addSaveFuture(K key, AsyncResult<Void> future)
         {
             logger.trace("Adding save future for {}: {}", key, future);
             mergeFuture(saveFutures, key, future);
@@ -538,12 +539,12 @@ public class AccordStateCache
             return saveFutures.get(key) != null;
         }
 
-        public Future<Data> getReadFuture(K key)
+        public AsyncResult<Data> getReadFuture(K key)
         {
             return getFuture(readFutures, key);
         }
 
-        public void setReadFuture(K key, Future<Data> future)
+        public void setReadFuture(K key, AsyncResult<Data> future)
         {
             setFuture(readFutures, key, future);
         }
@@ -553,12 +554,12 @@ public class AccordStateCache
             getReadFuture(key);
         }
 
-        public Future<Void> getWriteFuture(K key)
+        public AsyncResult<Void> getWriteFuture(K key)
         {
-            return (Future<Void>) getFuture(writeFutures, key);
+            return (AsyncResult<Void>) getFuture(writeFutures, key);
         }
 
-        public void setWriteFuture(K key, Future<Void> future)
+        public void setWriteFuture(K key, AsyncResult<Void> future)
         {
             setFuture(writeFutures, key, future);
         }

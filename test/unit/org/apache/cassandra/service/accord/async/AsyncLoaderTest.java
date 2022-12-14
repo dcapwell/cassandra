@@ -33,6 +33,8 @@ import org.junit.Test;
 import accord.local.Status;
 import accord.primitives.PartialTxn;
 import accord.primitives.TxnId;
+import accord.utils.async.AsyncNotifier;
+import accord.utils.async.AsyncNotifiers;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.service.StorageService;
@@ -207,7 +209,7 @@ public class AsyncLoaderTest
         AsyncLoader loader = new AsyncLoader(commandStore, singleton(txnId), singleton(key));
 
         // since there's a read future associated with the txnId, we'll wait for it to load
-        AsyncPromise<Void> readFuture = new AsyncPromise<>();
+        AsyncNotifier.Settable<Void> readFuture = AsyncNotifiers.settable();
         commandCache.setLoadFuture(command.txnId(), readFuture);
 
         AsyncPromise<Void> cbFired = new AsyncPromise<>();
@@ -254,12 +256,12 @@ public class AsyncLoaderTest
             AccordStateCache.Instance<TxnId, AccordCommand> cache = commandStore.commandCache();
             AccordCommand.WriteOnly writeOnly1 = new AccordCommand.WriteOnly(txnId);
             writeOnly1.blockingApplyOn.blindAdd(blockApply);
-            writeOnly1.future(new AsyncPromise<>());
+            writeOnly1.notifier(AsyncNotifiers.settable());
             cache.addWriteOnly(writeOnly1);
 
             AccordCommand.WriteOnly writeOnly2 = new AccordCommand.WriteOnly(txnId);
             writeOnly2.blockingCommitOn.blindAdd(blockCommit);
-            writeOnly2.future(new AsyncPromise<>());
+            writeOnly2.notifier(AsyncNotifiers.settable());
             cache.addWriteOnly(writeOnly2);
 
             AsyncContext context = new AsyncContext();
@@ -286,9 +288,9 @@ public class AsyncLoaderTest
         TxnId txnId1 = txnId(1, clock.incrementAndGet(), 0, 1);
         TxnId txnId2 = txnId(1, clock.incrementAndGet(), 0, 1);
 
-        AsyncPromise<Void> promise1 = new AsyncPromise<>();
-        AsyncPromise<Void> promise2 = new AsyncPromise<>();
-        AsyncPromise<Void> callback = new AsyncPromise<>();
+        AsyncNotifier.Settable<Void> promise1 = AsyncNotifiers.settable();
+        AsyncNotifier.Settable<Void> promise2 = AsyncNotifiers.settable();
+        AsyncNotifier.Settable<Void> callback = AsyncNotifiers.settable();
         RuntimeException failure = new RuntimeException();
 
         execute(commandStore, () -> {
@@ -296,7 +298,7 @@ public class AsyncLoaderTest
             AtomicInteger loadCalls = new AtomicInteger();
             AsyncLoader loader = new AsyncLoader(commandStore, ImmutableList.of(txnId1, txnId2), Collections.emptyList()){
                 @Override
-                Function<AccordCommand, Future<?>> loadCommandFunction(Object callback)
+                Function<AccordCommand, AsyncNotifier<?>> loadCommandFunction(Object callback)
                 {
                     return cmd -> {
                         TxnId txnId = cmd.txnId();
@@ -321,6 +323,6 @@ public class AsyncLoaderTest
         });
 
         promise1.tryFailure(failure);
-        callback.get();
+        AsyncNotifiers.awaitUninterruptibly(callback);
     }
 }
