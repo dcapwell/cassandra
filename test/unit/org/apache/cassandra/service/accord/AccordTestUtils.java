@@ -59,6 +59,7 @@ import accord.primitives.Unseekables;
 import accord.primitives.Writes;
 import accord.topology.Shard;
 import accord.topology.Topology;
+import accord.utils.async.AsyncChains;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.statements.TransactionStatement;
@@ -145,7 +146,7 @@ public class AccordTestUtils
                                 .map(key -> {
                                     try
                                     {
-                                        return read.read(key, command.kind(), commandStore, command.executeAt(), null).get();
+                                        return AsyncChains.getBlocking(read.read(key, command.kind(), commandStore, command.executeAt(), null));
                                     }
                                     catch (InterruptedException e)
                                     {
