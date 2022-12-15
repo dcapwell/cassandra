@@ -159,7 +159,7 @@ public class AccordStateCache
     private final NamedMap<Object, AsyncResult<Void>> saveFutures = new NamedMap<>("saveNotifiers");
 
     private final NamedMap<Object, AsyncResult<Data>> readFutures = new NamedMap<>("readNotifiers");
-    private final NamedMap<Object, AsyncResult<?>> writeFutures = new NamedMap<>("writeNotifiers");
+    private final NamedMap<Object, AsyncResult<Void>> writeFutures = new NamedMap<>("writeNotifiers");
 
     Node<?, ?> head;
     Node<?, ?> tail;
@@ -556,7 +556,7 @@ public class AccordStateCache
 
         public AsyncResult<Void> getWriteFuture(K key)
         {
-            return (AsyncResult<Void>) getFuture(writeFutures, key);
+            return getFuture(writeFutures, key);
         }
 
         public void setWriteFuture(K key, AsyncResult<Void> future)
