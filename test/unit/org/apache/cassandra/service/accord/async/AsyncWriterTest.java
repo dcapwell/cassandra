@@ -147,7 +147,7 @@ public class AsyncWriterTest
         AccordCommand command = new AccordCommand(txnId).initialize();
         command.setPartialTxn(txn.slice(ranges, true));
         command.setExecuteAt(executeAt);
-        command.setStatus(Status.Accepted);
+        command.setStatus(Status.PreAccepted);
         AsyncContext context = new AsyncContext();
         context.commands.add(command);
         save(commandStore, context);
@@ -158,7 +158,7 @@ public class AsyncWriterTest
             commandStore.setContext(ctx);
             AccordPartialCommand summary = getOnlyElement(cfkUncommitted.uncommitted().all().collect(Collectors.toList()));
             Assert.assertTrue(cfkUncommitted.uncommitted.map.getView().containsKey(txnId));
-            Assert.assertEquals(Status.Accepted, summary.status());
+            Assert.assertEquals(Status.PreAccepted, summary.status());
             Assert.assertEquals(executeAt, summary.executeAt());
 
             Assert.assertTrue(cfkUncommitted.committedByExecuteAt.isEmpty());

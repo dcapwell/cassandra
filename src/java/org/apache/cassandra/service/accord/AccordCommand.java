@@ -498,6 +498,7 @@ public class AccordCommand extends Command implements AccordState<TxnId>
     public void setPartialTxn(PartialTxn txn)
     {
         this.partialTxn.set(txn);
+        this.kind.set(txn.kind());
     }
 
     @Override
@@ -687,7 +688,7 @@ public class AccordCommand extends Command implements AccordState<TxnId>
             // have the appropriate commandsForKey in scope, so start a new operation
             // with the correct scope and notify the caller when that completes
             Preconditions.checkArgument(canReschedule);
-            notifier = applyWithCorrectScope(safeStore.commandStore());
+            return applyWithCorrectScope(safeStore.commandStore()).toChain();
         }
         cache.setWriteFuture(txnId, notifier);
 
