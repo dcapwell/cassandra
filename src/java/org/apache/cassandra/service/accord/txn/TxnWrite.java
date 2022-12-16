@@ -347,16 +347,16 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
         long timestamp = cfk.timestampMicrosFor(executeAt, true);
         int nowInSeconds = cfk.nowInSecondsFor(executeAt, true);
 
-        List<AsyncChain<Void>> futures = new ArrayList<>();
-        forEachWithKey((PartitionKey) key, write -> futures.add(write.write(timestamp, nowInSeconds)));
+        List<AsyncChain<Void>> results = new ArrayList<>();
+        forEachWithKey((PartitionKey) key, write -> results.add(write.write(timestamp, nowInSeconds)));
 
-        if (futures.isEmpty())
+        if (results.isEmpty())
             return Writes.SUCCESS;
 
-        if (futures.size() == 1)
-            return futures.get(0).flatMap(o -> Writes.SUCCESS);
+        if (results.size() == 1)
+            return results.get(0).flatMap(o -> Writes.SUCCESS);
 
-        return AsyncChains.all(futures).flatMap(objects -> Writes.SUCCESS);
+        return AsyncChains.all(results).flatMap(objects -> Writes.SUCCESS);
     }
 
     public long estimatedSizeOnHeap()

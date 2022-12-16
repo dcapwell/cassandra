@@ -115,8 +115,8 @@ public class AccordService implements Shutdownable
     {
         try
         {
-            AsyncResult<Result> future = node.coordinate(txn);
-            Result result = AsyncResults.getBlocking(future, DatabaseDescriptor.getTransactionTimeout(TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS);
+            AsyncResult<Result> asyncResult = node.coordinate(txn);
+            Result result = AsyncResults.getBlocking(asyncResult, DatabaseDescriptor.getTransactionTimeout(TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS);
             return (TxnData) result;
         }
         catch (ExecutionException e)

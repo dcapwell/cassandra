@@ -129,16 +129,16 @@ public class TxnRead extends AbstractKeySorted<TxnNamedRead> implements Read
     @Override
     public AsyncChain<Data> read(Key key, Txn.Kind kind, SafeCommandStore safeStore, Timestamp executeAt, DataStore store)
     {
-        List<AsyncChain<Data>> futures = new ArrayList<>();
-        forEachWithKey((PartitionKey) key, read -> futures.add(read.read(kind.isWrite(), safeStore, executeAt)));
+        List<AsyncChain<Data>> results = new ArrayList<>();
+        forEachWithKey((PartitionKey) key, read -> results.add(read.read(kind.isWrite(), safeStore, executeAt)));
 
-        if (futures.isEmpty())
+        if (results.isEmpty())
             return AsyncChains.success(new TxnData());
 
-        if (futures.size() == 1)
-            return futures.get(0);
+        if (results.size() == 1)
+            return results.get(0);
 
-        return AsyncChains.reduce(futures, Data::merge);
+        return AsyncChains.reduce(results, Data::merge);
     }
 
     public static final IVersionedSerializer<TxnRead> serializer = new IVersionedSerializer<TxnRead>()

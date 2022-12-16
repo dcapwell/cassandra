@@ -209,7 +209,7 @@ public class AsyncLoaderTest
 
         // since there's a read future associated with the txnId, we'll wait for it to load
         AsyncResult.Settable<Void> readFuture = AsyncResults.settable();
-        commandCache.setLoadFuture(command.txnId(), readFuture);
+        commandCache.setLoadResult(command.txnId(), readFuture);
 
         AsyncPromise<Void> cbFired = new AsyncPromise<>();
         commandStore.executeBlocking(() -> {
@@ -255,12 +255,12 @@ public class AsyncLoaderTest
             AccordStateCache.Instance<TxnId, AccordCommand> cache = commandStore.commandCache();
             AccordCommand.WriteOnly writeOnly1 = new AccordCommand.WriteOnly(txnId);
             writeOnly1.blockingApplyOn.blindAdd(blockApply);
-            writeOnly1.notifier(AsyncResults.settable());
+            writeOnly1.asyncResult(AsyncResults.settable());
             cache.addWriteOnly(writeOnly1);
 
             AccordCommand.WriteOnly writeOnly2 = new AccordCommand.WriteOnly(txnId);
             writeOnly2.blockingCommitOn.blindAdd(blockCommit);
-            writeOnly2.notifier(AsyncResults.settable());
+            writeOnly2.asyncResult(AsyncResults.settable());
             cache.addWriteOnly(writeOnly2);
 
             AsyncContext context = new AsyncContext();

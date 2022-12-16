@@ -44,8 +44,6 @@ import org.apache.cassandra.service.accord.api.PartitionKey;
 
 import static accord.utils.async.AsyncResults.ofRunnable;
 
-
-// FIXME: rename future -> notifer
 public class AsyncLoader
 {
     private static final Logger logger = LoggerFactory.getLogger(AsyncLoader.class);
@@ -63,7 +61,7 @@ public class AsyncLoader
     private final Iterable<TxnId> txnIds;
     private final Iterable<PartitionKey> keys;
 
-    protected AsyncResult<?> readFuture;
+    protected AsyncResult<?> readResult;
 
     public AsyncLoader(AccordCommandStore commandStore, Iterable<TxnId> txnIds, Iterable<PartitionKey> keys)
     {
@@ -79,16 +77,16 @@ public class AsyncLoader
                                                                                  Object callback)
     {
         V item;
-        AsyncResult<Void> future = cache.getLoadFuture(key);
-        if (future != null)
+        AsyncResult<Void> result = cache.getLoadResult(key);
+        if (result != null)
         {
-            // if a load future exists for this, it must be present in the cache
+            // if a load result exists for this, it must be present in the cache
             item = cache.getOrNull(key);
             Preconditions.checkState(item != null);
             context.put(key, item);
             if (logger.isTraceEnabled())
-                logger.trace("Existing load future found for {} while loading for {}. ({})", item.key(), callback, item);
-            return future;
+                logger.trace("Existing load result found for {} while loading for {}. ({})", item.key(), callback, item);
+            return result;
         }
 
         item = cache.getOrCreate(key);
@@ -100,11 +98,11 @@ public class AsyncLoader
             return null;
         }
 
-        future = readFunction.apply(item);
-        cache.setLoadFuture(item.key(), future);
+        result = readFunction.apply(item);
+        cache.setLoadResult(item.key(), result);
         if (logger.isTraceEnabled())
             logger.trace("Loading new item for {} while loading for {}. ({})", item.key(), callback, item);
-        return future;
+        return result;
     }
 
 
@@ -112,22 +110,22 @@ public class AsyncLoader
                                                                                            AccordStateCache.Instance<K, V> cache,
                                                                                            Map<K, V> context,
                                                                                            Function<V, AsyncResult<Void>> readFunction,
-                                                                                           List<AsyncResult<Void>> futures,
+                                                                                           List<AsyncResult<Void>> results,
                                                                                            Object callback)
     {
         for (K key : keys)
         {
-            AsyncResult<Void> future = referenceAndDispatch(key, cache, context, readFunction, callback);
-            if (future == null)
+            AsyncResult<Void> result = referenceAndDispatch(key, cache, context, readFunction, callback);
+            if (result == null)
                 continue;
 
-            if (futures == null)
-                futures = new ArrayList<>();
+            if (results == null)
+                results = new ArrayList<>();
 
-            futures.add(future);
+            results.add(result);
         }
 
-        return futures;
+        return results;
     }
 
     @VisibleForTesting
@@ -168,23 +166,23 @@ public class AsyncLoader
 
     private AsyncResult<Void> referenceAndDispatchReads(AsyncContext context, Object callback)
     {
-        List<AsyncResult<Void>> futures = null;
+        List<AsyncResult<Void>> results = null;
 
-        futures = referenceAndDispatchReads(txnIds,
+        results = referenceAndDispatchReads(txnIds,
                                             commandStore.commandCache(),
                                             context.commands.items,
                                             loadCommandFunction(callback),
-                                            futures,
+                                            results,
                                             callback);
 
-        futures = referenceAndDispatchReads(keys,
+        results = referenceAndDispatchReads(keys,
                                             commandStore.commandsForKeyCache(),
                                             context.commandsForKey.items,
                                             loadCommandsPerKeyFunction(callback),
-                                            futures,
+                                            results,
                                             callback);
 
-        return futures != null ? AsyncResults.reduce(futures, (a, b ) -> null).beginAsResult() : null;
+        return results != null ? AsyncResults.reduce(results, (a, b ) -> null).beginAsResult() : null;
     }
 
     @VisibleForTesting
@@ -205,28 +203,28 @@ public class AsyncLoader
                 // notify any pending write only groups we're loading a full instance so the pending changes aren't removed
                 txnIds.forEach(commandStore.commandCache()::lockWriteOnlyGroupIfExists);
                 keys.forEach(commandStore.commandsForKeyCache()::lockWriteOnlyGroupIfExists);
-                readFuture = referenceAndDispatchReads(context, callback);
+                readResult = referenceAndDispatchReads(context, callback);
                 state(State.LOADING);
             case LOADING:
-                if (readFuture != null)
+                if (readResult != null)
                 {
-                    if (readFuture.isSuccess())
+                    if (readResult.isSuccess())
                     {
-                        logger.trace("Read future succeeded for {}", callback);
+                        logger.trace("Read result succeeded for {}", callback);
                         context.verifyLoaded();
-                        readFuture = null;
+                        readResult = null;
                     }
                     else
                     {
-                        logger.trace("Adding callback for read future: {}", callback);
-                        readFuture.addCallback(callback, commandStore.executor());
+                        logger.trace("Adding callback for read result: {}", callback);
+                        readResult.addCallback(callback, commandStore.executor());
                         break;
                     }
                 }
                 // apply any pending write only changes that may not have made it to disk in time to be loaded
-                context.commands.items.keySet().forEach(commandStore.commandCache()::cleanupLoadFuture);
+                context.commands.items.keySet().forEach(commandStore.commandCache()::cleanupLoadResult);
                 context.commands.items.values().forEach(commandStore.commandCache()::applyAndRemoveWriteOnlyGroup);
-                context.commandsForKey.items.keySet().forEach(commandStore.commandsForKeyCache()::cleanupLoadFuture);
+                context.commandsForKey.items.keySet().forEach(commandStore.commandsForKeyCache()::cleanupLoadResult);
                 context.commandsForKey.items.values().forEach(commandStore.commandsForKeyCache()::applyAndRemoveWriteOnlyGroup);
                 // apply blindly reported timestamps
                 context.commandsForKey.items.values().forEach(AccordCommandsForKey::applyBlindWitnessedTimestamps);

@@ -250,7 +250,7 @@ public class AccordStateCacheTest
         assertCacheState(cache, 0, 4, DEFAULT_NODE_SIZE * 4);
 
         AsyncResult<Void> saveFuture = AsyncResults.settable();
-        instance.addSaveFuture(0, saveFuture);
+        instance.addSaveResult(0, saveFuture);
         cache.setMaxSize(0);
 
         // all should have been evicted except 0
@@ -280,14 +280,14 @@ public class AccordStateCacheTest
             }
 
             @Override
-            public void notifier(AsyncResult<Void> notifier)
+            public void asyncResult(AsyncResult<Void> notifier)
             {
                 Preconditions.checkArgument(notifier instanceof AsyncResult.Settable);
                 this.promise = (AsyncResult.Settable<Void>) notifier;
             }
 
             @Override
-            public AsyncResult<Void> notifier()
+            public AsyncResult<Void> asyncResult()
             {
                 return promise;
             }
@@ -354,17 +354,17 @@ public class AccordStateCacheTest
 
         SetItem.WriteOnly writeOnly1 = new SetItem.WriteOnly(5);
         writeOnly1.added.addAll(ImmutableSet.of(4, 5));
-        writeOnly1.notifier(AsyncResults.settable());
+        writeOnly1.asyncResult(AsyncResults.settable());
         instance.addWriteOnly(writeOnly1);
         Assert.assertEquals(1, instance.pendingWriteOnlyOperations(5));
 
         SetItem.WriteOnly writeOnly2 = new SetItem.WriteOnly(5);
         writeOnly2.remove.addAll(ImmutableSet.of(2, 4));
-        writeOnly2.notifier(AsyncResults.settable());
+        writeOnly2.asyncResult(AsyncResults.settable());
         instance.addWriteOnly(writeOnly2);
         Assert.assertEquals(2, instance.pendingWriteOnlyOperations(5));
 
-        Assert.assertNull(instance.getSaveFuture(5));
+        Assert.assertNull(instance.getSaveResult(5));
         Assert.assertFalse(instance.writeOnlyGroupIsLocked(5));
 
         instance.lockWriteOnlyGroupIfExists(5);
@@ -378,7 +378,7 @@ public class AccordStateCacheTest
 
         // write only futures should have been merged and promoted to normal save futures, which would
         // prevent the cached object from being purged until they were completed
-        AsyncResult<?> saveFuture = instance.getSaveFuture(5);
+        AsyncResult<?> saveFuture = instance.getSaveResult(5);
         Assert.assertNotNull(saveFuture);
         Assert.assertFalse(saveFuture.isDone());
         Assert.assertFalse(instance.canEvict(5));
@@ -403,7 +403,7 @@ public class AccordStateCacheTest
         {
             SetItem.WriteOnly item = new SetItem.WriteOnly(5);
             item.added.add(i);
-            item.notifier(AsyncResults.settable());
+            item.asyncResult(AsyncResults.settable());
             instance.addWriteOnly(item);
             writeOnly[i] = item;
         }
@@ -434,7 +434,7 @@ public class AccordStateCacheTest
 
         SetItem.WriteOnly item = new SetItem.WriteOnly(5);
         item.added.add(0);
-        item.notifier(AsyncResults.settable());
+        item.asyncResult(AsyncResults.settable());
         instance.addWriteOnly(item);
 
         instance.lockWriteOnlyGroupIfExists(5);
@@ -454,7 +454,7 @@ public class AccordStateCacheTest
         AccordStateCache.Instance<Integer, SetItem> instance = cache.instance(Integer.class, SetItem.class, SetItem::new);
 
         AsyncResult<Void> loadfuture = AsyncResults.settable();
-        instance.setLoadFuture(5, loadfuture);
+        instance.setLoadResult(5, loadfuture);
 
         Assert.assertFalse(instance.writeOnlyGroupIsLocked(5));
         Assert.assertEquals(0, instance.pendingWriteOnlyOperations(5));
@@ -462,7 +462,7 @@ public class AccordStateCacheTest
         // adding a write only object should immediately lock the group, since there's an existing load future
         SetItem.WriteOnly item = new SetItem.WriteOnly(5);
         item.added.add(0);
-        item.notifier(AsyncResults.settable());
+        item.asyncResult(AsyncResults.settable());
         instance.addWriteOnly(item);
 
         Assert.assertTrue(instance.writeOnlyGroupIsLocked(5));
@@ -477,10 +477,10 @@ public class AccordStateCacheTest
         AccordStateCache.Instance<Integer, SetItem> instance = cache.instance(Integer.class, SetItem.class, SetItem::new);
         AsyncResult.Settable<Void> promise1 = AsyncResults.settable();
         AsyncResult.Settable<Void> promise2 = AsyncResults.settable();
-        instance.addSaveFuture(5, promise1);
-        instance.addSaveFuture(5, promise2);
+        instance.addSaveResult(5, promise1);
+        instance.addSaveResult(5, promise2);
 
-        AsyncResult<?> future = instance.getSaveFuture(5);
+        AsyncResult<?> future = instance.getSaveResult(5);
         Assert.assertNotSame(future, promise1);
         Assert.assertNotSame(future, promise2);
 

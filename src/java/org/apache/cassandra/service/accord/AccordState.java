@@ -69,9 +69,9 @@ public interface AccordState<K>
             return ReadWrite.WRITE_ONLY;
         }
 
-        void notifier(AsyncResult<Void> notifier);
+        void asyncResult(AsyncResult<Void> notifier);
 
-        AsyncResult<Void> notifier();
+        AsyncResult<Void> asyncResult();
 
         /**
          * Apply the write only changes to the full instance

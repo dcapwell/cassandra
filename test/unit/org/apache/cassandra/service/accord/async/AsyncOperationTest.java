@@ -23,7 +23,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
 import com.google.common.collect.Iterables;
-import com.google.common.util.concurrent.Futures;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -142,10 +141,10 @@ public class AsyncOperationTest
 
     private static void assertFutureState(AccordStateCache.Instance<TxnId, AccordCommand> cache, TxnId txnId, boolean expectLoadFuture, boolean expectSaveFuture)
     {
-        if (cache.hasLoadFuture(txnId) != expectLoadFuture)
+        if (cache.hasLoadResult(txnId) != expectLoadFuture)
             throw new AssertionError(expectLoadFuture ? "Load future unexpectedly not found for " + txnId
                                                       : "Unexpectedly found load future for " + txnId);
-        if (cache.hasSaveFuture(txnId) != expectSaveFuture)
+        if (cache.hasSaveResult(txnId) != expectSaveFuture)
             throw new AssertionError(expectSaveFuture ? "Save future unexpectedly not found for " + txnId
                                                       : "Unexpectedly found save future for " + txnId);
 

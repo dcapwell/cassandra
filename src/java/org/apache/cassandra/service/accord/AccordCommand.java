@@ -83,7 +83,7 @@ public class AccordCommand extends Command implements AccordState<TxnId>
 
     public static class WriteOnly extends AccordCommand implements AccordState.WriteOnly<TxnId, AccordCommand>
     {
-        private AsyncResult<Void> notifier = null;
+        private AsyncResult<Void> asyncResult = null;
 
         public WriteOnly(TxnId txnId)
         {
@@ -91,16 +91,16 @@ public class AccordCommand extends Command implements AccordState<TxnId>
         }
 
         @Override
-        public void notifier(AsyncResult<Void> notifier)
+        public void asyncResult(AsyncResult<Void> notifier)
         {
-            Preconditions.checkArgument(this.notifier == null);
-            this.notifier = notifier;
+            Preconditions.checkArgument(this.asyncResult == null);
+            this.asyncResult = notifier;
         }
 
         @Override
-        public AsyncResult<Void> notifier()
+        public AsyncResult<Void> asyncResult()
         {
-            return notifier;
+            return asyncResult;
         }
 
         @Override
@@ -629,7 +629,7 @@ public class AccordCommand extends Command implements AccordState<TxnId>
     protected void postApply(SafeCommandStore safeStore)
     {
         AccordStateCache.Instance<TxnId, AccordCommand> cache = ((AccordCommandStore) safeStore).commandCache();
-        cache.cleanupWriteFuture(txnId);
+        cache.cleanupWriteResult(txnId);
         super.postApply(safeStore);
     }
 
@@ -657,30 +657,30 @@ public class AccordCommand extends Command implements AccordState<TxnId>
     private AsyncResult<Void> applyWithCorrectScope(CommandStore unsafeStore)
     {
         TxnId txnId = txnId();
-        AsyncResult.Settable<Void> notifier = AsyncResults.settable();
+        AsyncResult.Settable<Void> result = AsyncResults.settable();
         unsafeStore.execute(this, safeStore -> {
             AccordCommand command = (AccordCommand) safeStore.command(txnId);
-            command.applyChain(safeStore, false).begin(notifier.settingCallback());
+            command.applyChain(safeStore, false).begin(result.settingCallback());
         }).begin((unused, throwable) -> {
             if (throwable != null)
-                notifier.tryFailure(throwable);
+                result.tryFailure(throwable);
         });
-        return notifier;
+        return result;
     }
 
     private AsyncChain<Void> applyChain(SafeCommandStore safeStore, boolean canReschedule)
     {
         AccordStateCache.Instance<TxnId, AccordCommand> cache = ((AccordCommandStore) safeStore).commandCache();
-        AsyncResult<Void> notifier = cache.getWriteFuture(txnId);
-        if (notifier != null)
+        AsyncResult<Void> result = cache.getWriteResult(txnId);
+        if (result != null)
         {
-            return notifier.toChain();
+            return result.toChain();
         }
 
         if (canApplyWithCurrentScope(safeStore))
         {
             AsyncChain<Void> chain = super.applyChain(safeStore);
-            notifier = AsyncResults.forChain(chain);
+            result = AsyncResults.forChain(chain);
         }
         else
         {
@@ -690,9 +690,9 @@ public class AccordCommand extends Command implements AccordState<TxnId>
             Preconditions.checkArgument(canReschedule);
             return applyWithCorrectScope(safeStore.commandStore()).toChain();
         }
-        cache.setWriteFuture(txnId, notifier);
+        cache.setWriteResult(txnId, result);
 
-        return notifier.toChain();
+        return result.toChain();
     }
 
     @Override
@@ -706,14 +706,14 @@ public class AccordCommand extends Command implements AccordState<TxnId>
     public AsyncChain<Data> read(SafeCommandStore safeStore)
     {
         AccordStateCache.Instance<TxnId, AccordCommand> cache = ((AccordCommandStore) safeStore).commandCache();
-        AsyncResult<Data> notifier = cache.getReadFuture(txnId);
-        if (notifier != null)
-            return notifier.toChain();
+        AsyncResult<Data> result = cache.getReadResult(txnId);
+        if (result != null)
+            return result.toChain();
 
         AsyncChain<Data> chain = super.read(safeStore);
-        notifier = AsyncResults.forChain(chain);
-        cache.setReadFuture(txnId, notifier);
-        return notifier.toChain();
+        result = AsyncResults.forChain(chain);
+        cache.setReadResult(txnId, result);
+        return result.toChain();
     }
 
     private CommandListener maybeWrapListener(CommandListener listener)

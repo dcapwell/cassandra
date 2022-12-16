@@ -73,7 +73,7 @@ public class AccordCommandsForKey extends CommandsForKey implements AccordState<
 
     public static class WriteOnly extends AccordCommandsForKey implements AccordState.WriteOnly<PartitionKey, AccordCommandsForKey>
     {
-        private AsyncResult<Void> future = null;
+        private AsyncResult<Void> result = null;
 
         public WriteOnly(AccordCommandStore commandStore, PartitionKey key)
         {
@@ -81,17 +81,17 @@ public class AccordCommandsForKey extends CommandsForKey implements AccordState<
         }
 
         @Override
-        public void notifier(AsyncResult<Void> notifier)
+        public void asyncResult(AsyncResult<Void> result)
         {
-            Preconditions.checkArgument(this.future == null);
-            this.future = notifier;
+            Preconditions.checkArgument(this.result == null);
+            this.result = result;
 
         }
 
         @Override
-        public AsyncResult<Void> notifier()
+        public AsyncResult<Void> asyncResult()
         {
-            return future;
+            return result;
         }
 
         @Override
