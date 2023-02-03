@@ -28,10 +28,13 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import accord.impl.CommandsForKey;
 import accord.local.Command;
+import accord.local.PreLoadContext;
 import accord.local.SafeCommandStore;
 import accord.local.Status;
 import accord.primitives.Keys;
+import accord.primitives.RoutableKey;
 import accord.primitives.Timestamp;
 import accord.primitives.Txn;
 import accord.primitives.TxnId;
@@ -43,12 +46,11 @@ import org.apache.cassandra.db.SinglePartitionReadCommand;
 import org.apache.cassandra.db.transform.FilteredPartitions;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.service.StorageService;
-import org.apache.cassandra.service.accord.AccordCommand;
 import org.apache.cassandra.service.accord.AccordCommandStore;
-import org.apache.cassandra.service.accord.AccordCommandStore.SafeAccordCommandStore;
-import org.apache.cassandra.service.accord.AccordCommandsForKey;
 import org.apache.cassandra.service.accord.AccordKeyspace;
 import org.apache.cassandra.service.accord.AccordStateCache;
+import org.apache.cassandra.service.accord.AccordTestUtils;
+import org.apache.cassandra.service.accord.AccordTestUtils.CommandAttributes;
 import org.apache.cassandra.service.accord.api.PartitionKey;
 import org.apache.cassandra.utils.FBUtilities;
 
@@ -110,8 +112,8 @@ public class AsyncOperationTest
         Txn txn = createTxn((int)clock.incrementAndGet());
         PartitionKey key = (PartitionKey) Iterables.getOnlyElement(txn.keys());
 
-        awaitUninterruptibly(commandStore.execute(contextFor(Collections.emptyList(), Keys.of(key)),instance -> {
-            AccordCommandsForKey cfk = ((SafeAccordCommandStore)instance).maybeCommandsForKey(key);
+        awaitUninterruptibly(commandStore.execute(contextFor(Collections.emptyList(), Keys.of(key)), instance -> {
+            CommandsForKey cfk = instance.maybeCommandsForKey(key);
             Assert.assertNull(cfk);
         }));
 
@@ -124,24 +126,25 @@ public class AsyncOperationTest
         }
     }
 
-    private static AccordCommand createCommittedAndPersist(AccordCommandStore commandStore, TxnId txnId, Timestamp executeAt)
+    private static Command createCommittedAndPersist(AccordCommandStore commandStore, TxnId txnId, Timestamp executeAt)
     {
-        AccordCommand command = new AccordCommand(txnId).initialize();
-        command.setPartialTxn(createPartialTxn(0));
-        command.setExecuteAt(executeAt);
-        command.setStatus(Status.Committed);
-        AccordKeyspace.getCommandMutation(commandStore, command, commandStore.nextSystemTimestampMicros()).apply();
-        command.clearModifiedFlag();
+        Command command = AccordTestUtils.Commands.committed(txnId, createPartialTxn(0), executeAt);
+        command.markActive();
+        AccordKeyspace.getCommandMutation(commandStore, null, command, commandStore.nextSystemTimestampMicros()).apply();
         return command;
     }
 
-    private static AccordCommand createCommittedAndPersist(AccordCommandStore commandStore, TxnId txnId)
+    private static Command createCommittedAndPersist(AccordCommandStore commandStore, TxnId txnId)
     {
         return createCommittedAndPersist(commandStore, txnId, txnId);
     }
 
-    private static void assertFutureState(AccordStateCache.Instance<TxnId, AccordCommand> cache, TxnId txnId, boolean expectLoadFuture, boolean expectSaveFuture)
+    private static void assertFutureState(AccordStateCache.Instance<TxnId, Command> cache, TxnId txnId, boolean referenceExpected, boolean expectLoadFuture, boolean expectSaveFuture)
     {
+        if (cache.isReferenced(txnId) != referenceExpected)
+            throw new AssertionError(referenceExpected ? "Cache reference unexpectedly not found for " + txnId
+                                                       : "Unexpectedly found cache reference for " + txnId);
+        cache.cleanupLoadResult(txnId);
         if (cache.hasLoadResult(txnId) != expectLoadFuture)
             throw new AssertionError(expectLoadFuture ? "Load future unexpectedly not found for " + txnId
                                                       : "Unexpectedly found load future for " + txnId);
@@ -161,21 +164,22 @@ public class AsyncOperationTest
 
         TxnId txnId = txnId(1, clock.incrementAndGet(), 1);
 
-        AccordCommand command = createCommittedAndPersist(commandStore, txnId);
+        createCommittedAndPersist(commandStore, txnId);
 
-        Consumer<SafeCommandStore> consumer = instance -> ((AccordCommand)instance.command(txnId)).setStatus(Status.PreApplied);
-        AsyncOperation<Void> operation = new AsyncOperation.ForConsumer(commandStore, singleton(txnId), emptyList(), consumer)
+        Consumer<SafeCommandStore> consumer = safeStore -> safeStore.beginUpdate(txnId).readyToExecute();
+        PreLoadContext ctx = PreLoadContext.contextFor(singleton(txnId), Keys.EMPTY);
+        AsyncOperation<Void> operation = new AsyncOperation.ForConsumer(commandStore, ctx, consumer)
         {
 
-            private AccordStateCache.Instance<TxnId, AccordCommand> cache()
+            private AccordStateCache.Instance<TxnId, Command> cache()
             {
                 return commandStore.commandCache();
             }
 
             @Override
-            AsyncLoader createAsyncLoader(AccordCommandStore commandStore, Iterable<TxnId> txnIds, Iterable<PartitionKey> keys)
+            AsyncLoader createAsyncLoader(AccordCommandStore commandStore, PreLoadContext preLoadContext)
             {
-                return new AsyncLoader(commandStore, txnIds, keys) {
+                return new AsyncLoader(commandStore, preLoadContext.txnIds(), (Iterable<RoutableKey>) preLoadContext.keys()) {
 
                     @Override
                     void state(State state)
@@ -183,11 +187,14 @@ public class AsyncOperationTest
                         switch (state)
                         {
                             case SETUP:
+                                assertFutureState(cache(), txnId, false, false, false);
+                                break;
                             case FINISHED:
-                                assertFutureState(cache(), txnId, false, false);
+                                assertFutureState(cache(), txnId, true, false, false);
                                 break;
                             case LOADING:
-                                assertFutureState(cache(), txnId, true, false);
+                                assertFutureState(cache(), txnId, true, true, false);
+                                break;
                         }
                         super.state(state);
                     }
@@ -205,11 +212,14 @@ public class AsyncOperationTest
                         switch (state)
                         {
                             case SETUP:
+                                assertFutureState(cache(), txnId, true, false, false);
+                                break;
                             case FINISHED:
-                                assertFutureState(cache(), txnId, false, false);
+                                assertFutureState(cache(), txnId, false, false, false);
                                 break;
                             case SAVING:
-                                assertFutureState(cache(), txnId, false, true);
+                                assertFutureState(cache(), txnId, true, false, true);
+                                break;
 
                         }
                         super.setState(state);

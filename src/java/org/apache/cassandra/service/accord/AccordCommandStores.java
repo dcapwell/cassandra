@@ -18,16 +18,21 @@
 
 package org.apache.cassandra.service.accord;
 
+import java.util.stream.IntStream;
+
 import accord.api.Agent;
 import accord.api.DataStore;
 import accord.api.ProgressLog;
-import accord.local.AsyncCommandStores;
+import accord.local.CommandStores;
 import accord.local.NodeTimeService;
+import accord.local.PreLoadContext;
+import accord.local.SafeCommandStore;
 import accord.local.ShardDistributor;
+import accord.primitives.Routables;
 import accord.topology.Topology;
-import org.apache.cassandra.service.accord.AccordCommandStore.SafeAccordCommandStore;
+import accord.utils.MapReduceConsume;
 
-public class AccordCommandStores extends AsyncCommandStores
+public class AccordCommandStores extends CommandStores<AccordCommandStore>
 {
     private long cacheSize;
     AccordCommandStores(NodeTimeService time, Agent agent, DataStore store,
@@ -49,7 +54,7 @@ public class AccordCommandStores extends AsyncCommandStores
             return;
         long perStore = cacheSize / count();
         // TODO (low priority, safety): we might transiently breach our limit if we increase one store before decreasing another
-        forEach(commandStore -> ((SafeAccordCommandStore) commandStore).commandStore().setCacheSize(perStore));
+        forEach(commandStore -> ((AccordSafeCommandStore) commandStore).commandStore().setCacheSize(perStore));
     }
 
     private static long maxCacheSize()
@@ -69,5 +74,17 @@ public class AccordCommandStores extends AsyncCommandStores
     {
         super.shutdown();
         //TODO shutdown isn't useful by itself, we need a way to "wait" as well.  Should be AutoCloseable or offer awaitTermination as well (think Shutdownable interface)
+    }
+
+    @Override
+    public <O> void mapReduceConsume(PreLoadContext context, Routables<?, ?> keys, long minEpoch, long maxEpoch, MapReduceConsume<? super SafeCommandStore, O> mapReduceConsume)
+    {
+        mapReduceConsume(context, keys, minEpoch, maxEpoch, mapReduceConsume, CommandStores.AsyncMapReduceAdapter.instance());
+    }
+
+    @Override
+    public <O> void mapReduceConsume(PreLoadContext context, IntStream commandStoreIds, MapReduceConsume<? super SafeCommandStore, O> mapReduceConsume)
+    {
+        mapReduceConsume(context, commandStoreIds, mapReduceConsume, CommandStores.AsyncMapReduceAdapter.instance());
     }
 }

@@ -21,6 +21,7 @@ package org.apache.cassandra.service.accord.serializers;
 import java.io.IOException;
 
 import accord.messages.Apply;
+import accord.primitives.Keys;
 import accord.primitives.PartialRoute;
 import accord.primitives.TxnId;
 import org.apache.cassandra.db.TypeSizes;
@@ -37,6 +38,7 @@ public class ApplySerializers
         public void serializeBody(Apply apply, DataOutputPlus out, int version) throws IOException
         {
             out.writeUnsignedVInt(apply.untilEpoch);
+            KeySerializers.seekables.serialize(apply.keys(), out, version);
             CommandSerializers.timestamp.serialize(apply.executeAt, out, version);
             DepsSerializer.partialDeps.serialize(apply.deps, out, version);
             CommandSerializers.writes.serialize(apply.writes, out, version);
@@ -47,6 +49,7 @@ public class ApplySerializers
         public Apply deserializeBody(DataInputPlus in, int version, TxnId txnId, PartialRoute scope, long waitForEpoch) throws IOException
         {
             return Apply.SerializationSupport.create(txnId, scope, waitForEpoch, in.readUnsignedVInt(),
+                                                     KeySerializers.seekables.deserialize(in, version),
                                                      CommandSerializers.timestamp.deserialize(in, version),
                                                      DepsSerializer.partialDeps.deserialize(in, version),
                                                      CommandSerializers.writes.deserialize(in, version),
@@ -57,6 +60,7 @@ public class ApplySerializers
         public long serializedBodySize(Apply apply, int version)
         {
             return TypeSizes.sizeofUnsignedVInt(apply.untilEpoch)
+                   + KeySerializers.seekables.serializedSize(apply.keys(), version)
                    + CommandSerializers.timestamp.serializedSize(apply.executeAt, version)
                    + DepsSerializer.partialDeps.serializedSize(apply.deps, version)
                    + CommandSerializers.writes.serializedSize(apply.writes, version)

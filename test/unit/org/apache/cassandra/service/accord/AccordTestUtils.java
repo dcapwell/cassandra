@@ -22,31 +22,47 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.function.LongSupplier;
-
 import javax.annotation.Nullable;
 
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedMap;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.junit.Assert;
 
 import accord.api.Data;
+import accord.api.Key;
 import accord.api.ProgressLog;
+import accord.api.Result;
 import accord.api.RoutingKey;
 import accord.api.Write;
+import accord.impl.CommandsForKey;
 import accord.impl.InMemoryCommandStore;
 import accord.local.Command;
 import accord.local.CommandStores;
+import accord.local.CommandListener;
+import accord.local.CommandStore;
 import accord.local.Node;
 import accord.local.Node.Id;
 import accord.local.NodeTimeService;
 import accord.local.PreLoadContext;
+import accord.local.SafeCommandStore;
+import accord.local.SaveStatus;
+import accord.local.Status;
 import accord.local.Status.Known;
 import accord.primitives.Ballot;
-import accord.primitives.Ranges;
 import accord.primitives.Keys;
+import accord.primitives.PartialDeps;
 import accord.primitives.PartialTxn;
+import accord.primitives.Range;
+import accord.primitives.Ranges;
+import accord.primitives.Route;
 import accord.primitives.Timestamp;
 import accord.primitives.Txn;
 import accord.primitives.TxnId;
@@ -55,6 +71,8 @@ import accord.primitives.Writes;
 import accord.topology.Shard;
 import accord.topology.Topology;
 import accord.utils.async.AsyncChains;
+import accord.utils.async.AsyncResult;
+import accord.utils.async.AsyncResults;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.statements.TransactionStatement;
@@ -63,9 +81,11 @@ import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.accord.api.AccordAgent;
 import org.apache.cassandra.service.accord.api.PartitionKey;
+import org.apache.cassandra.service.accord.serializers.CommandsForKeySerializer;
 import org.apache.cassandra.service.accord.txn.TxnData;
 import org.apache.cassandra.service.accord.txn.TxnRead;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
 
 import static accord.primitives.Routable.Domain.Key;
@@ -79,18 +99,125 @@ public class AccordTestUtils
         return EndpointMapping.endpointToId(FBUtilities.getBroadcastAddressAndPort());
     }
 
+    public static class CommandAttributes implements Command.CommonAttributes
+    {
+        private final TxnId txnId;
+        private Txn.Kind kind;
+        private Status.Durability durability;
+        private RoutingKey homeKey;
+        private RoutingKey progressKey;
+        private Route<?> route;
+        private PartialTxn partialTxn;
+        private PartialDeps partialDeps;
+        private ImmutableSet<CommandListener> listeners;
+
+        public CommandAttributes(TxnId txnId) { this.txnId = txnId; }
+
+        @Override public TxnId txnId() { return txnId; }
+        @Override public Status.Durability durability() { return durability; }
+        @Override public RoutingKey homeKey() { return homeKey; }
+        @Override public RoutingKey progressKey() { return progressKey; }
+        @Override public Route<?> route() { return route; }
+        @Override public PartialTxn partialTxn() { return partialTxn; }
+        @Override public PartialDeps partialDeps() { return partialDeps; }
+        @Override public ImmutableSet<CommandListener> listeners() { return listeners; }
+
+        public CommandAttributes kind(Txn.Kind kind)
+        {
+            this.kind = kind;
+            return this;
+        }
+
+        public CommandAttributes durability(Status.Durability durability)
+        {
+            this.durability = durability;
+            return this;
+        }
+
+        public CommandAttributes homeKey(RoutingKey homeKey)
+        {
+            this.homeKey = homeKey;
+            return this;
+        }
+
+        public CommandAttributes progressKey(RoutingKey progressKey)
+        {
+            this.progressKey = progressKey;
+            return this;
+        }
+
+        public CommandAttributes route(Route<?> route)
+        {
+            this.route = route;
+            return this;
+        }
+
+        public CommandAttributes partialTxn(PartialTxn partialTxn)
+        {
+            this.partialTxn = partialTxn;
+            return this;
+        }
+
+        public CommandAttributes partialDeps(PartialDeps partialDeps)
+        {
+            this.partialDeps = partialDeps;
+            return this;
+        }
+
+        public CommandAttributes listeners(ImmutableSet<CommandListener> listeners)
+        {
+            this.listeners = listeners;
+            return this;
+        }
+    }
+
+    public static class Commands
+    {
+        public static Command notWitnessed(TxnId txnId, PartialTxn txn)
+        {
+            CommandAttributes attrs = new CommandAttributes(txnId);
+            attrs.partialTxn(txn);
+            return Command.SerializerSupport.notWitnessed(attrs, Ballot.ZERO);
+        }
+
+        public static Command preaccepted(TxnId txnId, PartialTxn txn, Timestamp executeAt)
+        {
+            CommandAttributes attrs = new CommandAttributes(txnId);
+            attrs.partialTxn(txn);
+            return Command.SerializerSupport.preaccepted(attrs, executeAt, Ballot.ZERO);
+        }
+
+        public static Command committed(TxnId txnId, PartialTxn txn, Timestamp executeAt)
+        {
+            CommandAttributes attrs = new CommandAttributes(txnId);
+            attrs.partialTxn(txn);
+            return Command.SerializerSupport.committed(attrs,
+                                                       SaveStatus.Committed,
+                                                       executeAt,
+                                                       Ballot.ZERO,
+                                                       Ballot.ZERO,
+                                                       ImmutableSortedSet.of(),
+                                                       ImmutableSortedMap.of());
+        }
+    }
+
+    public static CommandsForKey commandsForKey(Key key)
+    {
+        return new CommandsForKey(key, CommandsForKeySerializer.loader);
+    }
+
     public static final ProgressLog NOOP_PROGRESS_LOG = new ProgressLog()
     {
         @Override public void unwitnessed(TxnId txnId, RoutingKey homeKey, ProgressShard shard) {}
-        @Override public void preaccepted(Command command, ProgressShard progressShard) {}
-        @Override public void accepted(Command command, ProgressShard progressShard) {}
-        @Override public void committed(Command command, ProgressShard progressShard) {}
-        @Override public void readyToExecute(Command command, ProgressShard progressShard) {}
-        @Override public void executed(Command command, ProgressShard progressShard) {}
-        @Override public void invalidated(Command command, ProgressShard progressShard) {}
-        @Override public void durable(Command command, Set<Id> persistedOn) {}
-        @Override public void durable(TxnId txnId, @Nullable Unseekables<?, ?> someKeys, ProgressShard shard) {}
+        @Override public void preaccepted(SafeCommandStore safeStore, TxnId txnId, ProgressShard shard) {}
+        @Override public void accepted(SafeCommandStore safeStore, TxnId txnId, ProgressShard shard) {}
+        @Override public void committed(SafeCommandStore safeStore, TxnId txnId, ProgressShard shard) {}
+        @Override public void readyToExecute(SafeCommandStore safeStore, TxnId txnId, ProgressShard shard) {}
+        @Override public void executed(SafeCommandStore safeStore, TxnId txnId, ProgressShard shard) {}
+        @Override public void invalidated(SafeCommandStore safeStore, TxnId txnId, ProgressShard shard) {}
         @Override public void durableLocal(TxnId txnId) {}
+        @Override public void durable(SafeCommandStore safeStore, TxnId txnId, @Nullable Set<Id> persistedOn) {}
+        @Override public void durable(TxnId txnId, @Nullable Unseekables<?, ?> unseekables, ProgressShard shard) {}
         @Override public void waiting(TxnId blockedBy, Known blockedUntil, Unseekables<?, ?> blockedOn) {}
     };
 
@@ -109,37 +236,34 @@ public class AccordTestUtils
         return Ballot.fromValues(epoch, hlc, new Node.Id(node));
     }
 
-    /**
-     * does the reads, writes, and results for a command without the consensus
-     */
-    public static void processCommandResult(AccordCommandStore commandStore, Command command) throws Throwable
+    public static Pair<Writes, Result> processTxnResult(AccordCommandStore commandStore, TxnId txnId, PartialTxn txn, Timestamp executeAt) throws Throwable
     {
-
-        awaitUninterruptibly(commandStore.execute(PreLoadContext.contextFor(Collections.emptyList(), command.partialTxn().keys()),
-                                       instance -> {
-            PartialTxn txn = command.partialTxn();
-            TxnRead read = (TxnRead) txn.read();
-            Data readData = read.keys().stream()
-                                .map(key -> {
-                                    try
-                                    {
-                                        return AsyncChains.getBlocking(read.read(key, command.txnId().rw(), instance, command.executeAt(), null));
-                                    }
-                                    catch (InterruptedException e)
-                                    {
-                                        throw new UncheckedInterruptedException(e);
-                                    }
-                                    catch (ExecutionException e)
-                                    {
-                                        throw new RuntimeException(e);
-                                    }
-                                })
-                                .reduce(null, TxnData::merge);
-            Write write = txn.update().apply(readData);
-            ((AccordCommand)command).setWrites(new Writes(command.executeAt(), (Keys)txn.keys(), write));
-            ((AccordCommand)command).setResult(txn.query().compute(command.txnId(), readData, txn.read(), txn.update()));
-        }));
+        AtomicReference<Pair<Writes, Result>> result = new AtomicReference<>();
+        awaitUninterruptibly(commandStore.execute(PreLoadContext.contextFor(Collections.emptyList(), txn.keys()),
+                              safeStore -> {
+                                  TxnRead read = (TxnRead) txn.read();
+                                  Data readData = read.keys().stream().map(key -> {
+                                                          try
+                                                          {
+                                                              return AsyncChains.getBlocking(read.read(key, txn.kind(), safeStore, executeAt, null));
+                                                          }
+                                                          catch (InterruptedException e)
+                                                          {
+                                                              throw new UncheckedInterruptedException(e);
+                                                          }
+                                                          catch (ExecutionException e)
+                                                          {
+                                                              throw new RuntimeException(e);
+                                                          }
+                                                      })
+                                                      .reduce(null, TxnData::merge);
+                                  Write write = txn.update().apply(readData);
+                                  result.set(Pair.create(new Writes(executeAt, (Keys)txn.keys(), write),
+                                                         txn.query().compute(txnId, readData, txn.read(), txn.update())));
+                              }));
+        return result.get();
     }
+
 
     public static Txn createTxn(String query)
     {
@@ -246,6 +370,7 @@ public class AccordTestUtils
                                       cs -> NOOP_PROGRESS_LOG,
                                       new SingleEpochRanges(topology.rangesForNode(node)));
     }
+
     public static AccordCommandStore createAccordCommandStore(LongSupplier now, String keyspace, String table)
     {
         TableMetadata metadata = Schema.instance.getTableMetadata(keyspace, table);
@@ -270,6 +395,37 @@ public class AccordTestUtils
         catch (ExecutionException e)
         {
             throw new RuntimeException(e.getCause());
+        }
+    }
+
+    public static class TestableLoad<K, V> implements AccordStateCache.LoadFunction<K, V>
+    {
+        final AsyncResult.Settable<Void> result = AsyncResults.settable();
+        volatile K key = null;
+        volatile Consumer<V> consumer = null;
+
+        public void complete(V value)
+        {
+            Assert.assertNotNull(key);
+            Assert.assertNotNull(consumer);
+            consumer.accept(value);
+            result.setSuccess(null);
+        }
+
+        @Override
+        public AsyncResult<Void> apply(K key, Consumer<V> consumer)
+        {
+            Assert.assertNotNull(key);
+            Assert.assertNotNull(consumer);
+            this.key = key;
+            this.consumer = consumer;
+            return result;
+        }
+
+        public void assertNotLoaded()
+        {
+            Assert.assertNull(key);
+            Assert.assertNull(consumer);
         }
     }
 }
