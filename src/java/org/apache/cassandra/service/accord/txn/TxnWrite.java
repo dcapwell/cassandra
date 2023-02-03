@@ -31,9 +31,10 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Iterables;
 
 import accord.api.DataStore;
-import accord.api.Key;
 import accord.api.Write;
+import accord.impl.CommandsForKey;
 import accord.local.SafeCommandStore;
+import accord.primitives.RoutableKey;
 import accord.primitives.Seekable;
 import accord.primitives.Timestamp;
 import accord.primitives.Writes;
@@ -53,8 +54,6 @@ import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.schema.ColumnMetadata;
-import org.apache.cassandra.service.accord.AccordCommandStore.SafeAccordCommandStore;
-import org.apache.cassandra.service.accord.AccordCommandsForKey;
 import org.apache.cassandra.service.accord.api.PartitionKey;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.ObjectSizes;
@@ -345,10 +344,11 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
     @Override
     public AsyncChain<Void> apply(Seekable key, SafeCommandStore safeStore, Timestamp executeAt, DataStore store)
     {
-        AccordCommandsForKey cfk = ((SafeAccordCommandStore) safeStore).commandsForKey((Key)key);
         // TODO (expected, efficiency): 99.9999% of the time we can just use executeAt.hlc(), so can avoid bringing
         //  cfk into memory by retaining at all times in memory key ranges that are dirty and must use this logic;
         //  any that aren't can just use executeAt.hlc
+        CommandsForKey cfk = safeStore.commandsForKey((RoutableKey) key);
+        cfk = CommandsForKey.updateLastExecutionTimestamps(cfk, safeStore, executeAt, true);
         long timestamp = cfk.timestampMicrosFor(executeAt, true);
         // TODO (low priority - do we need to compute nowInSeconds, or can we just use executeAt?)
         int nowInSeconds = cfk.nowInSecondsFor(executeAt, true);

@@ -24,19 +24,26 @@ import java.util.function.Function;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
+import accord.impl.CommandsForKey;
+import accord.local.Command;
 import accord.local.CommandStore;
+import accord.local.ContextValue;
+import accord.local.ImmutableState;
+import accord.local.PostExecuteContext;
+import accord.local.PreExecuteContext;
 import accord.local.PreLoadContext;
 import accord.local.SafeCommandStore;
+import accord.primitives.RoutableKey;
 import accord.primitives.Seekables;
 import accord.primitives.TxnId;
 import accord.utils.async.AsyncChains;
 import org.apache.cassandra.service.accord.AccordCommandStore;
-import org.apache.cassandra.service.accord.AccordCommandStore.SafeAccordCommandStore;
-import org.apache.cassandra.service.accord.api.PartitionKey;
+import org.apache.cassandra.service.accord.AccordStateCache;
 
 public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements Runnable, Function<SafeCommandStore, R>
 {
@@ -61,16 +68,13 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
         FAILED
     }
 
-    public interface Context
-    {
-
-    }
-
     private State state = State.INITIALIZED;
     private final AccordCommandStore commandStore;
+    private final PreLoadContext preLoadContext;
+    private PreExecuteContext preExecuteContext;
+    private PostExecuteContext postExecuteContext;
     private final AsyncLoader loader;
     private final AsyncWriter writer;
-    private final AsyncContext context = new AsyncContext();
     private R result;
     private final String loggingId;
     private BiConsumer<? super R, Throwable> callback;
@@ -87,11 +91,12 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
         MDC.remove(LoggingProps.ASYNC_OPERATION);
     }
 
-    public AsyncOperation(AccordCommandStore commandStore, Iterable<TxnId> commandsToLoad, Iterable<PartitionKey> keyCommandsToLoad)
+    public AsyncOperation(AccordCommandStore commandStore, PreLoadContext preLoadContext)
     {
         this.loggingId = "0x" + Integer.toHexString(System.identityHashCode(this));
         this.commandStore = commandStore;
-        this.loader = createAsyncLoader(commandStore, commandsToLoad, keyCommandsToLoad);
+        this.preLoadContext = preLoadContext;
+        this.loader = createAsyncLoader(commandStore, preLoadContext);
         setLoggingIds();
         this.writer = createAsyncWriter(commandStore);
         logger.trace("Created {} on {}", this, commandStore);
@@ -109,9 +114,9 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
         return new AsyncWriter(commandStore);
     }
 
-    AsyncLoader createAsyncLoader(AccordCommandStore commandStore, Iterable<TxnId> txnIds, Iterable<PartitionKey> keys)
+    AsyncLoader createAsyncLoader(AccordCommandStore commandStore, PreLoadContext preLoadContext)
     {
-        return new AsyncLoader(commandStore, txnIds, keys);
+        return new AsyncLoader(commandStore, preLoadContext.txnIds(), toRoutableKeys(preLoadContext.keys()));
     }
 
     @VisibleForTesting
@@ -152,30 +157,80 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
         state = State.FAILED;
     }
 
+    private static PreExecuteContext preExecuteContext(PreLoadContext preLoadContext,
+                                                       AccordStateCache.Instance<TxnId, Command> commandCache,
+                                                       AccordStateCache.Instance<RoutableKey, CommandsForKey> cfkCache)
+    {
+        ImmutableMap<TxnId, Command> ctxCommands = commandCache.getActive(preLoadContext.txnIds());
+        ImmutableMap<RoutableKey, CommandsForKey> ctxCommandsForKey = cfkCache.getActive(toRoutableKeys(preLoadContext.keys()));
+        return new PreExecuteContext()
+        {
+            @Override
+            public ImmutableMap<TxnId, Command> commands()
+            {
+                return ctxCommands;
+            }
+
+            @Override
+            public ImmutableMap<RoutableKey, CommandsForKey> commandsForKey()
+            {
+                return ctxCommandsForKey;
+            }
+
+            @Override
+            public Iterable<TxnId> txnIds()
+            {
+                return preLoadContext.txnIds();
+            }
+
+            @Override
+            public Seekables<?, ?> keys()
+            {
+                return preLoadContext.keys();
+            }
+        };
+    }
+
+    private static <K, V extends ImmutableState> void releaseResources(AccordStateCache.Instance<K, V> cache,
+                                                                       java.util.Map<K, ContextValue<V>> values)
+    {
+         values.forEach((key, value) -> {
+             cache.release(key, value.original(), value.current());
+         });
+    }
+
+    private void releaseResources()
+    {
+        releaseResources(commandStore.commandCache(), postExecuteContext.commands);
+        releaseResources(commandStore.commandsForKeyCache(), postExecuteContext.commandsForKey);
+    }
+
     protected void runInternal()
     {
-        SafeAccordCommandStore safeStore = commandStore.safeStore(context);
         switch (state)
         {
             case INITIALIZED:
                 state = State.LOADING;
             case LOADING:
-                if (!loader.load(context, this::callback))
+                if (!loader.load(this::callback))
                     return;
 
                 state = State.RUNNING;
+                preExecuteContext = preExecuteContext(preLoadContext, commandStore.commandCache(), commandStore.commandsForKeyCache());
+                SafeCommandStore safeStore = commandStore.beginOperation(preExecuteContext);
                 result = apply(safeStore);
+                postExecuteContext = commandStore.completeOperation(safeStore);
 
                 state = State.SAVING;
             case SAVING:
             case AWAITING_SAVE:
-                boolean updatesPersisted = writer.save(context, this::callback);
+                boolean updatesPersisted = writer.save(postExecuteContext, this::callback);
 
-                if (state != State.AWAITING_SAVE)
+                if (state == State.SAVING)
                 {
                     // with any updates on the way to disk, release resources so operations waiting
                     // to use these objects don't have issues with fields marked as unsaved
-                    context.releaseResources(commandStore);
+                    releaseResources();
                     state = State.AWAITING_SAVE;
                 }
 
@@ -200,7 +255,7 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
         try
         {
             commandStore.checkInStoreThread();
-            commandStore.setContext(context);
+            commandStore.setCurrentOperation(this);
             try
             {
                 runInternal();
@@ -212,7 +267,7 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
             }
             finally
             {
-                commandStore.unsetContext(context);
+                commandStore.unsetCurrentOperation(this);
             }
         }
         finally
@@ -230,13 +285,13 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
         commandStore.executor().submit(this);
     }
 
-    private static Iterable<PartitionKey> toPartitionKeys(Seekables<?, ?> keys)
+    private static Iterable<RoutableKey> toRoutableKeys(Seekables<?, ?> keys)
     {
         switch (keys.domain())
         {
             default: throw new AssertionError();
             case Key:
-                return (Iterable<PartitionKey>) keys;
+                return (Iterable<RoutableKey>) keys;
             case Range:
                 // TODO (required): implement
                 throw new UnsupportedOperationException();
@@ -247,9 +302,9 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
     {
         private final Function<? super SafeCommandStore, R> function;
 
-        public ForFunction(AccordCommandStore commandStore, Iterable<TxnId> txnIds, Iterable<PartitionKey> keys, Function<? super SafeCommandStore, R> function)
+        public ForFunction(AccordCommandStore commandStore, PreLoadContext loadCtx, Function<? super SafeCommandStore, R> function)
         {
-            super(commandStore, txnIds, keys);
+            super(commandStore, loadCtx);
             this.function = function;
         }
 
@@ -262,16 +317,16 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
 
     public static <T> AsyncOperation<T> create(CommandStore commandStore, PreLoadContext loadCtx, Function<? super SafeCommandStore, T> function)
     {
-        return new ForFunction<>((AccordCommandStore) commandStore, loadCtx.txnIds(), AsyncOperation.toPartitionKeys(loadCtx.keys()), function);
+        return new ForFunction<>((AccordCommandStore) commandStore, loadCtx, function);
     }
 
     static class ForConsumer extends AsyncOperation<Void>
     {
         private final Consumer<? super SafeCommandStore> consumer;
 
-        public ForConsumer(AccordCommandStore commandStore, Iterable<TxnId> txnIds, Iterable<PartitionKey> keys, Consumer<? super SafeCommandStore> consumer)
+        public ForConsumer(AccordCommandStore commandStore, PreLoadContext loadCtx, Consumer<? super SafeCommandStore> consumer)
         {
-            super(commandStore, txnIds, keys);
+            super(commandStore, loadCtx);
             this.consumer = consumer;
         }
 
@@ -285,6 +340,6 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
 
     public static AsyncOperation<Void> create(CommandStore commandStore, PreLoadContext loadCtx, Consumer<? super SafeCommandStore> consumer)
     {
-        return new ForConsumer((AccordCommandStore) commandStore, loadCtx.txnIds(), AsyncOperation.toPartitionKeys(loadCtx.keys()), consumer);
+        return new ForConsumer((AccordCommandStore) commandStore, loadCtx, consumer);
     }
 }

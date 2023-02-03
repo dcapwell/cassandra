@@ -26,6 +26,7 @@ import org.junit.Test;
 
 import accord.api.Key;
 import accord.api.RoutingKey;
+import accord.impl.CommandsForKey;
 import accord.local.Command;
 import accord.local.Node;
 import accord.local.PreLoadContext;
@@ -47,7 +48,6 @@ import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.StorageService;
-import org.apache.cassandra.service.accord.AccordCommandStore.SafeAccordCommandStore;
 import org.apache.cassandra.service.accord.api.PartitionKey;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
@@ -85,7 +85,7 @@ public class AccordCommandTest
     public void basicCycleTest()
     {
         AccordCommandStore commandStore = createAccordCommandStore(clock::incrementAndGet, "ks", "tbl");
-        awaitUninterruptibly(commandStore.execute(PreLoadContext.empty(), instance -> { ((SafeAccordCommandStore) instance).commandStore().setCacheSize(0); }));
+        awaitUninterruptibly(commandStore.execute(PreLoadContext.empty(), unused -> commandStore.setCacheSize(0)));
 
 
         TxnId txnId = txnId(1, clock.incrementAndGet(), 1);
@@ -110,9 +110,9 @@ public class AccordCommandTest
             Command command = instance.command(txnId);
             Assert.assertEquals(txnId, command.executeAt());
             Assert.assertEquals(Status.PreAccepted, command.status());
-            Assert.assertTrue(command.partialDeps().isEmpty());
+            Assert.assertTrue(command.partialDeps() == null || command.partialDeps().isEmpty());
 
-            AccordCommandsForKey cfk = ((SafeAccordCommandStore)instance).commandsForKey(key(1));
+            CommandsForKey cfk = instance.commandsForKey(key(1));
             Assert.assertEquals(txnId, cfk.max());
             Assert.assertNotNull((cfk.byId()).get(txnId));
             Assert.assertNotNull((cfk.byExecuteAt()).get(txnId));
@@ -141,7 +141,7 @@ public class AccordCommandTest
             Assert.assertEquals(Status.Accepted, command.status());
             Assert.assertEquals(deps, command.partialDeps());
 
-            AccordCommandsForKey cfk = ((SafeAccordCommandStore)instance).commandsForKey(key(1));
+            CommandsForKey cfk = instance.commandsForKey(key(1));
             Assert.assertEquals(executeAt, cfk.max());
             Assert.assertNotNull((cfk.byId()).get(txnId));
             Assert.assertNotNull((cfk.byExecuteAt()).get(txnId));
@@ -157,7 +157,7 @@ public class AccordCommandTest
             Assert.assertTrue(command.hasBeen(Status.Committed));
             Assert.assertEquals(commit.partialDeps, command.partialDeps());
 
-            AccordCommandsForKey cfk = ((SafeAccordCommandStore)instance).commandsForKey(key(1));
+            CommandsForKey cfk = instance.commandsForKey(key(1));
             Assert.assertNotNull((cfk.byId()).get(txnId));
             Assert.assertNotNull((cfk.byExecuteAt()).get(commit.executeAt));
         }));
@@ -167,7 +167,7 @@ public class AccordCommandTest
     public void computeDeps() throws Throwable
     {
         AccordCommandStore commandStore = createAccordCommandStore(clock::incrementAndGet, "ks", "tbl");
-        awaitUninterruptibly(commandStore.execute(PreLoadContext.empty(), instance -> { ((SafeAccordCommandStore) instance).commandStore().setCacheSize(0); }));
+        awaitUninterruptibly(commandStore.execute(PreLoadContext.empty(), unused -> commandStore.setCacheSize(0)));
 
         TxnId txnId1 = txnId(1, clock.incrementAndGet(), 1);
         Txn txn = createTxn(2);
