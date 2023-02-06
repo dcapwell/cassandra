@@ -21,7 +21,6 @@ package org.apache.cassandra.service.accord.serializers;
 import java.io.IOException;
 
 import accord.messages.Apply;
-import accord.primitives.Keys;
 import accord.primitives.PartialRoute;
 import accord.primitives.TxnId;
 import org.apache.cassandra.db.TypeSizes;
