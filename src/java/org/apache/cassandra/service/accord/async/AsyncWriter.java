@@ -29,8 +29,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import accord.impl.CommandsForKey;
-import accord.primitives.Seekable;
-import accord.primitives.Timestamp;
 import accord.local.Command;
 import accord.local.ContextValue;
 import accord.local.ImmutableState;
@@ -47,8 +45,6 @@ import org.apache.cassandra.service.accord.AccordKeyspace;
 import org.apache.cassandra.service.accord.AccordStateCache;
 
 import static accord.utils.async.AsyncResults.ofRunnable;
-
-import static accord.primitives.Routable.Domain.Range;
 
 public class AsyncWriter
 {
