@@ -103,7 +103,7 @@ public class AccordCommandStore extends CommandStore
         this.commandsForKeyCache = stateCache.instance(RoutableKey.class, CommandsForKey.class, AccordCommandsForKeys.ITEM_ACCESSOR);
     }
 
-    void setCacheSize(long bytes)
+    public void setCacheSize(long bytes)
     {
         checkInStoreThread();
         stateCache.setMaxSize(bytes);

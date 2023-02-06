@@ -77,6 +77,8 @@ public class AsyncLoaderTest
         AtomicLong clock = new AtomicLong(0);
         AccordCommandStore commandStore = createAccordCommandStore(clock::incrementAndGet, "ks", "tbl");
         AccordStateCache.Instance<TxnId, Command> commandCache = commandStore.commandCache();
+        commandStore.executeBlocking(() -> commandStore.setCacheSize(1024));
+
         AccordStateCache.Instance<RoutableKey, CommandsForKey> cfkCache = commandStore.commandsForKeyCache();
         TxnId txnId = txnId(1, clock.incrementAndGet(), 1);
         PartialTxn txn = createPartialTxn(0);
