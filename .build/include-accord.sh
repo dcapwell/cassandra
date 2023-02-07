@@ -24,16 +24,9 @@ set -o nounset
 
 bin="$(cd "$(dirname "$0")" > /dev/null; pwd)"
 
-accord_repo='https://github.com/apache/cassandra-accord.git'
-accord_branch='1230eceb077c928123e6bf848a103964fe90c9f7'
+accord_repo='https://github.com/bdeggleston/cassandra-accord.git'
+accord_sha='8842fc3332b07eb3b66e08c22452f10f682f6503'
 accord_src="$bin/cassandra-accord"
-
-checkout() {
-  cd "$accord_src"
-    git checkout "$accord_branch"
-    echo "$accord_branch" > .BRANCH
-  cd -
-}
 
 _main() {
   # have we already cloned?
@@ -41,16 +34,17 @@ _main() {
     rm -rf "$accord_src" || true
     git clone "$accord_repo" "$accord_src"
     echo "$accord_repo" > "$accord_src/.REPO"
-    checkout
-  fi
-  if [[ $(cat "$accord_src"/.BRANCH || true) != "$accord_branch" ]]; then
-    checkout
   fi
   cd "$accord_src"
-  # are there changes?
-  git pull --rebase origin "$accord_branch"
-  if [[ $(git rev-parse HEAD) != $(cat .SHA || true) ]]; then
-    ./gradlew clean install -x test
+  # switch to target SHA
+  git fetch origin # check for changes
+  local current_sha
+  current_sha="$(git rev-parse HEAD)"
+  if [[ "$current_sha" != "$accord_sha" ]]; then
+    git checkout "$accord_sha"
+  fi
+  if [[ "$accord_sha" != $(cat .SHA || true) ]]; then
+    ./gradlew clean install -x test -x rat
     git rev-parse HEAD > .SHA
   fi
 }
