@@ -45,6 +45,7 @@ import accord.impl.InMemoryCommandStore;
 import accord.local.Command;
 import accord.local.CommandStores;
 import accord.local.CommandListener;
+import accord.local.CommonAttributes;
 import accord.local.Node;
 import accord.local.Node.Id;
 import accord.local.NodeTimeService;
@@ -95,126 +96,54 @@ public class AccordTestUtils
         return EndpointMapping.endpointToId(FBUtilities.getBroadcastAddressAndPort());
     }
 
-    public static class CommandAttributes implements Command.CommonAttributes
-    {
-        private final TxnId txnId;
-        private Txn.Kind kind;
-        private Status.Durability durability;
-        private RoutingKey homeKey;
-        private RoutingKey progressKey;
-        private Route<?> route;
-        private PartialTxn partialTxn;
-        private PartialDeps partialDeps;
-        private ImmutableSet<CommandListener> listeners;
-
-        public CommandAttributes(TxnId txnId) { this.txnId = txnId; }
-
-        @Override public TxnId txnId() { return txnId; }
-        @Override public Status.Durability durability() { return durability; }
-        @Override public RoutingKey homeKey() { return homeKey; }
-        @Override public RoutingKey progressKey() { return progressKey; }
-        @Override public Route<?> route() { return route; }
-        @Override public PartialTxn partialTxn() { return partialTxn; }
-        @Override public PartialDeps partialDeps() { return partialDeps; }
-        @Override public ImmutableSet<CommandListener> listeners() { return listeners; }
-
-        public CommandAttributes kind(Txn.Kind kind)
-        {
-            this.kind = kind;
-            return this;
-        }
-
-        public CommandAttributes durability(Status.Durability durability)
-        {
-            this.durability = durability;
-            return this;
-        }
-
-        public CommandAttributes homeKey(RoutingKey homeKey)
-        {
-            this.homeKey = homeKey;
-            return this;
-        }
-
-        public CommandAttributes progressKey(RoutingKey progressKey)
-        {
-            this.progressKey = progressKey;
-            return this;
-        }
-
-        public CommandAttributes route(Route<?> route)
-        {
-            this.route = route;
-            return this;
-        }
-
-        public CommandAttributes partialTxn(PartialTxn partialTxn)
-        {
-            this.partialTxn = partialTxn;
-            return this;
-        }
-
-        public CommandAttributes partialDeps(PartialDeps partialDeps)
-        {
-            this.partialDeps = partialDeps;
-            return this;
-        }
-
-        public CommandAttributes listeners(ImmutableSet<CommandListener> listeners)
-        {
-            this.listeners = listeners;
-            return this;
-        }
-    }
-
     public static class Commands
     {
-        public static Command notWitnessed(TxnId txnId, PartialTxn txn)
+        public static AccordLiveCommand notWitnessed(TxnId txnId, PartialTxn txn)
         {
-            CommandAttributes attrs = new CommandAttributes(txnId);
+            CommonAttributes.Mutable attrs = new CommonAttributes.Mutable(txnId);
             attrs.partialTxn(txn);
-            return Command.SerializerSupport.notWitnessed(attrs, Ballot.ZERO);
+            return new AccordLiveCommand(Command.SerializerSupport.notWitnessed(attrs, Ballot.ZERO));
         }
 
-        public static Command preaccepted(TxnId txnId, PartialTxn txn, Timestamp executeAt)
+        public static AccordLiveCommand preaccepted(TxnId txnId, PartialTxn txn, Timestamp executeAt)
         {
-            CommandAttributes attrs = new CommandAttributes(txnId);
+            CommonAttributes.Mutable attrs = new CommonAttributes.Mutable(txnId);
             attrs.partialTxn(txn);
-            return Command.SerializerSupport.preaccepted(attrs, executeAt, Ballot.ZERO);
+            return new AccordLiveCommand(Command.SerializerSupport.preaccepted(attrs, executeAt, Ballot.ZERO));
         }
 
-        public static Command committed(TxnId txnId, PartialTxn txn, Timestamp executeAt)
+        public static AccordLiveCommand committed(TxnId txnId, PartialTxn txn, Timestamp executeAt)
         {
-            CommandAttributes attrs = new CommandAttributes(txnId);
+            CommonAttributes.Mutable attrs = new CommonAttributes.Mutable(txnId);
             attrs.partialTxn(txn);
-            return Command.SerializerSupport.committed(attrs,
-                                                       SaveStatus.Committed,
-                                                       executeAt,
-                                                       Ballot.ZERO,
-                                                       Ballot.ZERO,
-                                                       ImmutableSortedSet.of(),
-                                                       ImmutableSortedMap.of());
+            return new AccordLiveCommand(Command.SerializerSupport.committed(attrs,
+                                                                             SaveStatus.Committed,
+                                                                             executeAt,
+                                                                             Ballot.ZERO,
+                                                                             Ballot.ZERO,
+                                                                             ImmutableSortedSet.of(),
+                                                                             ImmutableSortedMap.of()));
         }
     }
 
-    public static CommandsForKey commandsForKey(Key key)
+    public static AccordLiveCommandsForKey commandsForKey(Key key)
     {
-        return new CommandsForKey(key, CommandsForKeySerializer.loader);
+        return new AccordLiveCommandsForKey(new CommandsForKey(key, CommandsForKeySerializer.loader));
     }
 
     public static final ProgressLog NOOP_PROGRESS_LOG = new ProgressLog()
     {
-        @Override public void unwitnessed(TxnId txnId, RoutingKey homeKey, ProgressShard shard) {}
-        @Override public void preaccepted(SafeCommandStore safeStore, TxnId txnId, ProgressShard shard) {}
-        @Override public void accepted(SafeCommandStore safeStore, TxnId txnId, ProgressShard shard) {}
-        @Override public void committed(SafeCommandStore safeStore, TxnId txnId, ProgressShard shard) {}
-        @Override public void readyToExecute(SafeCommandStore safeStore, TxnId txnId, ProgressShard shard) {}
-        @Override public void executed(SafeCommandStore safeStore, TxnId txnId, ProgressShard shard) {}
-        @Override public void invalidated(SafeCommandStore safeStore, TxnId txnId, ProgressShard shard) {}
+        @Override public void unwitnessed(TxnId txnId, RoutingKey routingKey, ProgressShard progressShard) {}
+        @Override public void preaccepted(Command command, ProgressShard progressShard) {}
+        @Override public void accepted(Command command, ProgressShard progressShard) {}
+        @Override public void committed(Command command, ProgressShard progressShard) {}
+        @Override public void readyToExecute(Command command, ProgressShard progressShard) {}
+        @Override public void executed(Command command, ProgressShard progressShard) {}
+        @Override public void invalidated(Command command, ProgressShard progressShard) {}
         @Override public void durableLocal(TxnId txnId) {}
-        @Override public void durable(SafeCommandStore safeStore, TxnId txnId, @Nullable Set<Id> persistedOn) {}
-        @Override public void durable(TxnId txnId, @Nullable Unseekables<?, ?> unseekables, ProgressShard shard) {}
-        @Override public void waiting(TxnId blockedBy, Known blockedUntil, Unseekables<?, ?> blockedOn) {}
+        @Override public void durable(Command command, @Nullable Set<Id> set) {}
+        @Override public void durable(TxnId txnId, @Nullable Unseekables<?, ?> unseekables, ProgressShard progressShard) {}
+        @Override public void waiting(TxnId txnId, Known known, Unseekables<?, ?> unseekables) {}
     };
 
     public static TxnId txnId(long epoch, long hlc, long node)

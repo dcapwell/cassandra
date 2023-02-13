@@ -49,6 +49,7 @@ import accord.impl.CommandsForKey.CommandTimeseries;
 import accord.local.Command;
 import accord.local.CommandListener;
 import accord.local.CommandStore;
+import accord.local.CommonAttributes;
 import accord.local.Node;
 import accord.local.SaveStatus;
 import accord.local.Status;
@@ -484,17 +485,13 @@ public class AccordKeyspace
     }
 
 
-    public static Mutation getCommandMutation(AccordCommandStore commandStore, Command original, Command command, long timestampMicros)
+    public static Mutation getCommandMutation(AccordCommandStore commandStore, AccordLiveCommand liveCommand, long timestampMicros)
     {
         try
         {
+            Command command = liveCommand.current();
+            Command original = liveCommand.original();
             Preconditions.checkArgument(original != command);
-            if (original != null)
-            {
-                original.checkIsSuperseded();
-                original.markCleaningUp();
-            }
-            command.checkIsActive();
 
             Row.Builder builder = BTreeRow.unsortedBuilder();
             builder.newRow(Clustering.EMPTY);
@@ -539,11 +536,6 @@ public class AccordKeyspace
         catch (IOException e)
         {
             throw new RuntimeException(e);
-        }
-        finally
-        {
-            if (original != null)
-                original.markInvalidated();
         }
     }
 
@@ -612,31 +604,12 @@ public class AccordKeyspace
                                    txnId.msb, txnId.lsb, txnId.node.id);
     }
 
-    public static class CommandAttributes implements Command.CommonAttributes
+    private static AccordLiveCommand liveCommand(Command command)
     {
-        private final TxnId txnId;
-        private Txn.Kind kind;
-        private Status.Durability durability;
-        private RoutingKey homeKey;
-        private RoutingKey progressKey;
-        private Route<?> route;
-        private PartialTxn partialTxn;
-        private PartialDeps partialDeps;
-        private ImmutableSet<CommandListener> listeners;
-
-        public CommandAttributes(TxnId txnId) { this.txnId = txnId; }
-
-        @Override public TxnId txnId() { return txnId; }
-        @Override public Status.Durability durability() { return durability; }
-        @Override public RoutingKey homeKey() { return homeKey; }
-        @Override public RoutingKey progressKey() { return progressKey; }
-        @Override public Route<?> route() { return route; }
-        @Override public PartialTxn partialTxn() { return partialTxn; }
-        @Override public PartialDeps partialDeps() { return partialDeps; }
-        @Override public ImmutableSet<CommandListener> listeners() { return listeners; }
+        return new AccordLiveCommand(command);
     }
 
-    public static Command loadCommand(AccordCommandStore commandStore, TxnId txnId)
+    public static AccordLiveCommand loadCommand(AccordCommandStore commandStore, TxnId txnId)
     {
         commandStore.checkNotInStoreThread();
 
@@ -644,7 +617,7 @@ public class AccordKeyspace
 
         if (rows.isEmpty())
         {
-            return Command.EMPTY;
+            return new AccordLiveCommand(txnId);
         }
 
         try
@@ -652,15 +625,15 @@ public class AccordKeyspace
             UntypedResultSet.Row row = rows.one();
             Preconditions.checkState(deserializeTimestampOrNull(row, "txn_id", TxnId::fromBits).equals(txnId));
             SaveStatus status = SaveStatus.values()[row.getInt("status")];
-            CommandAttributes attributes = new CommandAttributes(txnId);
+            CommonAttributes.Mutable attributes = new CommonAttributes.Mutable(txnId);
             // TODO: something less brittle than ordinal, more efficient than values()
-            attributes.durability = Status.Durability.values()[row.getInt("durability", 0)];
-            attributes.homeKey = deserializeOrNull(row.getBlob("home_key"), CommandsSerializers.routingKey);
-            attributes.progressKey = deserializeOrNull(row.getBlob("progress_key"), CommandsSerializers.routingKey);
-            attributes.route = deserializeOrNull(row.getBlob("route"), CommandsSerializers.route);
-            attributes.partialTxn = deserializeOrNull(row.getBlob("txn"), CommandsSerializers.partialTxn);
-            attributes.partialDeps = deserializeOrNull(row.getBlob("dependencies"), CommandsSerializers.partialDeps);
-            attributes.listeners = deserializeListeners(row, "listeners");
+            attributes.durability(Status.Durability.values()[row.getInt("durability", 0)]);
+            attributes.homeKey(deserializeOrNull(row.getBlob("home_key"), CommandsSerializers.routingKey));
+            attributes.progressKey(deserializeOrNull(row.getBlob("progress_key"), CommandsSerializers.routingKey));
+            attributes.route(deserializeOrNull(row.getBlob("route"), CommandsSerializers.route));
+            attributes.partialTxn(deserializeOrNull(row.getBlob("txn"), CommandsSerializers.partialTxn));
+            attributes.partialDeps(deserializeOrNull(row.getBlob("dependencies"), CommandsSerializers.partialDeps));
+            attributes.setListeners(deserializeListeners(row, "listeners"));
 
             Timestamp executeAt = deserializeTimestampOrNull(row, "execute_at", Timestamp::fromBits);
             Ballot promised = deserializeTimestampOrNull(row, "promised_ballot", Ballot::fromBits);
@@ -673,21 +646,21 @@ public class AccordKeyspace
             switch (status)
             {
                 case NotWitnessed:
-                    return Command.SerializerSupport.notWitnessed(attributes, promised);
+                    return liveCommand(Command.SerializerSupport.notWitnessed(attributes, promised));
                 case PreAccepted:
-                    return Command.SerializerSupport.preaccepted(attributes, executeAt, promised);
+                    return liveCommand(Command.SerializerSupport.preaccepted(attributes, executeAt, promised));
                 case AcceptedInvalidate:
                 case AcceptedInvalidateWithDefinition:
                 case Accepted:
                 case AcceptedWithDefinition:
-                    return Command.SerializerSupport.accepted(attributes, status, executeAt, promised, accepted);
+                    return liveCommand(Command.SerializerSupport.accepted(attributes, status, executeAt, promised, accepted));
                 case Committed:
                 case ReadyToExecute:
-                    return Command.SerializerSupport.committed(attributes, status, executeAt, promised, accepted, waitingOnCommit, waitingOnApply);
+                    return liveCommand(Command.SerializerSupport.committed(attributes, status, executeAt, promised, accepted, waitingOnCommit, waitingOnApply));
                 case PreApplied:
                 case Applied:
                 case Invalidated:
-                    return Command.SerializerSupport.executed(attributes, status, executeAt, promised, accepted, waitingOnCommit, waitingOnApply, writes, result);
+                    return liveCommand(Command.SerializerSupport.executed(attributes, status, executeAt, promised, accepted, waitingOnCommit, waitingOnApply, writes, result));
                 default:
                     throw new IllegalStateException("Unhandled status " + status);
             }
@@ -758,17 +731,13 @@ public class AccordKeyspace
         return makeKey(commandStore, (PartitionKey) cfk.key());
     }
 
-    public static Mutation getCommandsForKeyMutation(AccordCommandStore commandStore, CommandsForKey original, CommandsForKey cfk, long timestampMicros)
+    public static Mutation getCommandsForKeyMutation(AccordCommandStore commandStore, AccordLiveCommandsForKey liveCfk, long timestampMicros)
     {
         try
         {
+            CommandsForKey cfk = liveCfk.current();
+            CommandsForKey original = liveCfk.original();
             Preconditions.checkArgument(original != cfk);
-            if (original != null)
-            {
-                original.checkIsSuperseded();
-                original.markCleaningUp();
-            }
-            cfk.checkIsActive();
             // TODO: convert to byte arrays
             ValueAccessor<ByteBuffer> accessor = ByteBufferAccessor.instance;
 
@@ -805,11 +774,6 @@ public class AccordKeyspace
         {
             throw new RuntimeException(e);
         }
-        finally
-        {
-            if (original != null)
-                original.markInvalidated();
-        }
     }
 
     private static <T> ByteBuffer cellValue(Cell<T> cell)
@@ -839,7 +803,7 @@ public class AccordKeyspace
                                                  FULL_PARTITION);
     }
 
-    public static CommandsForKey loadCommandsForKey(AccordCommandStore commandStore, PartitionKey key)
+    public static AccordLiveCommandsForKey loadCommandsForKey(AccordCommandStore commandStore, PartitionKey key)
     {
         commandStore.checkNotInStoreThread();
         long timestampMicros = TimeUnit.MILLISECONDS.toMicros(Clock.Global.currentTimeMillis());
@@ -856,7 +820,7 @@ public class AccordKeyspace
         {
             if (!partitions.hasNext())
             {
-                return CommandsForKey.EMPTY;
+                return new AccordLiveCommandsForKey(key);
             }
 
             Timestamp max = Timestamp.NONE;
@@ -891,10 +855,11 @@ public class AccordKeyspace
             }
             Preconditions.checkState(!partitions.hasNext());
 
-            return CommandsForKey.SerializerSupport.create(key, max, lastExecutedTimestamp, lastExecutedMicros, lastWriteTimestamp,
-                                                           CommandsForKeySerializer.loader,
-                                                           seriesMaps.get(SeriesKind.BY_ID).build(),
-                                                           seriesMaps.get(SeriesKind.BY_EXECUTE_AT).build());
+            CommandsForKey loaded = CommandsForKey.SerializerSupport.create(key, max, lastExecutedTimestamp, lastExecutedMicros, lastWriteTimestamp,
+                                                                            CommandsForKeySerializer.loader,
+                                                                            seriesMaps.get(SeriesKind.BY_ID).build(),
+                                                                            seriesMaps.get(SeriesKind.BY_EXECUTE_AT).build());
+            return new AccordLiveCommandsForKey(loaded);
         }
         catch (Throwable t)
         {

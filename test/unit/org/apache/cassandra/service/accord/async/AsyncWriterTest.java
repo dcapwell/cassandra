@@ -21,11 +21,11 @@ package org.apache.cassandra.service.accord.async;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 
-import accord.local.PostExecuteContext;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.service.accord.AccordCommandStore;
+import org.apache.cassandra.service.accord.AccordSafeCommandStore;
 
 import static org.apache.cassandra.cql3.statements.schema.CreateTableStatement.parse;
 import static org.apache.cassandra.service.accord.AccordTestUtils.execute;
@@ -41,13 +41,13 @@ public class AsyncWriterTest
         StorageService.instance.initServer();
     }
 
-    private static void save(AccordCommandStore commandStore, PostExecuteContext context)
+    private static void save(AccordCommandStore commandStore, AccordSafeCommandStore safeStore)
     {
         execute(commandStore, () -> {
             AsyncWriter writer = new AsyncWriter(commandStore);
             while (true)
             {
-                if (writer.save(context, (o, t) -> Assert.assertNull(t)))
+                if (writer.save(safeStore, (o, t) -> Assert.assertNull(t)))
                     break;
             }
         });

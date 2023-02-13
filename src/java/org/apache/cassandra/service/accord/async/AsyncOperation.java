@@ -24,25 +24,19 @@ import java.util.function.Function;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
-import accord.impl.CommandsForKey;
-import accord.local.Command;
 import accord.local.CommandStore;
-import accord.local.ContextValue;
-import accord.local.ImmutableState;
-import accord.local.PostExecuteContext;
-import accord.local.PreExecuteContext;
 import accord.local.PreLoadContext;
 import accord.local.SafeCommandStore;
 import accord.primitives.RoutableKey;
 import accord.primitives.Seekables;
-import accord.primitives.TxnId;
 import accord.utils.async.AsyncChains;
 import org.apache.cassandra.service.accord.AccordCommandStore;
+import org.apache.cassandra.service.accord.AccordLiveState;
+import org.apache.cassandra.service.accord.AccordSafeCommandStore;
 import org.apache.cassandra.service.accord.AccordStateCache;
 
 public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements Runnable, Function<SafeCommandStore, R>
@@ -71,8 +65,7 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
     private State state = State.INITIALIZED;
     private final AccordCommandStore commandStore;
     private final PreLoadContext preLoadContext;
-    private PreExecuteContext preExecuteContext;
-    private PostExecuteContext postExecuteContext;
+    private AccordSafeCommandStore safeStore;
     private final AsyncLoader loader;
     private final AsyncWriter writer;
     private R result;
@@ -157,52 +150,15 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
         state = State.FAILED;
     }
 
-    private static PreExecuteContext preExecuteContext(PreLoadContext preLoadContext,
-                                                       AccordStateCache.Instance<TxnId, Command> commandCache,
-                                                       AccordStateCache.Instance<RoutableKey, CommandsForKey> cfkCache)
+    private static <K, V extends AccordLiveState<?>> void releaseResources(AccordStateCache.Instance<K, V> cache, java.util.Map<K, V> values)
     {
-        ImmutableMap<TxnId, Command> ctxCommands = commandCache.getActive(preLoadContext.txnIds());
-        ImmutableMap<RoutableKey, CommandsForKey> ctxCommandsForKey = cfkCache.getActive(toRoutableKeys(preLoadContext.keys()));
-        return new PreExecuteContext()
-        {
-            @Override
-            public ImmutableMap<TxnId, Command> commands()
-            {
-                return ctxCommands;
-            }
-
-            @Override
-            public ImmutableMap<RoutableKey, CommandsForKey> commandsForKey()
-            {
-                return ctxCommandsForKey;
-            }
-
-            @Override
-            public Iterable<TxnId> txnIds()
-            {
-                return preLoadContext.txnIds();
-            }
-
-            @Override
-            public Seekables<?, ?> keys()
-            {
-                return preLoadContext.keys();
-            }
-        };
-    }
-
-    private static <K, V extends ImmutableState> void releaseResources(AccordStateCache.Instance<K, V> cache,
-                                                                       java.util.Map<K, ContextValue<V>> values)
-    {
-         values.forEach((key, value) -> {
-             cache.release(key, value.original(), value.current());
-         });
+         values.forEach(cache::release);
     }
 
     private void releaseResources()
     {
-        releaseResources(commandStore.commandCache(), postExecuteContext.commands);
-        releaseResources(commandStore.commandsForKeyCache(), postExecuteContext.commandsForKey);
+        releaseResources(commandStore.commandCache(), safeStore.commands());
+        releaseResources(commandStore.commandsForKeyCache(), safeStore.commandsForKey());
     }
 
     protected void runInternal()
@@ -216,15 +172,16 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
                     return;
 
                 state = State.RUNNING;
-                preExecuteContext = preExecuteContext(preLoadContext, commandStore.commandCache(), commandStore.commandsForKeyCache());
-                SafeCommandStore safeStore = commandStore.beginOperation(preExecuteContext);
+                safeStore = commandStore.beginOperation(preLoadContext,
+                                                        commandStore.commandCache().getActive(preLoadContext.txnIds()),
+                                                        commandStore.commandsForKeyCache().getActive((Iterable<RoutableKey>) preLoadContext.keys()));
                 result = apply(safeStore);
-                postExecuteContext = commandStore.completeOperation(safeStore);
+                commandStore.completeOperation(safeStore);
 
                 state = State.SAVING;
             case SAVING:
             case AWAITING_SAVE:
-                boolean updatesPersisted = writer.save(postExecuteContext, this::callback);
+                boolean updatesPersisted = writer.save(safeStore, this::callback);
 
                 if (state == State.SAVING)
                 {

@@ -23,6 +23,7 @@ import java.util.stream.IntStream;
 import accord.api.Agent;
 import accord.api.DataStore;
 import accord.api.ProgressLog;
+import accord.local.AsyncCommandStores;
 import accord.local.CommandStores;
 import accord.local.NodeTimeService;
 import accord.local.PreLoadContext;
@@ -79,12 +80,12 @@ public class AccordCommandStores extends CommandStores<AccordCommandStore>
     @Override
     public <O> void mapReduceConsume(PreLoadContext context, Routables<?, ?> keys, long minEpoch, long maxEpoch, MapReduceConsume<? super SafeCommandStore, O> mapReduceConsume)
     {
-        mapReduceConsume(context, keys, minEpoch, maxEpoch, mapReduceConsume, CommandStores.AsyncMapReduceAdapter.instance());
+        mapReduceConsume(context, keys, minEpoch, maxEpoch, mapReduceConsume, AsyncCommandStores.AsyncMapReduceAdapter.instance());
     }
 
     @Override
     public <O> void mapReduceConsume(PreLoadContext context, IntStream commandStoreIds, MapReduceConsume<? super SafeCommandStore, O> mapReduceConsume)
     {
-        mapReduceConsume(context, commandStoreIds, mapReduceConsume, CommandStores.AsyncMapReduceAdapter.instance());
+        mapReduceConsume(context, commandStoreIds, mapReduceConsume, AsyncCommandStores.AsyncMapReduceAdapter.instance());
     }
 }

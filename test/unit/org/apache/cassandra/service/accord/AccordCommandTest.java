@@ -107,12 +107,12 @@ public class AccordCommandTest
         }));
 
         awaitUninterruptibly(commandStore.execute(preAccept, instance -> {
-            Command command = instance.command(txnId);
+            Command command = instance.command(txnId).current();
             Assert.assertEquals(txnId, command.executeAt());
             Assert.assertEquals(Status.PreAccepted, command.status());
             Assert.assertTrue(command.partialDeps() == null || command.partialDeps().isEmpty());
 
-            CommandsForKey cfk = instance.commandsForKey(key(1));
+            CommandsForKey cfk = ((AccordSafeCommandStore) instance).commandsForKey(key(1)).current();
             Assert.assertEquals(txnId, cfk.max());
             Assert.assertNotNull((cfk.byId()).get(txnId));
             Assert.assertNotNull((cfk.byExecuteAt()).get(txnId));
@@ -136,12 +136,12 @@ public class AccordCommandTest
         }));
 
         awaitUninterruptibly(commandStore.execute(accept, instance -> {
-            Command command = instance.command(txnId);
+            Command command = instance.command(txnId).current();
             Assert.assertEquals(executeAt, command.executeAt());
             Assert.assertEquals(Status.Accepted, command.status());
             Assert.assertEquals(deps, command.partialDeps());
 
-            CommandsForKey cfk = instance.commandsForKey(key(1));
+            CommandsForKey cfk = ((AccordSafeCommandStore) instance).commandsForKey(key(1)).current();
             Assert.assertEquals(executeAt, cfk.max());
             Assert.assertNotNull((cfk.byId()).get(txnId));
             Assert.assertNotNull((cfk.byExecuteAt()).get(txnId));
@@ -152,12 +152,12 @@ public class AccordCommandTest
         awaitUninterruptibly(commandStore.execute(commit, commit::apply));
 
         awaitUninterruptibly(commandStore.execute(PreLoadContext.contextFor(txnId, Keys.of(key)), instance -> {
-            Command command = instance.command(txnId);
+            Command command = instance.command(txnId).current();
             Assert.assertEquals(commit.executeAt, command.executeAt());
             Assert.assertTrue(command.hasBeen(Status.Committed));
             Assert.assertEquals(commit.partialDeps, command.partialDeps());
 
-            CommandsForKey cfk = instance.commandsForKey(key(1));
+            CommandsForKey cfk = ((AccordSafeCommandStore) instance).commandsForKey(key(1)).current();
             Assert.assertNotNull((cfk.byId()).get(txnId));
             Assert.assertNotNull((cfk.byExecuteAt()).get(commit.executeAt));
         }));

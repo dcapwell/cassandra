@@ -31,6 +31,7 @@ import accord.api.RoutingKey;
 import accord.impl.CommandsForKey;
 import accord.local.Command;
 import accord.local.CommandListener;
+import accord.local.CommonAttributes;
 import accord.local.Node;
 import accord.local.SaveStatus;
 import accord.primitives.AbstractKeys;
@@ -50,6 +51,7 @@ import accord.primitives.Ranges;
 import accord.primitives.RoutingKeys;
 import accord.primitives.Seekables;
 import accord.primitives.Timestamp;
+import accord.primitives.TxnId;
 import accord.primitives.Unseekables;
 import accord.primitives.Writes;
 import org.apache.cassandra.service.accord.api.PartitionKey;
@@ -243,7 +245,7 @@ public class AccordObjectSizes
     }
 
     private static final long EMPTY_COMMAND_LISTENER = measure(Command.listener(null));
-    private static final long EMPTY_CFK_LISTENER = measure(CommandsForKey.listener(null));
+    private static final long EMPTY_CFK_LISTENER = measure(CommandsForKey.listener((Key) null));
     public static long listener(CommandListener listener)
     {
         if (listener.isTransient())
@@ -257,7 +259,7 @@ public class AccordObjectSizes
 
     private static class CommandEmptySizes
     {
-        private static final AccordKeyspace.CommandAttributes EMPTY_ATTRS = new AccordKeyspace.CommandAttributes(null);
+        private static final CommonAttributes EMPTY_ATTRS = new CommonAttributes.Mutable((TxnId) null);
         final static long NOT_WITNESSED = measure(Command.SerializerSupport.notWitnessed(EMPTY_ATTRS, Ballot.ZERO));
         final static long PREACCEPTED = measure(Command.SerializerSupport.preaccepted(EMPTY_ATTRS, null, null));
         final static long ACCEPTED = measure(Command.SerializerSupport.accepted(EMPTY_ATTRS, SaveStatus.Accepted, null, null, null));
@@ -311,7 +313,7 @@ public class AccordObjectSizes
         if (!command.isWitnessed())
             return size;
 
-        Command.Preaccepted preaccepted = command.asWitnessed();
+        Command.PreAccepted preaccepted = command.asWitnessed();
         size += timestamp(preaccepted.executeAt());
         size += sizeNullable(preaccepted.partialTxn(), AccordObjectSizes::txn);
         size += sizeNullable(preaccepted.partialDeps(), AccordObjectSizes::dependencies);

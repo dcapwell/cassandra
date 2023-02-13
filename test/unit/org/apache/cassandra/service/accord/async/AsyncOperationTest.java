@@ -29,7 +29,9 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import accord.impl.CommandsForKey;
+import accord.impl.LiveCommandsForKey;
 import accord.local.Command;
+import accord.local.LiveCommand;
 import accord.local.PreLoadContext;
 import accord.local.SafeCommandStore;
 import accord.primitives.Keys;
@@ -47,6 +49,8 @@ import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.service.accord.AccordCommandStore;
 import org.apache.cassandra.service.accord.AccordKeyspace;
+import org.apache.cassandra.service.accord.AccordLiveCommand;
+import org.apache.cassandra.service.accord.AccordSafeCommandStore;
 import org.apache.cassandra.service.accord.AccordStateCache;
 import org.apache.cassandra.service.accord.AccordTestUtils;
 import org.apache.cassandra.service.accord.api.PartitionKey;
@@ -94,7 +98,7 @@ public class AsyncOperationTest
         PartitionKey key = (PartitionKey) Iterables.getOnlyElement(txn.keys());
 
         awaitUninterruptibly(commandStore.execute(contextFor(txnId), instance -> {
-            Command command = instance.ifPresent(txnId);
+            LiveCommand command = instance.ifPresent(txnId);
             Assert.assertNull(command);
         }));
 
@@ -110,7 +114,7 @@ public class AsyncOperationTest
         PartitionKey key = (PartitionKey) Iterables.getOnlyElement(txn.keys());
 
         awaitUninterruptibly(commandStore.execute(contextFor(Collections.emptyList(), Keys.of(key)), instance -> {
-            CommandsForKey cfk = instance.maybeCommandsForKey(key);
+            LiveCommandsForKey cfk = ((AccordSafeCommandStore) instance).maybeCommandsForKey(key);
             Assert.assertNull(cfk);
         }));
 
@@ -125,9 +129,10 @@ public class AsyncOperationTest
 
     private static Command createCommittedAndPersist(AccordCommandStore commandStore, TxnId txnId, Timestamp executeAt)
     {
-        Command command = AccordTestUtils.Commands.committed(txnId, createPartialTxn(0), executeAt);
-        command.markActive();
-        AccordKeyspace.getCommandMutation(commandStore, null, command, commandStore.nextSystemTimestampMicros()).apply();
+        Command command = AccordTestUtils.Commands.committed(txnId, createPartialTxn(0), executeAt).current();
+        AccordLiveCommand liveCommand = new AccordLiveCommand(txnId);
+        liveCommand.set(command);
+        AccordKeyspace.getCommandMutation(commandStore, liveCommand, commandStore.nextSystemTimestampMicros()).apply();
         return command;
     }
 
@@ -136,7 +141,7 @@ public class AsyncOperationTest
         return createCommittedAndPersist(commandStore, txnId, txnId);
     }
 
-    private static void assertFutureState(AccordStateCache.Instance<TxnId, Command> cache, TxnId txnId, boolean referenceExpected, boolean expectLoadFuture, boolean expectSaveFuture)
+    private static void assertFutureState(AccordStateCache.Instance<TxnId, AccordLiveCommand> cache, TxnId txnId, boolean referenceExpected, boolean expectLoadFuture, boolean expectSaveFuture)
     {
         if (cache.isReferenced(txnId) != referenceExpected)
             throw new AssertionError(referenceExpected ? "Cache reference unexpectedly not found for " + txnId
@@ -163,12 +168,12 @@ public class AsyncOperationTest
 
         createCommittedAndPersist(commandStore, txnId);
 
-        Consumer<SafeCommandStore> consumer = safeStore -> safeStore.beginUpdate(txnId).readyToExecute();
+        Consumer<SafeCommandStore> consumer = safeStore -> safeStore.command(txnId).readyToExecute();
         PreLoadContext ctx = PreLoadContext.contextFor(singleton(txnId), Keys.EMPTY);
         AsyncOperation<Void> operation = new AsyncOperation.ForConsumer(commandStore, ctx, consumer)
         {
 
-            private AccordStateCache.Instance<TxnId, Command> cache()
+            private AccordStateCache.Instance<TxnId, AccordLiveCommand> cache()
             {
                 return commandStore.commandCache();
             }

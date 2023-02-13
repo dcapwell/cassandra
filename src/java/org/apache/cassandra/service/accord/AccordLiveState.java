@@ -18,24 +18,15 @@
 
 package org.apache.cassandra.service.accord;
 
-import accord.local.Command;
-import accord.primitives.TxnId;
-import org.apache.cassandra.service.accord.AccordStateCache.ItemAccessor;
+import accord.local.LiveState;
 
-public class AccordCommands
+public interface AccordLiveState<V> extends LiveState<V>
 {
-    public static final ItemAccessor<TxnId, Command> ITEM_ACCESSOR = new ItemAccessor<TxnId, Command>()
+    V original();
+    void resetOriginal();
+    long estimatedSizeOnHeap();
+    default boolean hasUpdate()
     {
-        @Override
-        public long estimatedSizeOnHeap(Command command)
-        {
-            return AccordObjectSizes.command(command);
-        }
-
-        @Override
-        public boolean isEmpty(Command command)
-        {
-            return command == Command.EMPTY;
-        }
-    };
+        return original() != current();
+    }
 }

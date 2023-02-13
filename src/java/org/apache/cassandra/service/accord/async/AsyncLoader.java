@@ -30,7 +30,6 @@ import org.slf4j.LoggerFactory;
 
 import accord.impl.CommandsForKey;
 import accord.local.Command;
-import accord.local.ImmutableState;
 import accord.primitives.RoutableKey;
 import accord.primitives.TxnId;
 import accord.utils.async.AsyncChain;
@@ -39,6 +38,9 @@ import accord.utils.async.AsyncResults;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.service.accord.AccordCommandStore;
 import org.apache.cassandra.service.accord.AccordKeyspace;
+import org.apache.cassandra.service.accord.AccordLiveCommand;
+import org.apache.cassandra.service.accord.AccordLiveCommandsForKey;
+import org.apache.cassandra.service.accord.AccordLiveState;
 import org.apache.cassandra.service.accord.AccordStateCache;
 import org.apache.cassandra.service.accord.AccordStateCache.LoadFunction;
 import org.apache.cassandra.service.accord.api.PartitionKey;
@@ -71,11 +73,11 @@ public class AsyncLoader
         this.keys = Lists.newArrayList(keys);
     }
 
-    private <K, V extends ImmutableState> List<AsyncChain<Void>> referenceAndDispatchReads(Iterable<K> keys,
-                                                                                           AccordStateCache.Instance<K, V> cache,
-                                                                                           LoadFunction<K, V> loadFunction,
-                                                                                           List<AsyncChain<Void>> results,
-                                                                                           Object callback)
+    private <K, V extends AccordLiveState<?>> List<AsyncChain<Void>> referenceAndDispatchReads(Iterable<K> keys,
+                                                                                               AccordStateCache.Instance<K, V> cache,
+                                                                                               LoadFunction<K, V> loadFunction,
+                                                                                               List<AsyncChain<Void>> results,
+                                                                                               Object callback)
     {
         for (K key : keys)
         {
@@ -93,13 +95,13 @@ public class AsyncLoader
     }
 
     @VisibleForTesting
-    LoadFunction<TxnId, Command> loadCommandFunction(Object callback)
+    LoadFunction<TxnId, AccordLiveCommand> loadCommandFunction(Object callback)
     {
         return (txnId, consumer) -> ofRunnable(Stage.READ.executor(), () -> {
             try
             {
                 logger.trace("Starting load of {} for {}", txnId, callback);
-                Command command = AccordKeyspace.loadCommand(commandStore, txnId);
+                AccordLiveCommand command = AccordKeyspace.loadCommand(commandStore, txnId);
                 logger.trace("Completed load of {} for {}", txnId, callback);
                 consumer.accept(command);
             }
@@ -112,13 +114,13 @@ public class AsyncLoader
     }
 
     @VisibleForTesting
-    LoadFunction<RoutableKey, CommandsForKey> loadCommandsPerKeyFunction(Object callback)
+    LoadFunction<RoutableKey, AccordLiveCommandsForKey> loadCommandsPerKeyFunction(Object callback)
     {
         return (key, consumer) -> ofRunnable(Stage.READ.executor(), () -> {
             try
             {
                 logger.trace("Starting load of {} for {}", key, callback);
-                CommandsForKey cfk = AccordKeyspace.loadCommandsForKey(commandStore, (PartitionKey) key);
+                AccordLiveCommandsForKey cfk = AccordKeyspace.loadCommandsForKey(commandStore, (PartitionKey) key);
                 logger.trace("Completed load of {} for {}", key, callback);
                 consumer.accept(cfk);
             }
