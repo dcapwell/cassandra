@@ -37,7 +37,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import accord.api.Data;
-import accord.local.ImmutableState;
 import accord.utils.Invariants;
 import accord.utils.async.AsyncResult;
 import accord.utils.async.AsyncResults;
@@ -60,12 +59,6 @@ public class AccordStateCache
         AsyncResult<Void> apply(K key, Consumer<V> valueConsumer);
     }
 
-    public interface ItemAccessor<K, V>
-    {
-        long estimatedSizeOnHeap(V value);
-        boolean isEmpty(V value);
-    }
-
     private static class PendingLoad<V> implements Consumer<V>
     {
         volatile V value = null;
@@ -83,23 +76,21 @@ public class AccordStateCache
         }
     }
 
-    static class Node<K, V extends ImmutableState>
+    static class Node<K, V extends AccordLiveState<?>>
     {
-        static final long EMPTY_SIZE = ObjectSizes.measure(new AccordStateCache.Node(null, null, null));
+        static final long EMPTY_SIZE = ObjectSizes.measure(new AccordStateCache.Node(null, null));
 
         final K key;
         @Nonnull Object state;
-        final ItemAccessor<K, V> accessor;
         private Node<?, ?> prev;
         private Node<?, ?> next;
         private int references = 0;
         private long lastQueriedEstimatedSizeOnHeap = 0;
 
-        public Node(K key, PendingLoad<V> load, ItemAccessor<K, V> accessor)
+        public Node(K key, PendingLoad<V> load)
         {
             this.key = key;
             this.state = load;
-            this.accessor = accessor;
         }
 
         boolean maybeFinishLoad()
@@ -141,21 +132,8 @@ public class AccordStateCache
         long estimatedSizeOnHeap()
         {
             long result = EMPTY_SIZE;
-            if (isLoaded() && !accessor.isEmpty(value()))
-            {
-                boolean wasDormant = value().isDormant();
-                try
-                {
-                    if (wasDormant)
-                        value().markActive();
-                    result += accessor.estimatedSizeOnHeap(value());
-                }
-                finally
-                {
-                    if (wasDormant)
-                        value().markDormant();
-                }
-            }
+            if (isLoaded() && !value().isEmpty())
+                result += value().estimatedSizeOnHeap();
             lastQueriedEstimatedSizeOnHeap = result;
             return result;
         }
@@ -268,7 +246,7 @@ public class AccordStateCache
 
     // don't evict if there's an outstanding save result. If an item is evicted then reloaded
     // before it's mutation is applied, out of date info will be loaded
-    private <K, V extends ImmutableState> boolean canEvict(Node<K, V> node)
+    private <K, V extends AccordLiveState<?>> boolean canEvict(Node<K, V> node)
     {
         return node.isLoaded() &&
                !hasActiveAsyncResult(saveResults, node.key) &&
@@ -336,7 +314,7 @@ public class AccordStateCache
         resultMap.put(key, result);
     }
 
-    private <K, V extends ImmutableState> Node<K, V> maybeCleanupLoad(Node<K, V> node)
+    private <K, V extends AccordLiveState<?>> Node<K, V> maybeCleanupLoad(Node<K, V> node)
     {
         if (node.maybeFinishLoad())
             updateSize(node);
@@ -360,18 +338,16 @@ public class AccordStateCache
         getAsyncResult(writeResults, key);
     }
 
-    public class Instance<K, V extends ImmutableState>
+    public class Instance<K, V extends AccordLiveState<?>>
     {
         private final Class<K> keyClass;
         private final Class<V> valClass;
-        private final ItemAccessor<K, V> accessor;
         private final Stats stats = new Stats();
 
-        public Instance(Class<K> keyClass, Class<V> valClass, ItemAccessor<K, V> accessor)
+        public Instance(Class<K> keyClass, Class<V> valClass)
         {
             this.keyClass = keyClass;
             this.valClass = valClass;
-            this.accessor = accessor;
         }
 
         @Override
@@ -411,7 +387,7 @@ public class AccordStateCache
                 AccordStateCache.this.stats.misses++;
                 if (loadFunction == null)
                     return null;
-                node = new Node<>(key, new PendingLoad<>(key, loadFunction), accessor);
+                node = new Node<>(key, new PendingLoad<>(key, loadFunction));
                 updateSize(node);
             }
             else
@@ -448,25 +424,23 @@ public class AccordStateCache
          * Return an immutable map of instances from the given keys. The keys are assumed to be
          * loaded and referenced, therefore in the active map
          */
-        public ImmutableMap<K, V> getActive(Iterable<K> keys)
+        public Map<K, V> getActive(Iterable<K> keys)
         {
             Iterator<K> keyIter = keys.iterator();
             if (!keyIter.hasNext())
                 return ImmutableMap.of();
 
-            ImmutableMap.Builder<K, V> result = ImmutableMap.builder();
+            Map<K, V> result = new HashMap<>();
             while (keyIter.hasNext())
             {
                 K key = keyIter.next();
                 Node<K, V> node = (Node<K, V>) active.get(key);
                 maybeCleanupLoad(node);
                 V value = node.value();
-                if (!accessor.isEmpty(value))
-                    value.checkIsDormant();
                 result.put(key, value);
             }
 
-            return result.build();
+            return result;
         }
 
         @VisibleForTesting
@@ -494,36 +468,19 @@ public class AccordStateCache
             return node != null && node.isLoaded();
         }
 
-        public void release(K key, V original, V current)
+        public void release(K key, V value)
         {
-            if (current == original)
-            {
-                // it's possible to load an empty object and never do anything to witness it
-                if (original != null)
-                {
-                    original.checkIsActive();
-                    original.markDormant();
-                }
-            }
-            else
-            {
-                if (original != null && !accessor.isEmpty(original))
-                    original.checkIsSuperseded();
-                current.checkIsActive();
-                current.markDormant();
-            }
-
-            logger.trace("Releasing resources for {}: {}", key, original);
+            logger.trace("Releasing resources for {}: {}", key, value);
             maybeClearAsyncResult(key);
             Node<K, V> node = (Node<K, V>) active.get(key);
             Invariants.checkState(node != null && node.references > 0);
             Invariants.checkState(node.isLoaded());
 
-            Invariants.checkState(node.value() == original || (accessor.isEmpty(node.value()) && original == null));
-            if (current != original)
+            Invariants.checkState(node.value() == value);
+            if (value.hasUpdate())
             {
-                node.value(current);
                 updateSize(node);
+                value.resetOriginal();
             }
 
             if (--node.references == 0)
@@ -623,9 +580,9 @@ public class AccordStateCache
         }
     }
 
-    public <K, V extends ImmutableState> Instance<K, V> instance(Class<K> keyClass, Class<V> valClass, ItemAccessor<K, V> accessor)
+    public <K, V extends AccordLiveState<?>> Instance<K, V> instance(Class<K> keyClass, Class<V> valClass)
     {
-        Instance<K, V> instance = new Instance<>(keyClass, valClass, accessor);
+        Instance<K, V> instance = new Instance<>(keyClass, valClass);
         if (!instances.add(instance))
             throw new IllegalArgumentException(String.format("Cache instances for types %s -> %s already exists",
                                                              keyClass.getName(), valClass.getName()));

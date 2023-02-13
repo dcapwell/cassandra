@@ -19,6 +19,7 @@
 package org.apache.cassandra.service.accord;
 
 import java.util.Comparator;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.BiFunction;
 import java.util.function.BinaryOperator;
@@ -30,13 +31,13 @@ import accord.api.Agent;
 import accord.api.DataStore;
 import accord.api.Key;
 import accord.api.ProgressLog;
+import accord.impl.AbstractSafeCommandStore;
 import accord.impl.CommandsForKey;
-import accord.impl.CommandsForKeys;
-import accord.local.Command;
+import accord.impl.LiveCommandsForKey;
 import accord.local.CommandStores.RangesForEpoch;
+import accord.local.CommonAttributes;
 import accord.local.NodeTimeService;
-import accord.local.PreExecuteContext;
-import accord.local.SafeCommandStores;
+import accord.local.PreLoadContext;
 import accord.local.Status;
 import accord.primitives.AbstractKeys;
 import accord.primitives.Keys;
@@ -49,24 +50,27 @@ import accord.primitives.Timestamp;
 import accord.primitives.TxnId;
 import org.apache.cassandra.service.accord.serializers.CommandsForKeySerializer;
 
-public class AccordSafeCommandStore extends SafeCommandStores.AbstractSafeCommandStore
+public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordLiveCommand, AccordLiveCommandsForKey>
 {
     private final AccordCommandStore commandStore;
 
-    public AccordSafeCommandStore(PreExecuteContext context, AccordCommandStore commandStore)
+    public AccordSafeCommandStore(PreLoadContext context,
+                                  Map<TxnId, AccordLiveCommand> commands,
+                                  Map<RoutableKey, AccordLiveCommandsForKey> commandsForKey,
+                                  AccordCommandStore commandStore)
     {
-        super(context);
+        super(context, commands, commandsForKey);
         this.commandStore = commandStore;
     }
 
     @Override
-    protected Command getIfLoaded(TxnId txnId)
+    protected AccordLiveCommand getIfLoaded(TxnId txnId)
     {
         return commandStore.commandCache().referenceAndGetIfLoaded(txnId);
     }
 
     @Override
-    protected CommandsForKey getIfLoaded(RoutableKey key)
+    protected AccordLiveCommandsForKey getIfLoaded(RoutableKey key)
     {
         return commandStore.commandsForKeyCache().referenceAndGetIfLoaded(key);
     }
@@ -121,6 +125,7 @@ public class AccordSafeCommandStore extends SafeCommandStores.AbstractSafeComman
         return ((Keys)keysOrRanges).stream()
                            .map(this::maybeCommandsForKey)
                            .filter(Objects::nonNull)
+                           .map(LiveCommandsForKey::current)
                            .map(CommandsForKey::max)
                            .max(Comparator.naturalOrder())
                            .orElse(Timestamp.NONE);
@@ -135,6 +140,7 @@ public class AccordSafeCommandStore extends SafeCommandStores.AbstractSafeComman
                 AbstractKeys<Key, ?> keys = (AbstractKeys<Key, ?>) keysOrRanges;
                 return keys.stream()
                            .map(this::commandsForKey)
+                           .map(LiveCommandsForKey::current)
                            .map(map)
                            .reduce(initialValue, reduce);
             case Range:
@@ -154,8 +160,8 @@ public class AccordSafeCommandStore extends SafeCommandStores.AbstractSafeComman
                 for (Key key : keys)
                 {
                     if (!slice.contains(key)) continue;
-                    CommandsForKey forKey = commandsForKey(key);
-                    accumulate = map.apply(forKey, accumulate);
+                    LiveCommandsForKey forKey = commandsForKey(key);
+                    accumulate = map.apply(forKey.current(), accumulate);
                     if (accumulate.equals(terminalValue))
                         return accumulate;
                 }
@@ -202,20 +208,34 @@ public class AccordSafeCommandStore extends SafeCommandStores.AbstractSafeComman
     }
 
     @Override
-    public void register(Seekables<?, ?> keysOrRanges, Ranges slice, Command command)
+    public CommonAttributes completeRegistration(Seekables<?, ?> seekables, Ranges ranges, AccordLiveCommand accordLiveCommand, CommonAttributes commonAttributes)
     {
-        // TODO (required): support ranges
-        Routables.foldl((Keys)keysOrRanges, slice, (k, v, i) -> { CommandsForKeys.register(this, command, k, slice); return v; }, null);
+        throw new UnsupportedOperationException();
     }
 
     @Override
-    public void register(Seekable keyOrRange, Ranges slice, Command command)
+    public CommonAttributes completeRegistration(Seekable seekable, Ranges ranges, AccordLiveCommand accordLiveCommand, CommonAttributes commonAttributes)
     {
-        // TODO (required): support ranges
-        Key key = (Key) keyOrRange;
-        if (slice.contains(key))
-            CommandsForKeys.register(this, command, key, slice);
+        throw new UnsupportedOperationException();
     }
+
+
+    //
+//    @Override
+//    public void register(Seekables<?, ?> keysOrRanges, Ranges slice, Command command)
+//    {
+//        // TODO (required): support ranges
+//        Routables.foldl((Keys)keysOrRanges, slice, (k, v, i) -> { CommandsForKeys.register(this, command, k, slice); return v; }, null);
+//    }
+//
+//    @Override
+//    public void register(Seekable keyOrRange, Ranges slice, Command command)
+//    {
+//        // TODO (required): support ranges
+//        Key key = (Key) keyOrRange;
+//        if (slice.contains(key))
+//            CommandsForKeys.register(this, command, key, slice);
+//    }
 
     @Override
     public CommandsForKey.CommandLoader<?> cfkLoader()

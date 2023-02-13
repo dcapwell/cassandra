@@ -60,7 +60,7 @@ public class ListenerSerializers
         @Override
         public Command.Listener deserialize(DataInputPlus in, int version) throws IOException
         {
-            return Command.SerializerSupport.listener(CommandSerializers.txnId.deserialize(in, version));
+            return Command.listener(CommandSerializers.txnId.deserialize(in, version));
         }
 
         @Override

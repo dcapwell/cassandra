@@ -21,10 +21,8 @@ package org.apache.cassandra.service.accord;
 import org.junit.Assert;
 import org.junit.Test;
 
-import accord.local.ImmutableState;
 import accord.utils.async.AsyncResult;
 import accord.utils.async.AsyncResults;
-import org.apache.cassandra.service.accord.AccordStateCache.ItemAccessor;
 import org.apache.cassandra.service.accord.AccordTestUtils.TestableLoad;
 
 public class AccordStateCacheTest
@@ -33,16 +31,39 @@ public class AccordStateCacheTest
     private static final long KEY_SIZE = 4;
     private static final long DEFAULT_NODE_SIZE = nodeSize(DEFAULT_ITEM_SIZE);
 
-    private static class Item extends ImmutableState
+    private static class Item implements AccordLiveState<Integer>
     {
-        static final Item EMPTY = new Item(null);
         long size = DEFAULT_ITEM_SIZE;
 
-        final Integer key;
+        Integer original;
+        Integer current;
 
-        public Item(Integer key)
+        public Item(Integer current)
         {
-            this.key = key;
+            this.current = current;
+        }
+
+        @Override
+        public Integer original()
+        {
+            return original;
+        }
+
+        @Override
+        public void resetOriginal()
+        {
+            original = current;
+        }
+
+        @Override
+        public Integer current()
+        {
+            return current;
+        }
+
+        public void set(Integer update)
+        {
+            current = update;
         }
 
         public long estimatedSizeOnHeap()
@@ -50,21 +71,6 @@ public class AccordStateCacheTest
             return size + KEY_SIZE;
         }
     }
-
-    private static ItemAccessor<Integer, Item> ITEM_ACCESSOR = new ItemAccessor<Integer, Item>()
-    {
-        @Override
-        public long estimatedSizeOnHeap(Item value)
-        {
-            return value.estimatedSizeOnHeap();
-        }
-
-        @Override
-        public boolean isEmpty(Item value)
-        {
-            return value == Item.EMPTY;
-        }
-    };
 
     private static long emptyNodeSize()
     {
@@ -87,7 +93,7 @@ public class AccordStateCacheTest
     public void testAcquisitionAndRelease()
     {
         AccordStateCache cache = new AccordStateCache(500);
-        AccordStateCache.Instance<Integer, Item> instance = cache.instance(Integer.class, Item.class, ITEM_ACCESSOR);
+        AccordStateCache.Instance<Integer, Item> instance = cache.instance(Integer.class, Item.class);
         assertCacheState(cache, 0, 0, 0);
 
         TestableLoad<Integer, Item> load1 = new TestableLoad<>();
@@ -102,9 +108,8 @@ public class AccordStateCacheTest
         load1.complete(item1);
         Assert.assertTrue(result1.isDone());
         Assert.assertSame(item1, instance.getActive(1));
-        item1.markActive();
 
-        instance.release(1, item1, item1);
+        instance.release(1, item1);
         assertCacheState(cache, 0, 1, nodeSize(110));
         Assert.assertSame(item1, cache.tail.value());
         Assert.assertSame(item1, cache.head.value());
@@ -114,9 +119,8 @@ public class AccordStateCacheTest
         Item item2 = new Item(2);
         load2.complete(item2);
         instance.getActive(2);
-        item2.markActive();
         assertCacheState(cache, 1, 1, DEFAULT_NODE_SIZE + nodeSize(110));
-        instance.release(2, item2, item2);
+        instance.release(2, item2);
         assertCacheState(cache, 0, 2, DEFAULT_NODE_SIZE + nodeSize(110));
 
         Assert.assertSame(item1, cache.tail.value());
@@ -127,7 +131,7 @@ public class AccordStateCacheTest
     public void testRotation()
     {
         AccordStateCache cache = new AccordStateCache(DEFAULT_NODE_SIZE * 5);
-        AccordStateCache.Instance<Integer, Item> instance = cache.instance(Integer.class, Item.class, ITEM_ACCESSOR);
+        AccordStateCache.Instance<Integer, Item> instance = cache.instance(Integer.class, Item.class);
         assertCacheState(cache, 0, 0, 0);
 
         Item[] items = new Item[3];
@@ -140,8 +144,7 @@ public class AccordStateCacheTest
             items[i] = item;
             load.complete(item);
             instance.getActive(i);
-            item.markActive();
-            instance.release(i, item, item);
+            instance.release(i, item);
         }
 
         Assert.assertSame(items[0], cache.tail.value());
@@ -155,8 +158,7 @@ public class AccordStateCacheTest
 
         // releasing item should return it to the head
         Item item = instance.getActive(1);
-        item.markActive();
-        instance.release(1, item, item);
+        instance.release(1, item);
         assertCacheState(cache, 0, 3, DEFAULT_NODE_SIZE * 3);
         Assert.assertSame(items[0], cache.tail.value());
         Assert.assertSame(items[1], cache.head.value());
@@ -166,7 +168,7 @@ public class AccordStateCacheTest
     public void testEvictionOnAcquire()
     {
         AccordStateCache cache = new AccordStateCache(DEFAULT_NODE_SIZE * 5);
-        AccordStateCache.Instance<Integer, Item> instance = cache.instance(Integer.class, Item.class, ITEM_ACCESSOR);
+        AccordStateCache.Instance<Integer, Item> instance = cache.instance(Integer.class, Item.class);
         assertCacheState(cache, 0, 0, 0);
 
         Item[] items = new Item[5];
@@ -178,8 +180,7 @@ public class AccordStateCacheTest
             items[i] = item;
             load.complete(item);
             instance.getActive(i);
-            item.markActive();
-            instance.release(i, item, item);
+            instance.release(i, item);
         }
 
         assertCacheState(cache, 0, 5, DEFAULT_NODE_SIZE * 5);
@@ -191,7 +192,6 @@ public class AccordStateCacheTest
         Item item = new Item(5);
         load.complete(item);
         instance.getActive(5);
-        item.markActive();
         assertCacheState(cache, 1, 4, DEFAULT_NODE_SIZE * 5);
         Assert.assertSame(items[1], cache.tail.value());
         Assert.assertSame(items[4], cache.head.value());
@@ -203,7 +203,7 @@ public class AccordStateCacheTest
     public void testEvictionOnRelease()
     {
         AccordStateCache cache = new AccordStateCache(DEFAULT_NODE_SIZE * 4);
-        AccordStateCache.Instance<Integer, Item> instance = cache.instance(Integer.class, Item.class, ITEM_ACCESSOR);
+        AccordStateCache.Instance<Integer, Item> instance = cache.instance(Integer.class, Item.class);
         assertCacheState(cache, 0, 0, 0);
 
         Item[] items = new Item[5];
@@ -214,7 +214,6 @@ public class AccordStateCacheTest
             Item item = new Item(i);
             load.complete(item);
             instance.getActive(i);
-            item.markActive();
             items[i] = item;
         }
 
@@ -222,12 +221,12 @@ public class AccordStateCacheTest
         Assert.assertNull(cache.head);
         Assert.assertNull(cache.tail);
 
-        instance.release(2, items[2], items[2]);
+        instance.release(2, items[2]);
         assertCacheState(cache, 4, 0, DEFAULT_NODE_SIZE * 4);
         Assert.assertNull(cache.head);
         Assert.assertNull(cache.tail);
 
-        instance.release(4, items[4], items[4]);
+        instance.release(4, items[4]);
         assertCacheState(cache, 3, 1, DEFAULT_NODE_SIZE * 4);
         Assert.assertSame(items[4], cache.tail.value());
         Assert.assertSame(items[4], cache.head.value());
@@ -237,7 +236,7 @@ public class AccordStateCacheTest
     public void testMultiAcquireRelease()
     {
         AccordStateCache cache = new AccordStateCache(DEFAULT_NODE_SIZE * 4);
-        AccordStateCache.Instance<Integer, Item> instance = cache.instance(Integer.class, Item.class, ITEM_ACCESSOR);
+        AccordStateCache.Instance<Integer, Item> instance = cache.instance(Integer.class, Item.class);
         assertCacheState(cache, 0, 0, 0);
 
         TestableLoad<Integer, Item> load = new TestableLoad<>();
@@ -256,11 +255,9 @@ public class AccordStateCacheTest
         Assert.assertEquals(2, cache.references(0));
         assertCacheState(cache, 1, 0, DEFAULT_NODE_SIZE);
 
-        item.markActive();
-        instance.release(0, item, item);
+        instance.release(0, item);
         assertCacheState(cache, 1, 0, DEFAULT_NODE_SIZE);
-        item.markActive();
-        instance.release(0, item, item);
+        instance.release(0, item);
         assertCacheState(cache, 0, 1, DEFAULT_NODE_SIZE);
     }
 
@@ -268,7 +265,7 @@ public class AccordStateCacheTest
     public void evictionBlockedOnSaveFuture()
     {
         AccordStateCache cache = new AccordStateCache(DEFAULT_NODE_SIZE * 4);
-        AccordStateCache.Instance<Integer, Item> instance = cache.instance(Integer.class, Item.class, ITEM_ACCESSOR);
+        AccordStateCache.Instance<Integer, Item> instance = cache.instance(Integer.class, Item.class);
         assertCacheState(cache, 0, 0, 0);
 
         Item[] items = new Item[4];
@@ -279,8 +276,7 @@ public class AccordStateCacheTest
             Item item = new Item(i);
             load.complete(item);
             instance.getActive(i);
-            item.markActive();
-            instance.release(i, item, item);
+            instance.release(i, item);
         }
 
         assertCacheState(cache, 0, 4, DEFAULT_NODE_SIZE * 4);
@@ -302,7 +298,7 @@ public class AccordStateCacheTest
     public void testFutureMerging()
     {
         AccordStateCache cache = new AccordStateCache(500);
-        AccordStateCache.Instance<Integer, Item> instance = cache.instance(Integer.class, Item.class, ITEM_ACCESSOR);
+        AccordStateCache.Instance<Integer, Item> instance = cache.instance(Integer.class, Item.class);
         AsyncResult.Settable<Void> promise1 = AsyncResults.settable();
         AsyncResult.Settable<Void> promise2 = AsyncResults.settable();
         instance.addSaveResult(5, promise1);
@@ -325,7 +321,7 @@ public class AccordStateCacheTest
     public void testUpdates()
     {
         AccordStateCache cache = new AccordStateCache(500);
-        AccordStateCache.Instance<Integer, Item> instance = cache.instance(Integer.class, Item.class, ITEM_ACCESSOR);
+        AccordStateCache.Instance<Integer, Item> instance = cache.instance(Integer.class, Item.class);
         assertCacheState(cache, 0, 0, 0);
 
         TestableLoad<Integer, Item> load = new TestableLoad<>();
@@ -341,16 +337,13 @@ public class AccordStateCacheTest
         Assert.assertTrue(result.isDone());
         Assert.assertSame(original, instance.getActive(1));
         assertCacheState(cache, 1, 0, nodeSize(110));
-        original.markActive();
 
-        Item update = new Item(1);
-        update.size = 111;
-        update.markActive();
-        original.markSuperseded();
-        instance.release(1, original, update);
+        original.set(2);
+        original.size = 111;
+        instance.release(1, original);
         assertCacheState(cache, 0, 1, nodeSize(111));
-        Assert.assertSame(update, cache.tail.value());
-        Assert.assertSame(update, cache.head.value());
+        Assert.assertSame(original, cache.tail.value());
+        Assert.assertSame(original, cache.head.value());
 
     }
 }
