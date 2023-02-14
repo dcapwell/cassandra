@@ -128,8 +128,8 @@ public class AsyncOperationTest
 
     private static Command createCommittedAndPersist(AccordCommandStore commandStore, TxnId txnId, Timestamp executeAt)
     {
-        Command command = AccordTestUtils.Commands.committed(txnId, createPartialTxn(0), executeAt).current();
-        AccordLiveCommand liveCommand = new AccordLiveCommand(txnId);
+        Command command = AccordTestUtils.Commands.committed(txnId, createPartialTxn(0), executeAt);
+        AccordLiveCommand liveCommand = AccordTestUtils.liveCommand(txnId);
         liveCommand.set(command);
         AccordKeyspace.getCommandMutation(commandStore, liveCommand, commandStore.nextSystemTimestampMicros()).apply();
         return command;

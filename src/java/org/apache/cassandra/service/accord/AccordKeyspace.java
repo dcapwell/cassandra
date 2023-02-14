@@ -20,20 +20,19 @@ package org.apache.cassandra.service.accord;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
-import java.util.NavigableSet;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -59,6 +58,7 @@ import accord.primitives.Route;
 import accord.primitives.Timestamp;
 import accord.primitives.TxnId;
 import accord.primitives.Writes;
+import accord.utils.Invariants;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.cql3.statements.schema.CreateTableStatement;
@@ -358,7 +358,7 @@ public class AccordKeyspace
         if (serialized == null || serialized.isEmpty())
             return ImmutableSortedSet.of();
 
-        NavigableSet<T> result = new TreeSet<>();
+        List<T> result = new ArrayList<>(serialized.size());
         for (ByteBuffer bytes : serialized)
             result.add(deserializeTimestampOrNull(bytes, timestampFactory));
 
@@ -489,7 +489,7 @@ public class AccordKeyspace
         {
             Command command = liveCommand.current();
             Command original = liveCommand.original();
-            Preconditions.checkArgument(original != command);
+            Invariants.checkArgument(original != command);
 
             Row.Builder builder = BTreeRow.unsortedBuilder();
             builder.newRow(Clustering.EMPTY);
@@ -621,7 +621,7 @@ public class AccordKeyspace
         try
         {
             UntypedResultSet.Row row = rows.one();
-            Preconditions.checkState(deserializeTimestampOrNull(row, "txn_id", TxnId::fromBits).equals(txnId));
+            Invariants.checkState(deserializeTimestampOrNull(row, "txn_id", TxnId::fromBits).equals(txnId));
             SaveStatus status = SaveStatus.values()[row.getInt("status")];
             CommonAttributes.Mutable attributes = new CommonAttributes.Mutable(txnId);
             // TODO: something less brittle than ordinal, more efficient than values()
@@ -735,7 +735,7 @@ public class AccordKeyspace
         {
             CommandsForKey cfk = liveCfk.current();
             CommandsForKey original = liveCfk.original();
-            Preconditions.checkArgument(original != cfk);
+            Invariants.checkArgument(original != cfk);
             // TODO: convert to byte arrays
             ValueAccessor<ByteBuffer> accessor = ByteBufferAccessor.instance;
 
@@ -851,7 +851,7 @@ public class AccordKeyspace
                     seriesMaps.get(SeriesKind.values()[ordinal]).put(timestamp, data);
                 }
             }
-            Preconditions.checkState(!partitions.hasNext());
+            Invariants.checkState(!partitions.hasNext());
 
             CommandsForKey loaded = CommandsForKey.SerializerSupport.create(key, max, lastExecutedTimestamp, lastExecutedMicros, lastWriteTimestamp,
                                                                             CommandsForKeySerializer.loader,

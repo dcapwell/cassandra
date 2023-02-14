@@ -226,6 +226,7 @@ public class AccordCommandStore implements CommandStore
     public void completeOperation(AccordSafeCommandStore store)
     {
         Invariants.checkState(current == store);
+        current.complete();
         current = null;
     }
 

@@ -19,7 +19,6 @@
 package org.apache.cassandra.service.accord;
 
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -35,7 +34,6 @@ import accord.api.Key;
 import accord.api.Result;
 import accord.local.Command;
 import accord.local.CommonAttributes;
-import accord.local.PreLoadContext;
 import accord.local.SaveStatus;
 import accord.primitives.Ballot;
 import accord.primitives.PartialDeps;
@@ -51,15 +49,16 @@ import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.service.accord.api.PartitionKey;
+import org.apache.cassandra.service.accord.serializers.CommandsForKeySerializer;
 import org.apache.cassandra.utils.Pair;
 
 import static accord.local.Status.Durability.Durable;
-import static accord.utils.async.AsyncChains.awaitUninterruptibly;
 import static org.apache.cassandra.cql3.statements.schema.CreateTableStatement.parse;
 import static org.apache.cassandra.service.accord.AccordTestUtils.Commands.preaccepted;
 import static org.apache.cassandra.service.accord.AccordTestUtils.ballot;
 import static org.apache.cassandra.service.accord.AccordTestUtils.createAccordCommandStore;
 import static org.apache.cassandra.service.accord.AccordTestUtils.createPartialTxn;
+import static org.apache.cassandra.service.accord.AccordTestUtils.liveCommandsForKey;
 import static org.apache.cassandra.service.accord.AccordTestUtils.timestamp;
 import static org.apache.cassandra.service.accord.AccordTestUtils.txnId;
 
@@ -119,13 +118,14 @@ public class AccordCommandStoreTest
         Command command = Command.SerializerSupport.executed(attrs, SaveStatus.Applied, executeAt, promised, accepted,
                                                              waitingOnCommit, waitingOnApply, result.left, result.right);
 
-        AccordLiveCommand liveCommand = new AccordLiveCommand(command);
+        AccordLiveCommand liveCommand = AccordTestUtils.liveCommand(txnId);
+        liveCommand.set(command);
         AccordKeyspace.getCommandMutation(commandStore, liveCommand, commandStore.nextSystemTimestampMicros()).apply();
         logger.info("E: {}", command);
         AccordLiveCommand actual = AccordKeyspace.loadCommand(commandStore, txnId);
         logger.info("A: {}", actual);
 
-        Assert.assertEquals(command, actual);
+        Assert.assertEquals(command, actual.current());
     }
 
     @Test
@@ -140,37 +140,31 @@ public class AccordCommandStoreTest
         TxnId txnId1 = txnId(1, clock.incrementAndGet(), 1);
         TxnId txnId2 = txnId(1, clock.incrementAndGet(), 1);
 
-        Command command1 = preaccepted(txnId1, txn, timestamp(1, clock.incrementAndGet(), 1)).current();
-        Command command2 = preaccepted(txnId2, txn, timestamp(1, clock.incrementAndGet(), 1)).current();
+        Command command1 = preaccepted(txnId1, txn, timestamp(1, clock.incrementAndGet(), 1));
+        Command command2 = preaccepted(txnId2, txn, timestamp(1, clock.incrementAndGet(), 1));
 
-        AtomicReference<AccordLiveCommandsForKey> finalCfk = new AtomicReference<>();
-        awaitUninterruptibly(commandStore.execute(PreLoadContext.contextFor(key), safeStore -> {
+        AccordLiveCommandsForKey cfk = liveCommandsForKey(key);
+        cfk.initialize(CommandsForKeySerializer.loader);
+        cfk.updateMax(maxTimestamp);
 
-            AccordLiveCommandsForKey cfk = ((AccordSafeCommandStore) safeStore).commandsForKey(key);
-            cfk.updateMax(maxTimestamp);
+        cfk.updateLastExecutionTimestamps(txnId1, true);
+        Assert.assertEquals(txnId1.hlc(), cfk.current().timestampMicrosFor(txnId1, true));
 
-            cfk.updateLastExecutionTimestamps(txnId1, true);
-            Assert.assertEquals(txnId1.hlc(), cfk.current().timestampMicrosFor(txnId1, true));
+        cfk.updateLastExecutionTimestamps(txnId2, true);
+        Assert.assertEquals(txnId2.hlc(), cfk.current().timestampMicrosFor(txnId2, true));
 
-            cfk.updateLastExecutionTimestamps(txnId2, true);
-            Assert.assertEquals(txnId2.hlc(), cfk.current().timestampMicrosFor(txnId2, true));
-
-            Assert.assertEquals(txnId2, cfk.current().lastExecutedTimestamp());
-            Assert.assertEquals(txnId2.hlc(), cfk.current().lastExecutedMicros());
+        Assert.assertEquals(txnId2, cfk.current().lastExecutedTimestamp());
+        Assert.assertEquals(txnId2.hlc(), cfk.current().lastExecutedMicros());
 
 
-            cfk.register(command1);
-            cfk.register(command2);
-            finalCfk.set(cfk);
-        }));
+        cfk.register(command1);
+        cfk.register(command2);
 
-
-        AccordLiveCommandsForKey cfk = finalCfk.get();
         AccordKeyspace.getCommandsForKeyMutation(commandStore, cfk, commandStore.nextSystemTimestampMicros()).apply();
         logger.info("E: {}", cfk);
         AccordLiveCommandsForKey actual = AccordKeyspace.loadCommandsForKey(commandStore, key);
         logger.info("A: {}", actual);
 
-        Assert.assertEquals(cfk, actual);
+        Assert.assertEquals(cfk.current(), actual.current());
     }
 }
