@@ -25,6 +25,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import javax.annotation.Nullable;
 
 import com.google.common.collect.ImmutableSortedMap;
@@ -54,6 +56,7 @@ import accord.primitives.Ballot;
 import accord.primitives.Keys;
 import accord.primitives.PartialTxn;
 import accord.primitives.Ranges;
+import accord.primitives.Seekables;
 import accord.primitives.Timestamp;
 import accord.primitives.Txn;
 import accord.primitives.TxnId;
@@ -67,6 +70,8 @@ import accord.utils.async.AsyncResults;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.statements.TransactionStatement;
+import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.ClientState;
@@ -250,7 +255,12 @@ public class AccordTestUtils
 
     public static Ranges fullRange(Txn txn)
     {
-        PartitionKey key = (PartitionKey) txn.keys().get(0);
+        return fullRange(txn.keys());
+    }
+
+    public static Ranges fullRange(Seekables<?, ?> keys)
+    {
+        PartitionKey key = (PartitionKey) keys.get(0);
         return Ranges.of(TokenRange.fullRange(key.keyspace()));
     }
 
@@ -335,6 +345,17 @@ public class AccordTestUtils
         {
             throw new RuntimeException(e.getCause());
         }
+    }
+
+    public static PartitionKey key(TableMetadata table, int key)
+    {
+        DecoratedKey dk = table.partitioner.decorateKey(Int32Type.instance.decompose(key));
+        return new PartitionKey(table.keyspace, table.id, dk);
+    }
+
+    public static Keys keys(TableMetadata table, int... keys)
+    {
+        return Keys.of(IntStream.of(keys).mapToObj(key -> key(table, key)).collect(Collectors.toList()));
     }
 
     public static class TestableLoad<K, V> implements AccordStateCache.LoadFunction<K, V>

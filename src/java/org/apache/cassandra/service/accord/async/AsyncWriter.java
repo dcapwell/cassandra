@@ -70,7 +70,7 @@ public class AsyncWriter
         this.cfkCache = commandStore.commandsForKeyCache();
     }
 
-    private interface StateMutationFunction<V extends AccordLiveState<?>>
+    public interface StateMutationFunction<V extends AccordLiveState<?>>
     {
         Mutation apply(AccordCommandStore commandStore, V value, long timestamp);
     }
@@ -111,6 +111,16 @@ public class AsyncWriter
         return results;
     }
 
+    protected StateMutationFunction<AccordLiveCommand> writeCommandFunction()
+    {
+        return AccordKeyspace::getCommandMutation;
+    }
+
+    protected StateMutationFunction<AccordLiveCommandsForKey> writeCommandForKeysFunction()
+    {
+        return AccordKeyspace::getCommandsForKeyMutation;
+    }
+
     private AsyncResult<Void> maybeDispatchWrites(AccordSafeCommandStore context, Object callback) throws IOException
     {
         if (context.commands().isEmpty() && context.commandsForKey().isEmpty())
@@ -121,7 +131,7 @@ public class AsyncWriter
         long timestamp = commandStore.nextSystemTimestampMicros();
         results = dispatchWrites(context.commands(),
                                  commandStore.commandCache(),
-                                 AccordKeyspace::getCommandMutation,
+                                 writeCommandFunction(),
                                  timestamp,
                                  commandStore,
                                  results,
@@ -129,7 +139,7 @@ public class AsyncWriter
 
         results = dispatchWrites(context.commandsForKey(),
                                  commandStore.commandsForKeyCache(),
-                                 AccordKeyspace::getCommandsForKeyMutation,
+                                 writeCommandForKeysFunction(),
                                  timestamp,
                                  commandStore,
                                  results,
