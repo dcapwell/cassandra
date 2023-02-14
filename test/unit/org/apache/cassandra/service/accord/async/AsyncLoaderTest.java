@@ -55,6 +55,8 @@ import static org.apache.cassandra.service.accord.AccordTestUtils.commandsForKey
 import static org.apache.cassandra.service.accord.AccordTestUtils.createAccordCommandStore;
 import static org.apache.cassandra.service.accord.AccordTestUtils.createPartialTxn;
 import static org.apache.cassandra.service.accord.AccordTestUtils.execute;
+import static org.apache.cassandra.service.accord.AccordTestUtils.liveCommand;
+import static org.apache.cassandra.service.accord.AccordTestUtils.liveCommandsForKey;
 import static org.apache.cassandra.service.accord.AccordTestUtils.txnId;
 
 public class AsyncLoaderTest
@@ -86,7 +88,7 @@ public class AsyncLoaderTest
 
         // acquire / release
         commandCache.referenceAndLoad(txnId, (id, consumer) -> {
-            consumer.accept(notWitnessed(txnId, txn));;
+            consumer.accept(liveCommand(notWitnessed(txnId, txn)));;
             return AsyncResults.success(null);
         });
         AccordLiveCommand command = commandCache.getActive(txnId);
@@ -94,7 +96,7 @@ public class AsyncLoaderTest
         commandCache.release(txnId, command);
 
         cfkCache.referenceAndLoad(key, (k, consumer) -> {
-            consumer.accept(commandsForKey(key));
+            consumer.accept(liveCommandsForKey(commandsForKey(key)));
             return AsyncResults.success(null);
         });
         AccordLiveCommandsForKey cfk = cfkCache.getActive(key);
@@ -128,9 +130,11 @@ public class AsyncLoaderTest
         PartitionKey key = (PartitionKey) Iterables.getOnlyElement(txn.keys());
 
         // create / persist
-        AccordLiveCommand command = notWitnessed(txnId, txn);
-        AccordKeyspace.getCommandMutation(commandStore, command, commandStore.nextSystemTimestampMicros()).apply();
-        AccordLiveCommandsForKey cfk = commandsForKey(key);
+        AccordLiveCommand liveCommand = liveCommand(txnId);
+        liveCommand.set(notWitnessed(txnId, txn));
+        AccordKeyspace.getCommandMutation(commandStore, liveCommand, commandStore.nextSystemTimestampMicros()).apply();
+        AccordLiveCommandsForKey cfk = liveCommandsForKey(key);
+        cfk.set(commandsForKey(key));
         AccordKeyspace.getCommandsForKeyMutation(commandStore, cfk, commandStore.nextSystemTimestampMicros()).apply();
 
         // resources are on disk only, so the loader should suspend...
@@ -169,14 +173,15 @@ public class AsyncLoaderTest
 
         // acquire /release, create / persist
         commandCache.referenceAndLoad(txnId, (id, consumer) -> {
-            consumer.accept(notWitnessed(txnId, txn));;
+            consumer.accept(liveCommand(notWitnessed(txnId, txn)));;
             return AsyncResults.success(null);
         });
         AccordLiveCommand command = commandCache.getActive(txnId);
         Assert.assertNotNull(command);
         commandCache.release(txnId, command);
 
-        AccordLiveCommandsForKey cfk = commandsForKey(key);
+        AccordLiveCommandsForKey cfk = liveCommandsForKey(key);
+        cfk.set(commandsForKey(key));
         AccordKeyspace.getCommandsForKeyMutation(commandStore, cfk, commandStore.nextSystemTimestampMicros()).apply();
 
         // resources are on disk only, so the loader should suspend...
@@ -214,7 +219,8 @@ public class AsyncLoaderTest
         PartitionKey key = (PartitionKey) Iterables.getOnlyElement(txn.keys());
 
         // acquire / release
-        AccordLiveCommand command = notWitnessed(txnId, txn);
+        AccordLiveCommand liveCommand = liveCommand(txnId);
+        liveCommand.set(notWitnessed(txnId, txn));
         TestableLoad<TxnId, AccordLiveCommand> load = new TestableLoad<>();
         commandCache.referenceAndLoad(txnId, load);
         Assert.assertTrue(commandCache.isReferenced(txnId));
@@ -222,7 +228,9 @@ public class AsyncLoaderTest
 
         TestableLoad<RoutableKey, AccordLiveCommandsForKey> cfkLoad = new TestableLoad<>();
         cfkCache.referenceAndLoad(key, cfkLoad);
-        cfkLoad.complete(commandsForKey(key));
+        AccordLiveCommandsForKey liveCfk = liveCommandsForKey(key);
+        liveCfk.set(commandsForKey(key));
+        cfkLoad.complete(liveCfk);
         AccordLiveCommandsForKey cfk = cfkCache.getActive(key);
         Assert.assertNotNull(cfk);
         cfkCache.release(key, cfk);
@@ -240,7 +248,7 @@ public class AsyncLoaderTest
         });
 
         Assert.assertFalse(cbFired.isSuccess());
-        load.complete(command);
+        load.complete(liveCommand);
         cbFired.awaitUninterruptibly(1, TimeUnit.SECONDS);
         Assert.assertTrue(cbFired.isSuccess());
 

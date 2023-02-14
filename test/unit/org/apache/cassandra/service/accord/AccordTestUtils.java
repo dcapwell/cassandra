@@ -92,37 +92,57 @@ public class AccordTestUtils
 
     public static class Commands
     {
-        public static AccordLiveCommand notWitnessed(TxnId txnId, PartialTxn txn)
+        public static Command notWitnessed(TxnId txnId, PartialTxn txn)
         {
             CommonAttributes.Mutable attrs = new CommonAttributes.Mutable(txnId);
             attrs.partialTxn(txn);
-            return new AccordLiveCommand(Command.SerializerSupport.notWitnessed(attrs, Ballot.ZERO));
+            return Command.SerializerSupport.notWitnessed(attrs, Ballot.ZERO);
         }
 
-        public static AccordLiveCommand preaccepted(TxnId txnId, PartialTxn txn, Timestamp executeAt)
+        public static Command preaccepted(TxnId txnId, PartialTxn txn, Timestamp executeAt)
         {
             CommonAttributes.Mutable attrs = new CommonAttributes.Mutable(txnId);
             attrs.partialTxn(txn);
-            return new AccordLiveCommand(Command.SerializerSupport.preaccepted(attrs, executeAt, Ballot.ZERO));
+            return Command.SerializerSupport.preaccepted(attrs, executeAt, Ballot.ZERO);
         }
 
-        public static AccordLiveCommand committed(TxnId txnId, PartialTxn txn, Timestamp executeAt)
+        public static Command committed(TxnId txnId, PartialTxn txn, Timestamp executeAt)
         {
             CommonAttributes.Mutable attrs = new CommonAttributes.Mutable(txnId);
             attrs.partialTxn(txn);
-            return new AccordLiveCommand(Command.SerializerSupport.committed(attrs,
-                                                                             SaveStatus.Committed,
-                                                                             executeAt,
-                                                                             Ballot.ZERO,
-                                                                             Ballot.ZERO,
-                                                                             ImmutableSortedSet.of(),
-                                                                             ImmutableSortedMap.of()));
+            return Command.SerializerSupport.committed(attrs,
+                                                       SaveStatus.Committed,
+                                                       executeAt,
+                                                       Ballot.ZERO,
+                                                       Ballot.ZERO,
+                                                       ImmutableSortedSet.of(),
+                                                       ImmutableSortedMap.of());
         }
     }
 
-    public static AccordLiveCommandsForKey commandsForKey(Key key)
+    public static AccordLiveCommand liveCommand(TxnId txnId)
     {
-        return new AccordLiveCommandsForKey(new CommandsForKey(key, CommandsForKeySerializer.loader));
+        return new AccordLiveCommand(txnId);
+    }
+
+    public static AccordLiveCommand liveCommand(Command command)
+    {
+        return new AccordLiveCommand(command);
+    }
+
+    public static CommandsForKey commandsForKey(Key key)
+    {
+        return new CommandsForKey(key, CommandsForKeySerializer.loader);
+    }
+
+    public static AccordLiveCommandsForKey liveCommandsForKey(Key key)
+    {
+        return new AccordLiveCommandsForKey(key);
+    }
+
+    public static AccordLiveCommandsForKey liveCommandsForKey(CommandsForKey cfk)
+    {
+        return new AccordLiveCommandsForKey(cfk);
     }
 
     public static final ProgressLog NOOP_PROGRESS_LOG = new ProgressLog()

@@ -87,7 +87,6 @@ public class AccordCommandTest
         AccordCommandStore commandStore = createAccordCommandStore(clock::incrementAndGet, "ks", "tbl");
         awaitUninterruptibly(commandStore.execute(PreLoadContext.empty(), unused -> commandStore.setCacheSize(0)));
 
-
         TxnId txnId = txnId(1, clock.incrementAndGet(), 1);
         Txn txn = createTxn(1);
         Key key = (Key)txn.keys().get(0);

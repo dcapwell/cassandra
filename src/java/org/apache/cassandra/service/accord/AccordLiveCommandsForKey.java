@@ -20,6 +20,8 @@ package org.apache.cassandra.service.accord;
 
 import java.util.Objects;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import accord.api.Key;
 import accord.impl.CommandsForKey;
 import accord.impl.LiveCommandsForKey;
@@ -65,7 +67,8 @@ public class AccordLiveCommandsForKey extends LiveCommandsForKey implements Acco
     }
 
     @Override
-    protected void set(CommandsForKey cfk)
+    @VisibleForTesting
+    public void set(CommandsForKey cfk)
     {
         this.current = cfk;
     }

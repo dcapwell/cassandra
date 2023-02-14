@@ -126,27 +126,10 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordLiveC
                            .map(this::maybeCommandsForKey)
                            .filter(Objects::nonNull)
                            .map(LiveCommandsForKey::current)
+                           .filter(Objects::nonNull)
                            .map(CommandsForKey::max)
                            .max(Comparator.naturalOrder())
                            .orElse(Timestamp.NONE);
-    }
-
-    public <T> T mapReduce(Routables<?, ?> keysOrRanges, Function<CommandsForKey, T> map, BinaryOperator<T> reduce, T initialValue)
-    {
-        switch (keysOrRanges.domain()) {
-            default:
-                throw new AssertionError();
-            case Key:
-                AbstractKeys<Key, ?> keys = (AbstractKeys<Key, ?>) keysOrRanges;
-                return keys.stream()
-                           .map(this::commandsForKey)
-                           .map(LiveCommandsForKey::current)
-                           .map(map)
-                           .reduce(initialValue, reduce);
-            case Range:
-                // TODO: implement
-                throw new UnsupportedOperationException();
-        }
     }
 
     private <O> O mapReduceForKey(Routables<?, ?> keysOrRanges, Ranges slice, BiFunction<CommandsForKey, O, O> map, O accumulate, O terminalValue)
@@ -208,34 +191,25 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordLiveC
     }
 
     @Override
-    public CommonAttributes completeRegistration(Seekables<?, ?> seekables, Ranges ranges, AccordLiveCommand accordLiveCommand, CommonAttributes commonAttributes)
+    public CommonAttributes completeRegistration(Seekables<?, ?> seekables, Ranges ranges, AccordLiveCommand liveCommand, CommonAttributes attrs)
     {
-        throw new UnsupportedOperationException();
+        for (Seekable seekable : seekables)
+            attrs = completeRegistration(seekable, ranges, liveCommand, attrs);
+        return attrs;
     }
 
     @Override
-    public CommonAttributes completeRegistration(Seekable seekable, Ranges ranges, AccordLiveCommand accordLiveCommand, CommonAttributes commonAttributes)
+    public CommonAttributes completeRegistration(Seekable seekable, Ranges ranges, AccordLiveCommand liveCommand, CommonAttributes attrs)
     {
-        throw new UnsupportedOperationException();
+        Key key = (Key) seekable;
+        if (ranges.contains(key))
+        {
+            AccordLiveCommandsForKey cfk = commandsForKey(key);
+            cfk.register(liveCommand.current());
+            attrs = attrs.mutableAttrs().addListener(CommandsForKey.listener(key));
+        }
+        return attrs;
     }
-
-
-    //
-//    @Override
-//    public void register(Seekables<?, ?> keysOrRanges, Ranges slice, Command command)
-//    {
-//        // TODO (required): support ranges
-//        Routables.foldl((Keys)keysOrRanges, slice, (k, v, i) -> { CommandsForKeys.register(this, command, k, slice); return v; }, null);
-//    }
-//
-//    @Override
-//    public void register(Seekable keyOrRange, Ranges slice, Command command)
-//    {
-//        // TODO (required): support ranges
-//        Key key = (Key) keyOrRange;
-//        if (slice.contains(key))
-//            CommandsForKeys.register(this, command, key, slice);
-//    }
 
     @Override
     public CommandsForKey.CommandLoader<?> cfkLoader()
