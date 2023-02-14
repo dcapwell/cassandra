@@ -129,7 +129,6 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
         if (throwable != null)
         {
             logger.error(String.format("Operation %s failed", this), throwable);
-            state = State.FAILED;
             fail(throwable);
         }
         else
@@ -199,7 +198,7 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
             case FINISHED:
                 break;
             default:
-                throw new IllegalStateException();
+                throw new IllegalStateException("Unexpected state " + state);
         }
     }
 
@@ -246,7 +245,7 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
     {
         switch (keys.domain())
         {
-            default: throw new AssertionError();
+            default: throw new AssertionError("Unexpected domain: " + keys.domain());
             case Key:
                 return (Iterable<RoutableKey>) keys;
             case Range:

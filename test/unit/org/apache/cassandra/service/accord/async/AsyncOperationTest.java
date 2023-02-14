@@ -19,32 +19,48 @@
 package org.apache.cassandra.service.accord.async;
 
 import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import accord.api.RoutingKey;
 import accord.impl.LiveCommandsForKey;
 import accord.local.Command;
+import accord.local.Commands;
 import accord.local.LiveCommand;
 import accord.local.PreLoadContext;
 import accord.local.SafeCommandStore;
+import accord.primitives.Ballot;
+import accord.primitives.FullRoute;
 import accord.primitives.Keys;
+import accord.primitives.PartialDeps;
+import accord.primitives.PartialRoute;
+import accord.primitives.PartialTxn;
+import accord.primitives.Ranges;
 import accord.primitives.RoutableKey;
 import accord.primitives.Timestamp;
 import accord.primitives.Txn;
 import accord.primitives.TxnId;
+import accord.utils.Gen;
+import accord.utils.Gens;
+import accord.utils.async.AsyncResults;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
+import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.db.ReadExecutionController;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
 import org.apache.cassandra.db.transform.FilteredPartitions;
 import org.apache.cassandra.schema.KeyspaceParams;
+import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.service.accord.AccordCommandStore;
 import org.apache.cassandra.service.accord.AccordKeyspace;
@@ -54,14 +70,18 @@ import org.apache.cassandra.service.accord.AccordStateCache;
 import org.apache.cassandra.service.accord.AccordTestUtils;
 import org.apache.cassandra.service.accord.api.PartitionKey;
 import org.apache.cassandra.utils.FBUtilities;
+import org.assertj.core.api.Assertions;
+import org.mockito.Mockito;
 
 import static accord.local.PreLoadContext.contextFor;
+import static accord.utils.Property.qt;
 import static accord.utils.async.AsyncChains.awaitUninterruptibly;
 import static java.util.Collections.singleton;
 import static org.apache.cassandra.cql3.statements.schema.CreateTableStatement.parse;
 import static org.apache.cassandra.service.accord.AccordTestUtils.createAccordCommandStore;
 import static org.apache.cassandra.service.accord.AccordTestUtils.createPartialTxn;
 import static org.apache.cassandra.service.accord.AccordTestUtils.createTxn;
+import static org.apache.cassandra.service.accord.AccordTestUtils.keys;
 import static org.apache.cassandra.service.accord.AccordTestUtils.txnId;
 
 public class AsyncOperationTest
@@ -138,6 +158,38 @@ public class AsyncOperationTest
     private static Command createCommittedAndPersist(AccordCommandStore commandStore, TxnId txnId)
     {
         return createCommittedAndPersist(commandStore, txnId, txnId);
+    }
+
+    private static Command createCommittedUsingLifeCycle(AccordCommandStore commandStore, TxnId txnId)
+    {
+        return createCommittedUsingLifeCycle(commandStore, txnId, txnId);
+    }
+
+    private static Command createCommittedUsingLifeCycle(AccordCommandStore commandStore, TxnId txnId, Timestamp executeAt)
+    {
+        PartialTxn partialTxn = createPartialTxn(0);
+        RoutingKey routingKey = partialTxn.keys().get(0).asKey().toUnseekable();
+        FullRoute<?> route = partialTxn.keys().toRoute(routingKey);
+        Ranges ranges = AccordTestUtils.fullRange(partialTxn.keys());
+        PartialRoute<?> partialRoute = route.slice(ranges);
+        PartialDeps deps = PartialDeps.builder(ranges).build();
+        return AsyncResults.getUninterruptibly(commandStore.submit(PreLoadContext.contextFor(Collections.singleton(txnId), partialTxn.keys()), safe -> {
+            Commands.AcceptOutcome result = Commands.preaccept(safe, txnId, partialTxn, route, null);
+            if (result != Commands.AcceptOutcome.Success) throw new IllegalStateException("Command mutation rejected: " + result);
+
+            result = Commands.accept(safe, txnId, Ballot.ZERO, partialRoute, partialTxn.keys(), null, executeAt, deps);
+            if (result != Commands.AcceptOutcome.Success) throw new IllegalStateException("Command mutation rejected: " + result);
+
+            Commands.CommitOutcome commit = Commands.commit(safe, txnId, route, null, partialTxn, executeAt, deps);
+            if (commit != Commands.CommitOutcome.Success) throw new IllegalStateException("Command mutation rejected: " + result);
+
+            // clear cache
+            long cacheSize = commandStore.getCacheSize();
+            commandStore.setCacheSize(0);
+            commandStore.setCacheSize(cacheSize);
+
+            return safe.command(txnId).current();
+        }).beginAsResult());
     }
 
     private static void assertFutureState(AccordStateCache.Instance<TxnId, AccordLiveCommand> cache, TxnId txnId, boolean referenceExpected, boolean expectLoadFuture, boolean expectSaveFuture)
@@ -232,5 +284,177 @@ public class AsyncOperationTest
         commandStore.executor().submit(operation);
 
         awaitUninterruptibly(operation);
+    }
+
+    @Test
+    public void loadFail()
+    {
+        AtomicLong clock = new AtomicLong(0);
+        // all txn use the same key; 0
+        Keys keys = keys(Schema.instance.getTableMetadata("ks", "tbl"), 0);
+        AccordCommandStore commandStore = createAccordCommandStore(clock::incrementAndGet, "ks", "tbl");
+        Gen<TxnId> txnIdGen = rs -> txnId(1, clock.incrementAndGet(), 1);
+
+        qt().withExamples(100).forAll(Gens.random(), Gens.lists(txnIdGen).ofSizeBetween(1, 10)).check((rs, ids) -> {
+            before(); // truncate tables
+
+            // to simulate CommandsForKey not being found, use createCommittedAndPersist periodically as it does not update
+            if (rs.nextBoolean()) ids.forEach(id -> createCommittedAndPersist(commandStore, id));
+            else ids.forEach(id -> createCommittedUsingLifeCycle(commandStore, id));
+
+            Map<TxnId, Boolean> failed = Maps.newHashMapWithExpectedSize(ids.size());
+            for (TxnId id : ids)
+                failed.put(id, rs.nextBoolean());
+            if (failed.values().stream().allMatch(b -> b == Boolean.FALSE))
+                failed.put(ids.get(0), Boolean.TRUE);
+
+            assertNoReferences(commandStore, ids, keys);
+
+            PreLoadContext ctx = PreLoadContext.contextFor(ids, keys);
+
+            Consumer<SafeCommandStore> consumer = Mockito.mock(Consumer.class);
+
+            AsyncOperation<Void> operation = new AsyncOperation.ForConsumer(commandStore, ctx, consumer)
+            {
+                @Override
+                AsyncLoader createAsyncLoader(AccordCommandStore commandStore, PreLoadContext preLoadContext)
+                {
+                    return new AsyncLoader(commandStore, preLoadContext.txnIds(), (Iterable<RoutableKey>) preLoadContext.keys())
+                    {
+                        @Override
+                        AccordStateCache.LoadFunction<TxnId, AccordLiveCommand> loadCommandFunction()
+                        {
+                            AccordStateCache.LoadFunction<TxnId, AccordLiveCommand> delegate = super.loadCommandFunction();
+                            return (txnId, consumer) -> {
+                                if (!failed.get(txnId)) return delegate.apply(txnId, consumer);
+
+                                //TODO api doesn't handle this exception, so consumer never sees it!
+                                return AsyncResults.failure(new NullPointerException("txn_id " + txnId));
+                            };
+                        }
+                    };
+                }
+            };
+
+            commandStore.executor().submit(operation);
+
+            Assertions.assertThatThrownBy(() -> awaitUninterruptibly(operation));
+
+            Mockito.verifyNoInteractions(consumer);
+
+            assertNoReferences(commandStore, ids, keys);
+        });
+    }
+
+    @Test
+    public void writeFail()
+    {
+        AtomicLong clock = new AtomicLong(0);
+        // all txn use the same key; 0
+        Keys keys = keys(Schema.instance.getTableMetadata("ks", "tbl"), 0);
+        AccordCommandStore commandStore = createAccordCommandStore(clock::incrementAndGet, "ks", "tbl");
+        Gen<TxnId> txnIdGen = rs -> txnId(1, clock.incrementAndGet(), 1);
+
+        qt().withExamples(100).forAll(Gens.random(), Gens.lists(txnIdGen).ofSizeBetween(1, 10)).check((rs, ids) -> {
+            before(); // truncate tables
+
+            // to simulate CommandsForKey not being found, use createCommittedAndPersist periodically as it does not update
+            if (rs.nextBoolean()) ids.forEach(id -> createCommittedAndPersist(commandStore, id));
+            else ids.forEach(id -> createCommittedUsingLifeCycle(commandStore, id));
+
+            Map<TxnId, Boolean> failed = Maps.newHashMapWithExpectedSize(ids.size());
+            for (TxnId id : ids)
+                failed.put(id, rs.nextBoolean());
+            if (failed.values().stream().allMatch(b -> b == Boolean.FALSE))
+                failed.put(ids.get(0), Boolean.TRUE);
+
+            assertNoReferences(commandStore, ids, keys);
+
+            PreLoadContext ctx = PreLoadContext.contextFor(ids, keys);
+
+            Consumer<SafeCommandStore> consumer = store -> ids.forEach(id -> store.command(id).readyToExecute());
+
+            AsyncOperation<Void> operation = new AsyncOperation.ForConsumer(commandStore, ctx, consumer)
+            {
+                @Override
+                AsyncWriter createAsyncWriter(AccordCommandStore commandStore)
+                {
+                    return new AsyncWriter(commandStore)
+                    {
+                        @Override
+                        protected AsyncWriter.StateMutationFunction<AccordLiveCommand> writeCommandFunction()
+                        {
+                            StateMutationFunction<AccordLiveCommand> delegate = super.writeCommandFunction();
+                            return (store, updated, timestamp) -> {
+                                if (!failed.get(updated.txnId())) return delegate.apply(store, updated, timestamp);
+
+
+                                Mutation mutation = Mockito.mock(Mutation.class);
+                                Mockito.doThrow(new NullPointerException("txn_id " + updated.txnId())).when(mutation).apply();
+                                return mutation;
+                            };
+                        }
+                    };
+                }
+            };
+
+            commandStore.executor().submit(operation);
+
+            Assertions.assertThatThrownBy(() -> awaitUninterruptibly(operation));
+
+            //TODO what "should" the assert be?  If we can not write the mutations... we can't deref right?
+            assertNoReferences(commandStore, ids, keys);
+        });
+    }
+
+    private static void assertNoReferences(AccordCommandStore commandStore, List<TxnId> ids, Keys keys)
+    {
+        AssertionError error = null;
+        try
+        {
+            assertNoReferences(commandStore.commandCache(), ids);
+        }
+        catch (AssertionError e)
+        {
+            error = e;
+        }
+        try
+        {
+            //TODO this is due to bad typing for Instance, it doesn't use ? extends RoutableKey
+            assertNoReferences(commandStore.commandsForKeyCache(), (Iterable<RoutableKey>) (Iterable<?>) keys);
+        }
+        catch (AssertionError e)
+        {
+            if (error == null) error = e;
+            else error.addSuppressed(e);
+        }
+        if (error != null) throw error;
+    }
+    private static <T> void assertNoReferences(AccordStateCache.Instance<T, ?> cache, Iterable<T> keys)
+    {
+        AssertionError error = null;
+        for (T key : keys)
+        {
+            AccordStateCache.Node<T, ?> node = cache.getUnsafe(key);
+            if (node == null) continue;
+            try
+            {
+                Assertions.assertThat(node.referenceCount())
+                          .describedAs("Key %s found referenced in cache", key)
+                          .isEqualTo(0);
+            }
+            catch (AssertionError e)
+            {
+                if (error == null)
+                {
+                    error = e;
+                }
+                else
+                {
+                    error.addSuppressed(e);
+                }
+            }
+        }
+        if (error != null) throw error;
     }
 }

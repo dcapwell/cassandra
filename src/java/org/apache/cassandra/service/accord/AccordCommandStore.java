@@ -112,6 +112,11 @@ public class AccordCommandStore implements CommandStore
         stateCache.setMaxSize(bytes);
     }
 
+    public long getCacheSize()
+    {
+        return stateCache.getMaxSize();
+    }
+
     public void checkInStoreThread()
     {
         Invariants.checkState(Thread.currentThread().getId() == threadId);

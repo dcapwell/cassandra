@@ -76,7 +76,7 @@ public class AccordStateCache
         }
     }
 
-    static class Node<K, V extends AccordLiveState<?>>
+    public static class Node<K, V extends AccordLiveState<?>>
     {
         static final long EMPTY_SIZE = ObjectSizes.measure(new AccordStateCache.Node(null, null));
 
@@ -91,6 +91,11 @@ public class AccordStateCache
         {
             this.key = key;
             this.state = load;
+        }
+
+        public int referenceCount()
+        {
+            return references;
         }
 
         boolean maybeFinishLoad()
@@ -191,6 +196,11 @@ public class AccordStateCache
     {
         maxSizeInBytes = size;
         maybeEvict();
+    }
+
+    public long getMaxSize()
+    {
+        return maxSizeInBytes;
     }
 
     private void unlink(Node<?, ?> node)
@@ -446,6 +456,14 @@ public class AccordStateCache
         public V getActive(K key)
         {
             return (V) maybeCleanupLoad(active.get(key)).value();
+        }
+
+        @VisibleForTesting
+        public Node<K, V> getUnsafe(K key)
+        {
+            Preconditions.checkState(!(cache.containsKey(key) && active.containsKey(key)), "Key %s found in cache and active set", key);
+            if (active.containsKey(key)) return (Node<K, V>) Objects.requireNonNull(active.get(key), "active");
+            return (Node<K, V>) cache.get(key);
         }
 
         @VisibleForTesting
