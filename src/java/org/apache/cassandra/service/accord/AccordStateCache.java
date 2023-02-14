@@ -378,7 +378,7 @@ public class AccordStateCache
                 return node;
             }
 
-            node = (Node<K, V>) cache.remove(key);
+            node = (Node<K, V>) cache.get(key);
 
             if (node == null)
             {
