@@ -115,7 +115,7 @@ import org.apache.cassandra.service.accord.txn.TxnData;
 import org.apache.cassandra.utils.Clock;
 
 import static java.lang.String.format;
-import static org.apache.cassandra.cql3.QueryProcessor.executeOnceInternal;
+import static org.apache.cassandra.cql3.QueryProcessor.executeInternal;
 import static org.apache.cassandra.db.rows.BufferCell.live;
 import static org.apache.cassandra.db.rows.BufferCell.tombstone;
 import static org.apache.cassandra.schema.SchemaConstants.ACCORD_KEYSPACE_NAME;
@@ -595,9 +595,9 @@ public class AccordKeyspace
                      "WHERE store_id = ? " +
                      "AND txn_id=(?, ?, ?)";
 
-        return executeOnceInternal(String.format(cql, ACCORD_KEYSPACE_NAME, COMMANDS),
-                                   commandStore.id(),
-                                   txnId.msb, txnId.lsb, txnId.node.id);
+        return executeInternal(String.format(cql, ACCORD_KEYSPACE_NAME, COMMANDS),
+                               commandStore.id(),
+                               txnId.msb, txnId.lsb, txnId.node.id);
     }
 
     private static AccordLiveCommand liveCommand(Command command)
