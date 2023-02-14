@@ -347,6 +347,45 @@ public class AsyncOperationTest
     }
 
     @Test
+    public void consumerFails()
+    {
+        AtomicLong clock = new AtomicLong(0);
+        // all txn use the same key; 0
+        Keys keys = keys(Schema.instance.getTableMetadata("ks", "tbl"), 0);
+        AccordCommandStore commandStore = createAccordCommandStore(clock::incrementAndGet, "ks", "tbl");
+        Gen<TxnId> txnIdGen = rs -> txnId(1, clock.incrementAndGet(), 1);
+
+        qt().withExamples(100).forAll(Gens.random(), Gens.lists(txnIdGen).ofSizeBetween(1, 10)).check((rs, ids) -> {
+            before(); // truncate tables
+
+            // to simulate CommandsForKey not being found, use createCommittedAndPersist periodically as it does not update
+            if (rs.nextBoolean()) ids.forEach(id -> createCommittedAndPersist(commandStore, id));
+            else ids.forEach(id -> createCommittedUsingLifeCycle(commandStore, id));
+
+            Map<TxnId, Boolean> failed = Maps.newHashMapWithExpectedSize(ids.size());
+            for (TxnId id : ids)
+                failed.put(id, rs.nextBoolean());
+            if (failed.values().stream().allMatch(b -> b == Boolean.FALSE))
+                failed.put(ids.get(0), Boolean.TRUE);
+
+            assertNoReferences(commandStore, ids, keys);
+
+            PreLoadContext ctx = PreLoadContext.contextFor(ids, keys);
+
+            Consumer<SafeCommandStore> consumer = Mockito.mock(Consumer.class);
+            Mockito.doThrow(new NullPointerException("txn_ids " + ids)).when(consumer).accept(Mockito.any());
+
+            AsyncOperation<Void> operation = new AsyncOperation.ForConsumer(commandStore, ctx, consumer);
+
+            commandStore.executor().submit(operation);
+
+            Assertions.assertThatThrownBy(() -> awaitUninterruptibly(operation));
+
+            assertNoReferences(commandStore, ids, keys);
+        });
+    }
+
+    @Test
     public void writeFail()
     {
         AtomicLong clock = new AtomicLong(0);
