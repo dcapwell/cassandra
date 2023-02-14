@@ -279,7 +279,7 @@ public class AsyncLoaderTest
             AsyncLoader loader = new AsyncLoader(commandStore, ImmutableList.of(txnId1, txnId2), Collections.emptyList()){
 
                 @Override
-                AccordStateCache.LoadFunction<TxnId, AccordLiveCommand> loadCommandFunction(Object callback)
+                AccordStateCache.LoadFunction<TxnId, AccordLiveCommand> loadCommandFunction()
                 {
                     return (txnId, consumer) -> {
                         loadCalls.incrementAndGet();
