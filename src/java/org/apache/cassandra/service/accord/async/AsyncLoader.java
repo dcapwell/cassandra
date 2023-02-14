@@ -74,8 +74,7 @@ public class AsyncLoader
     private <K, V extends AccordLiveState<?>> List<AsyncChain<Void>> referenceAndDispatchReads(Iterable<K> keys,
                                                                                                AccordStateCache.Instance<K, V> cache,
                                                                                                LoadFunction<K, V> loadFunction,
-                                                                                               List<AsyncChain<Void>> results,
-                                                                                               Object callback)
+                                                                                               List<AsyncChain<Void>> results)
     {
         for (K key : keys)
         {
@@ -93,38 +92,38 @@ public class AsyncLoader
     }
 
     @VisibleForTesting
-    LoadFunction<TxnId, AccordLiveCommand> loadCommandFunction(Object callback)
+    LoadFunction<TxnId, AccordLiveCommand> loadCommandFunction()
     {
         return (txnId, consumer) -> ofRunnable(Stage.READ.executor(), () -> {
             try
             {
-                logger.trace("Starting load of {} for {}", txnId, callback);
+                logger.trace("Starting load of {}", txnId);
                 AccordLiveCommand command = AccordKeyspace.loadCommand(commandStore, txnId);
-                logger.trace("Completed load of {} for {}", txnId, callback);
+                logger.trace("Completed load of {}", txnId);
                 consumer.accept(command);
             }
             catch (Throwable t)
             {
-                logger.error("Exception loading {} for {}", txnId, callback, t);
+                logger.error("Exception loading {}", txnId, t);
                 throw t;
             }
         });
     }
 
     @VisibleForTesting
-    LoadFunction<RoutableKey, AccordLiveCommandsForKey> loadCommandsPerKeyFunction(Object callback)
+    LoadFunction<RoutableKey, AccordLiveCommandsForKey> loadCommandsPerKeyFunction()
     {
         return (key, consumer) -> ofRunnable(Stage.READ.executor(), () -> {
             try
             {
-                logger.trace("Starting load of {} for {}", key, callback);
+                logger.trace("Starting load of {}", key);
                 AccordLiveCommandsForKey cfk = AccordKeyspace.loadCommandsForKey(commandStore, (PartitionKey) key);
-                logger.trace("Completed load of {} for {}", key, callback);
+                logger.trace("Completed load of {}", key);
                 consumer.accept(cfk);
             }
             catch (Throwable t)
             {
-                logger.error("Exception loading {} for {}", key, callback, t);
+                logger.error("Exception loading {}", key, t);
                 throw t;
             }
         });
@@ -136,15 +135,13 @@ public class AsyncLoader
 
         results = referenceAndDispatchReads(txnIds,
                                             commandStore.commandCache(),
-                                            loadCommandFunction(callback),
-                                            results,
-                                            callback);
+                                            loadCommandFunction(),
+                                            results);
 
         results = referenceAndDispatchReads(keys,
                                             commandStore.commandsForKeyCache(),
-                                            loadCommandsPerKeyFunction(callback),
-                                            results,
-                                            callback);
+                                            loadCommandsPerKeyFunction(),
+                                            results);
 
         return results != null ? AsyncResults.reduce(results, (a, b ) -> null).beginAsResult() : null;
     }

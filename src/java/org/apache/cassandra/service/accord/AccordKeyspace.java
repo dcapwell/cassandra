@@ -470,7 +470,7 @@ public class AccordKeyspace
 
     private static <K, V> int estimateMapChanges(Map<K, V> prev, Map<K, V> value)
     {
-        return Sets.difference(value.keySet(), prev.keySet()).size() + Sets.difference(prev.keySet(), value.keySet()).size();
+        return Math.abs(prev.size() - value.size());
     }
 
     private static <C, K, V> int estimateMapChanges(Function<C, Map<K, V>> get, C original, C command)
@@ -481,7 +481,6 @@ public class AccordKeyspace
         if (value == null) value = Collections.emptyMap();
         return estimateMapChanges(prev, value);
     }
-
 
     public static Mutation getCommandMutation(AccordCommandStore commandStore, AccordLiveCommand liveCommand, long timestampMicros)
     {
@@ -516,14 +515,13 @@ public class AccordKeyspace
                 Command.Committed originalCommitted = original != null && original.isCommitted() ? original.asCommitted() : null;
                 addSetChanges(CommandsColumns.waiting_on_commit, Command.Committed::waitingOnCommit, AccordKeyspace::serializeTimestamp, builder, timestampMicros, nowInSeconds, originalCommitted, committed);
                 addMapChanges(CommandsColumns.waiting_on_apply, Command.Committed::waitingOnApply, AccordKeyspace::serializeTimestamp, AccordKeyspace::serializeTimestamp, builder, timestampMicros, nowInSeconds, originalCommitted, committed);
-            }
-
-            if (command.isExecuted())
-            {
-                Command.Executed executed = command.asExecuted();
-                Command.Executed originalExecuted = original != null && original.isExecuted() ? original.asExecuted() : null;
-                addCellIfModified(CommandsColumns.writes, Command.Executed::writes, v -> serialize(v, CommandsSerializers.writes), builder, timestampMicros, originalExecuted, executed);
-                addCellIfModified(CommandsColumns.result, Command.Executed::result, v -> serialize((TxnData) v, CommandsSerializers.result), builder, timestampMicros, originalExecuted, executed);
+                if (command.isExecuted())
+                {
+                    Command.Executed executed = command.asExecuted();
+                    Command.Executed originalExecuted = original != null && original.isExecuted() ? original.asExecuted() : null;
+                    addCellIfModified(CommandsColumns.writes, Command.Executed::writes, v -> serialize(v, CommandsSerializers.writes), builder, timestampMicros, originalExecuted, executed);
+                    addCellIfModified(CommandsColumns.result, Command.Executed::result, v -> serialize((TxnData) v, CommandsSerializers.result), builder, timestampMicros, originalExecuted, executed);
+                }
             }
 
             ByteBuffer key = CommandsColumns.keyComparator.make(commandStore.id(),

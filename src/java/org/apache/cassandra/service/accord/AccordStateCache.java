@@ -171,7 +171,6 @@ public class AccordStateCache
     private final Map<Object, Node<?, ?>> cache = new HashMap<>();
     private final Set<Instance<?, ?>> instances = new HashSet<>();
 
-    private final NamedMap<Object, Node<?, ?>> pendingLoads = new NamedMap<>("pendingLoads");
     private final NamedMap<Object, AsyncResult<Void>> saveResults = new NamedMap<>("saveResults");
 
     private final NamedMap<Object, AsyncResult<Data>> readResults = new NamedMap<>("readResults");
