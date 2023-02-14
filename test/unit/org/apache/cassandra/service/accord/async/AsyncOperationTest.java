@@ -28,7 +28,6 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import accord.impl.CommandsForKey;
 import accord.impl.LiveCommandsForKey;
 import accord.local.Command;
 import accord.local.LiveCommand;

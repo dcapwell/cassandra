@@ -43,7 +43,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import accord.api.Result;
-import accord.api.RoutingKey;
 import accord.impl.CommandsForKey;
 import accord.impl.CommandsForKey.CommandTimeseries;
 import accord.local.Command;
@@ -58,7 +57,6 @@ import accord.primitives.PartialDeps;
 import accord.primitives.PartialTxn;
 import accord.primitives.Route;
 import accord.primitives.Timestamp;
-import accord.primitives.Txn;
 import accord.primitives.TxnId;
 import accord.primitives.Writes;
 import org.apache.cassandra.cql3.ColumnIdentifier;
