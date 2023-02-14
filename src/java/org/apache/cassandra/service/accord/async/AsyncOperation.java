@@ -23,7 +23,6 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -33,6 +32,7 @@ import accord.local.PreLoadContext;
 import accord.local.SafeCommandStore;
 import accord.primitives.RoutableKey;
 import accord.primitives.Seekables;
+import accord.utils.Invariants;
 import accord.utils.async.AsyncChains;
 import org.apache.cassandra.service.accord.AccordCommandStore;
 import org.apache.cassandra.service.accord.AccordLiveState;
@@ -138,14 +138,14 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
 
     private void finish(R result)
     {
-        Preconditions.checkArgument(state == State.COMPLETING);
+        Invariants.checkArgument(state == State.COMPLETING, "Unexpected state %s", state);
         callback.accept(result, null);
         state = State.FINISHED;
     }
 
     private void fail(Throwable throwable)
     {
-        Preconditions.checkArgument(state != State.FINISHED && state != State.FAILED);
+        Invariants.checkArgument(state != State.FINISHED && state != State.FAILED, "Unexpected state %s", state);
         callback.accept(null, throwable);
         state = State.FAILED;
     }
@@ -237,7 +237,7 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
     @Override
     public void begin(BiConsumer<? super R, Throwable> callback)
     {
-        Preconditions.checkArgument(this.callback == null);
+        Invariants.checkArgument(this.callback == null);
         this.callback = callback;
         commandStore.executor().submit(this);
     }

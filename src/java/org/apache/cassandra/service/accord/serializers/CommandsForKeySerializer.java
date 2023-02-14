@@ -81,7 +81,7 @@ public class CommandsForKeySerializer
 
         private static byte toByte(int v)
         {
-            Invariants.checkArgument(v < Byte.MAX_VALUE);
+            Invariants.checkArgument(v < Byte.MAX_VALUE, "Value %d is larger than %d", v, Byte.MAX_VALUE);
             return (byte) v;
         }
 
