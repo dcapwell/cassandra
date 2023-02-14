@@ -31,8 +31,6 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import accord.impl.CommandsForKey;
-import accord.local.Command;
 import accord.primitives.PartialTxn;
 import accord.primitives.RoutableKey;
 import accord.primitives.TxnId;
