@@ -80,27 +80,26 @@ public class AsyncWriter
                                                                                            StateMutationFunction<V> mutationFunction,
                                                                                            long timestamp,
                                                                                            AccordCommandStore commandStore,
-                                                                                           List<AsyncChain<Void>> results,
-                                                                                           Object callback)
+                                                                                           List<AsyncChain<Void>> results)
     {
         values.forEach((key, value) -> {
             if (!value.hasUpdate())
                 return;
             Mutation mutation = mutationFunction.apply(commandStore, value, timestamp);
             if (logger.isTraceEnabled())
-                logger.trace("Dispatching mutation for {} for {}, {} -> {}", key, callback, value.current(), mutation);
+                logger.trace("Dispatching mutation for {}, {} -> {}", key, value.current(), mutation);
             AsyncResult<Void> result = ofRunnable(Stage.MUTATION.executor(), () -> {
                 try
                 {
                     if (logger.isTraceEnabled())
-                        logger.trace("Applying mutation for {} for {}: {}", key, callback, mutation);
+                        logger.trace("Applying mutation for {}: {}", key, mutation);
                     mutation.apply();
                     if (logger.isTraceEnabled())
-                        logger.trace("Completed applying mutation for {} for {}: {}", key, callback, mutation);
+                        logger.trace("Completed applying mutation for {}: {}", key, mutation);
                 }
                 catch (Throwable t)
                 {
-                    logger.error(String.format("Exception applying mutation for %s for %s: %s", key, callback, mutation), t);
+                    logger.error(String.format("Exception applying mutation for %s: %s", key, mutation), t);
                     throw t;
                 }
             });
@@ -121,7 +120,7 @@ public class AsyncWriter
         return AccordKeyspace::getCommandsForKeyMutation;
     }
 
-    private AsyncResult<Void> maybeDispatchWrites(AccordSafeCommandStore context, Object callback) throws IOException
+    private AsyncResult<Void> maybeDispatchWrites(AccordSafeCommandStore context) throws IOException
     {
         if (context.commands().isEmpty() && context.commandsForKey().isEmpty())
             return null;
@@ -134,16 +133,14 @@ public class AsyncWriter
                                  writeCommandFunction(),
                                  timestamp,
                                  commandStore,
-                                 results,
-                                 callback);
+                                 results);
 
         results = dispatchWrites(context.commandsForKey(),
                                  commandStore.commandsForKeyCache(),
                                  writeCommandForKeysFunction(),
                                  timestamp,
                                  commandStore,
-                                 results,
-                                 callback);
+                                 results);
 
         return !results.isEmpty() ? AsyncResults.reduce(results, (a, b) -> null).beginAsResult() : null;
     }
@@ -165,7 +162,7 @@ public class AsyncWriter
                 case INITIALIZED:
                     setState(State.SETUP);
                 case SETUP:
-                    writeResult = maybeDispatchWrites(context, callback);
+                    writeResult = maybeDispatchWrites(context);
 
                     setState(State.SAVING);
                 case SAVING:
