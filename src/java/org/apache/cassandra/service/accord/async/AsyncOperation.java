@@ -32,12 +32,13 @@ import accord.local.PreLoadContext;
 import accord.local.SafeCommandStore;
 import accord.primitives.RoutableKey;
 import accord.primitives.Seekables;
+import accord.primitives.TxnId;
 import accord.utils.Invariants;
 import accord.utils.async.AsyncChains;
 import org.apache.cassandra.service.accord.AccordCommandStore;
-import org.apache.cassandra.service.accord.AccordLiveState;
+import org.apache.cassandra.service.accord.AccordLiveCommand;
+import org.apache.cassandra.service.accord.AccordLiveCommandsForKey;
 import org.apache.cassandra.service.accord.AccordSafeCommandStore;
-import org.apache.cassandra.service.accord.AccordStateCache;
 
 public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements Runnable, Function<SafeCommandStore, R>
 {
@@ -49,11 +50,36 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
         private static final String ASYNC_OPERATION = "async_op";
     }
 
+    static class Context
+    {
+        final AsyncContext<TxnId, AccordLiveCommand> commands = new AsyncContext<>();
+        final AsyncContext<RoutableKey, AccordLiveCommandsForKey> commandsForKeys = new AsyncContext<>();
+
+        void getActive(AccordCommandStore commandStore)
+        {
+            commands.getActive(commandStore.commandCache());
+            commandsForKeys.getActive(commandStore.commandsForKeyCache());
+        }
+
+        void releaseResources(AccordCommandStore commandStore)
+        {
+            commands.releaseResources(commandStore.commandCache());
+            commandsForKeys.releaseResources(commandStore.commandsForKeyCache());
+        }
+
+        void revertChanges()
+        {
+            commands.revertChanges();
+            commandsForKeys.revertChanges();
+        }
+    }
+
     enum State
     {
         INITIALIZED,
         SUBMITTED,
         LOADING,
+        PREPARING_OPERATION,
         RUNNING,
         SAVING,
         AWAITING_SAVE,
@@ -65,6 +91,7 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
     private State state = State.INITIALIZED;
     private final AccordCommandStore commandStore;
     private final PreLoadContext preLoadContext;
+    private final Context context = new Context();
     private AccordSafeCommandStore safeStore;
     private final AsyncLoader loader;
     private final AsyncWriter writer;
@@ -145,19 +172,27 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
     private void fail(Throwable throwable)
     {
         Invariants.checkArgument(state != State.FINISHED && state != State.FAILED, "Unexpected state %s", state);
+        switch (state)
+        {
+            case INITIALIZED:
+            case COMPLETING:
+                // nothing to cleanup, call callback
+                break;
+            case RUNNING:
+                context.revertChanges();
+            case PREPARING_OPERATION:
+                commandStore.abortCurrentOperation();
+            case LOADING:
+                context.releaseResources(commandStore);
+                break;
+            case SAVING:
+            case AWAITING_SAVE:
+                // TODO: revert changs
+                // TODO: panic?
+                break;
+        }
         callback.accept(null, throwable);
         state = State.FAILED;
-    }
-
-    private static <K, V extends AccordLiveState<?>> void releaseResources(AccordStateCache.Instance<K, V> cache, java.util.Map<K, V> values)
-    {
-         values.forEach(cache::release);
-    }
-
-    private void releaseResources()
-    {
-        releaseResources(commandStore.commandCache(), safeStore.commands());
-        releaseResources(commandStore.commandsForKeyCache(), safeStore.commandsForKey());
     }
 
     protected void runInternal()
@@ -167,26 +202,26 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
             case INITIALIZED:
                 state = State.LOADING;
             case LOADING:
-                if (!loader.load(this::callback))
+                if (!loader.load(context, this::callback))
                     return;
 
+                state = State.PREPARING_OPERATION;
+                context.getActive(commandStore);
+                safeStore = commandStore.beginOperation(preLoadContext, context.commands, context.commandsForKeys);
                 state = State.RUNNING;
-                safeStore = commandStore.beginOperation(preLoadContext,
-                                                        commandStore.commandCache().getActive(preLoadContext.txnIds()),
-                                                        commandStore.commandsForKeyCache().getActive((Iterable<RoutableKey>) preLoadContext.keys()));
                 result = apply(safeStore);
                 commandStore.completeOperation(safeStore);
 
                 state = State.SAVING;
             case SAVING:
             case AWAITING_SAVE:
-                boolean updatesPersisted = writer.save(safeStore, this::callback);
+                boolean updatesPersisted = writer.save(context, this::callback);
 
                 if (state == State.SAVING)
                 {
                     // with any updates on the way to disk, release resources so operations waiting
                     // to use these objects don't have issues with fields marked as unsaved
-                    releaseResources();
+                    context.releaseResources(commandStore);
                     state = State.AWAITING_SAVE;
                 }
 

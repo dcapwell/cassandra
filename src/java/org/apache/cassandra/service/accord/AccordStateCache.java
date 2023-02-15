@@ -47,8 +47,6 @@ import org.apache.cassandra.utils.ObjectSizes;
  *
  * Supports dynamic object sizes. After each acquire/free cycle, the cacheable objects size is recomputed to
  * account for data added/removed during txn processing if it's modified flag is set
- *
- * TODO: explain how items move to and from the active pool and are evicted
  */
 public class AccordStateCache
 {
@@ -108,7 +106,7 @@ public class AccordStateCache
                 return false;
 
             // if the load is completed, switch the state to the loaded value
-            state = load.value;
+            state = Invariants.nonNull(load.value);
             return true;
         }
 
@@ -126,12 +124,6 @@ public class AccordStateCache
         {
             Invariants.checkState(isLoaded() && state != null);
             return (V) state;
-        }
-
-        void value(V v)
-        {
-            Invariants.checkState(isLoaded());
-            state = v;
         }
 
         long estimatedSizeOnHeap()
@@ -509,6 +501,15 @@ public class AccordStateCache
             }
 
             maybeEvict();
+        }
+
+        /**
+         * Release without a value, used in failure recovery. Key is assumed to have
+         * been already referenced
+         */
+        public void release(K key)
+        {
+            release(key, null);
         }
 
         @VisibleForTesting

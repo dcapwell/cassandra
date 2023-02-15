@@ -46,6 +46,7 @@ import org.apache.cassandra.service.accord.AccordLiveCommandsForKey;
 import org.apache.cassandra.service.accord.AccordStateCache;
 import org.apache.cassandra.service.accord.AccordTestUtils.TestableLoad;
 import org.apache.cassandra.service.accord.api.PartitionKey;
+import org.apache.cassandra.service.accord.async.AsyncOperation.Context;
 import org.apache.cassandra.utils.concurrent.AsyncPromise;
 
 import static java.util.Collections.singleton;
@@ -107,7 +108,10 @@ public class AsyncLoaderTest
 
         // everything is cached, so the loader should return immediately
         commandStore.executeBlocking(() -> {
-            boolean result = loader.load((o, t) -> Assert.fail());
+            Context context = new Context();
+            boolean result = loader.load(new Context(), (o, t) -> Assert.fail());
+            Assert.assertTrue(context.commands.isReferenced(txnId));
+            Assert.assertTrue(context.commandsForKeys.isReferenced(key));
             Assert.assertTrue(result);
         });
 
@@ -140,9 +144,12 @@ public class AsyncLoaderTest
         // resources are on disk only, so the loader should suspend...
         AsyncLoader loader = new AsyncLoader(commandStore, singleton(txnId), singleton(key));
         AsyncPromise<Void> cbFired = new AsyncPromise<>();
+        Context context = new Context();
         commandStore.executeBlocking(() -> {
-            boolean result = loader.load((o, t) -> {
+            boolean result = loader.load(context, (o, t) -> {
                 Assert.assertNull(t);
+                Assert.assertTrue(context.commands.isReferenced(txnId));
+                Assert.assertTrue(context.commandsForKeys.isReferenced(key));
                 cbFired.setSuccess(null);
             });
             Assert.assertFalse(result);
@@ -152,7 +159,9 @@ public class AsyncLoaderTest
 
         // then return immediately after the callback has fired
         commandStore.executeBlocking(() -> {
-            boolean result = loader.load((o, t) -> Assert.fail());
+            boolean result = loader.load(context, (o, t) -> Assert.fail());
+            Assert.assertTrue(context.commands.isReferenced(txnId));
+            Assert.assertTrue(context.commandsForKeys.isReferenced(key));
             Assert.assertTrue(result);
         });
     }
@@ -187,9 +196,12 @@ public class AsyncLoaderTest
         // resources are on disk only, so the loader should suspend...
         AsyncLoader loader = new AsyncLoader(commandStore, singleton(txnId), singleton(key));
         AsyncPromise<Void> cbFired = new AsyncPromise<>();
+        Context context = new Context();
         commandStore.executeBlocking(() -> {
-            boolean result = loader.load((o, t) -> {
+            boolean result = loader.load(context, (o, t) -> {
                 Assert.assertNull(t);
+                Assert.assertTrue(context.commands.isReferenced(txnId));
+                Assert.assertTrue(context.commandsForKeys.isReferenced(key));
                 cbFired.setSuccess(null);
             });
             Assert.assertFalse(result);
@@ -199,7 +211,10 @@ public class AsyncLoaderTest
 
         // then return immediately after the callback has fired
         commandStore.executeBlocking(() -> {
-            boolean result = loader.load((o, t) -> Assert.fail());
+
+            boolean result = loader.load(context, (o, t) -> Assert.fail());
+            Assert.assertTrue(context.commands.isReferenced(txnId));
+            Assert.assertTrue(context.commandsForKeys.isReferenced(key));
             Assert.assertTrue(result);
         });
     }
@@ -239,9 +254,12 @@ public class AsyncLoaderTest
 
         // since there's a read future associated with the txnId, we'll wait for it to load
         AsyncPromise<Void> cbFired = new AsyncPromise<>();
+        Context context = new Context();
         commandStore.executeBlocking(() -> {
-            boolean result = loader.load((o, t) -> {
+            boolean result = loader.load(context, (o, t) -> {
                 Assert.assertNull(t);
+                Assert.assertTrue(context.commands.isReferenced(txnId));
+                Assert.assertTrue(context.commandsForKeys.isReferenced(key));
                 cbFired.setSuccess(null);
             });
             Assert.assertFalse(result);
@@ -254,7 +272,9 @@ public class AsyncLoaderTest
 
         // then return immediately after the callback has fired
         commandStore.executeBlocking(() -> {
-            boolean result = loader.load((o, t) -> Assert.fail());
+            boolean result = loader.load(context, (o, t) -> Assert.fail());
+            Assert.assertTrue(context.commands.isReferenced(txnId));
+            Assert.assertTrue(context.commandsForKeys.isReferenced(key));
             Assert.assertTrue(result);
         });
     }
@@ -298,7 +318,7 @@ public class AsyncLoaderTest
                 }
             };
 
-            boolean result = loader.load((u, t) -> {
+            boolean result = loader.load(new Context(), (u, t) -> {
                 Assert.assertFalse(callback.isDone());
                 Assert.assertNull(u);
                 Assert.assertEquals(failure, t);

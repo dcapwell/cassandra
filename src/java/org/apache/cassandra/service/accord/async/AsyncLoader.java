@@ -72,6 +72,7 @@ public class AsyncLoader
     }
 
     private <K, V extends AccordLiveState<?>> List<AsyncChain<Void>> referenceAndDispatchReads(Iterable<K> keys,
+                                                                                               AsyncContext<K, V> context,
                                                                                                AccordStateCache.Instance<K, V> cache,
                                                                                                LoadFunction<K, V> loadFunction,
                                                                                                List<AsyncChain<Void>> results)
@@ -79,6 +80,7 @@ public class AsyncLoader
         for (K key : keys)
         {
             AsyncResult<Void> result = cache.referenceAndLoad(key, loadFunction);
+            context.markReferenced(key);
             if (result == null)
                 continue;
 
@@ -129,16 +131,18 @@ public class AsyncLoader
         });
     }
 
-    private AsyncResult<Void> referenceAndDispatchReads(Object callback)
+    private AsyncResult<Void> referenceAndDispatchReads(AsyncOperation.Context context)
     {
         List<AsyncChain<Void>> results = null;
 
         results = referenceAndDispatchReads(txnIds,
+                                            context.commands,
                                             commandStore.commandCache(),
                                             loadCommandFunction(),
                                             results);
 
         results = referenceAndDispatchReads(keys,
+                                            context.commandsForKeys,
                                             commandStore.commandsForKeyCache(),
                                             loadCommandsPerKeyFunction(),
                                             results);
@@ -152,7 +156,7 @@ public class AsyncLoader
         this.state = state;
     }
 
-    public boolean load(BiConsumer<Object, Throwable> callback)
+    public boolean load(AsyncOperation.Context context, BiConsumer<Object, Throwable> callback)
     {
         logger.trace("Running load for {} with state {}: {} {}", callback, state, txnIds, keys);
         commandStore.checkInStoreThread();
@@ -161,7 +165,7 @@ public class AsyncLoader
             case INITIALIZED:
                 state(State.SETUP);
             case SETUP:
-                readResult = referenceAndDispatchReads(callback);
+                readResult = referenceAndDispatchReads(context);
                 state(State.LOADING);
             case LOADING:
                 if (readResult != null)

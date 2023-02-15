@@ -18,7 +18,6 @@
 
 package org.apache.cassandra.service.accord;
 
-import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -38,6 +37,7 @@ import accord.primitives.RoutableKey;
 import accord.primitives.TxnId;
 import accord.utils.Invariants;
 import accord.utils.async.AsyncChain;
+import org.apache.cassandra.service.accord.async.AsyncContext;
 import org.apache.cassandra.service.accord.async.AsyncOperation;
 import org.apache.cassandra.utils.Clock;
 import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
@@ -220,8 +220,8 @@ public class AccordCommandStore implements CommandStore
     }
 
     public AccordSafeCommandStore beginOperation(PreLoadContext preLoadContext,
-                                                 Map<TxnId, AccordLiveCommand> commands,
-                                                 Map<RoutableKey, AccordLiveCommandsForKey> commandsForKeys)
+                                                 AsyncContext<TxnId, AccordLiveCommand> commands,
+                                                 AsyncContext<RoutableKey, AccordLiveCommandsForKey> commandsForKeys)
     {
         Invariants.checkState(current == null);
         current = new AccordSafeCommandStore(preLoadContext, commands, commandsForKeys, this);
@@ -232,6 +232,11 @@ public class AccordCommandStore implements CommandStore
     {
         Invariants.checkState(current == store);
         current.complete();
+        current = null;
+    }
+
+    public void abortCurrentOperation()
+    {
         current = null;
     }
 

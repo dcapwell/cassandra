@@ -19,7 +19,6 @@
 package org.apache.cassandra.service.accord;
 
 import java.util.Comparator;
-import java.util.Map;
 import java.util.Objects;
 import java.util.function.BiFunction;
 
@@ -46,19 +45,48 @@ import accord.primitives.Seekable;
 import accord.primitives.Seekables;
 import accord.primitives.Timestamp;
 import accord.primitives.TxnId;
+import org.apache.cassandra.service.accord.async.AsyncContext;
 import org.apache.cassandra.service.accord.serializers.CommandsForKeySerializer;
 
 public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordLiveCommand, AccordLiveCommandsForKey>
 {
+    private final AsyncContext<TxnId, AccordLiveCommand> commands;
+    private final AsyncContext<RoutableKey, AccordLiveCommandsForKey> commandsForKeys;
     private final AccordCommandStore commandStore;
 
     public AccordSafeCommandStore(PreLoadContext context,
-                                  Map<TxnId, AccordLiveCommand> commands,
-                                  Map<RoutableKey, AccordLiveCommandsForKey> commandsForKey,
+                                  AsyncContext<TxnId, AccordLiveCommand> commands,
+                                  AsyncContext<RoutableKey, AccordLiveCommandsForKey> commandsForKey,
                                   AccordCommandStore commandStore)
     {
-        super(context, commands, commandsForKey);
+        super(context);
+        this.commands = commands;
+        this.commandsForKeys = commandsForKey;
         this.commandStore = commandStore;
+    }
+
+    @Override
+    protected AccordLiveCommand getCommandInternal(TxnId txnId)
+    {
+        return commands.get(txnId);
+    }
+
+    @Override
+    protected void addCommandInternal(AccordLiveCommand command)
+    {
+        commands.add(command.txnId(), command);
+    }
+
+    @Override
+    protected AccordLiveCommandsForKey getCommandsForKeyInternal(RoutableKey key)
+    {
+        return commandsForKeys.get(key);
+    }
+
+    @Override
+    protected void addCommandsForKeyInternal(AccordLiveCommandsForKey cfk)
+    {
+        commandsForKeys.add(cfk.key(), cfk);
     }
 
     @Override

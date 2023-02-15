@@ -22,11 +22,17 @@ import accord.local.LiveState;
 
 public interface AccordLiveState<V> extends LiveState<V>
 {
+    void set(V update);
     V original();
     void resetOriginal();
     long estimatedSizeOnHeap();
     default boolean hasUpdate()
     {
         return original() != current();
+    }
+
+    default void revert()
+    {
+        set(original());
     }
 }
