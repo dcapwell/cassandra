@@ -398,6 +398,7 @@ public class AccordStateCache
                     return null;
                 node = new Node<>(key, new PendingLoad<>(key, loadFunction));
                 updateSize(node);
+                maybeEvict();
             }
             else
             {
@@ -407,7 +408,6 @@ public class AccordStateCache
             }
 
             Preconditions.checkState(node.references == 0);
-            maybeEvict();
 
             node.references++;
             active.put(key, node);
