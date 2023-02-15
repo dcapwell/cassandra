@@ -203,6 +203,21 @@ public class AccordStateCache
         return maxSizeInBytes;
     }
 
+    public void clear()
+    {
+        saveResults.clear();
+        readResults.clear();
+        writeResults.clear();
+        cache.clear();
+        active.clear();
+        head = null;
+        tail = null;
+        bytesCached = 0L;
+        stats.queries = 0;
+        stats.hits = 0;
+        stats.misses = 0;
+    }
+
     private void unlink(Node<?, ?> node)
     {
         Node<?, ?> prev = node.prev;

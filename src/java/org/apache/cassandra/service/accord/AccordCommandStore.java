@@ -25,6 +25,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import accord.api.Agent;
 import accord.api.DataStore;
 import accord.api.ProgressLog;
@@ -114,7 +116,15 @@ public class AccordCommandStore implements CommandStore
 
     public long getCacheSize()
     {
+        checkInStoreThread();
         return stateCache.getMaxSize();
+    }
+
+    @VisibleForTesting
+    public void clearCache()
+    {
+        checkInStoreThread();
+        stateCache.clear();
     }
 
     public void checkInStoreThread()

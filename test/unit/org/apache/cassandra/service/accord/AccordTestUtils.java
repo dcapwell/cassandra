@@ -19,7 +19,9 @@
 package org.apache.cassandra.service.accord;
 
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
@@ -50,10 +52,15 @@ import accord.local.Node;
 import accord.local.Node.Id;
 import accord.local.NodeTimeService;
 import accord.local.PreLoadContext;
+import accord.local.SafeCommandStore;
 import accord.local.SaveStatus;
+import accord.local.Status;
 import accord.local.Status.Known;
 import accord.primitives.Ballot;
+import accord.primitives.FullRoute;
 import accord.primitives.Keys;
+import accord.primitives.PartialDeps;
+import accord.primitives.PartialRoute;
 import accord.primitives.PartialTxn;
 import accord.primitives.Ranges;
 import accord.primitives.Seekables;
@@ -64,6 +71,7 @@ import accord.primitives.Unseekables;
 import accord.primitives.Writes;
 import accord.topology.Shard;
 import accord.topology.Topology;
+import accord.utils.Invariants;
 import accord.utils.async.AsyncChains;
 import accord.utils.async.AsyncResult;
 import accord.utils.async.AsyncResults;
@@ -356,6 +364,67 @@ public class AccordTestUtils
     public static Keys keys(TableMetadata table, int... keys)
     {
         return Keys.of(IntStream.of(keys).mapToObj(key -> key(table, key)).collect(Collectors.toList()));
+    }
+
+    public static void clearCache(AccordCommandStore commandStore)
+    {
+        AsyncResults.getUninterruptibly(commandStore.execute(PreLoadContext.empty(), AccordTestUtils::clearCache).beginAsResult());
+    }
+
+    public static void clearCache(SafeCommandStore safe)
+    {
+        AccordCommandStore commandStore = (AccordCommandStore) safe.commandStore();
+        commandStore.clearCache();
+    }
+
+    public static Command updateCommandUsingLifeCycle(AccordCommandStore commandStore, TxnId txnId, Status status)
+    {
+        return updateCommandUsingLifeCycle(commandStore, txnId, txnId, status);
+    }
+
+    public static Command updateCommandUsingLifeCycle(AccordCommandStore commandStore, TxnId txnId, Timestamp executeAt, Status status)
+    {
+        EnumSet<Status> unsupported = EnumSet.of(Status.AcceptedInvalidate,
+                                                 Status.ReadyToExecute,
+                                                 Status.PreApplied,
+                                                 Status.Applied,
+                                                 Status.Invalidated
+        );
+        Objects.requireNonNull(status, "status");
+        Invariants.checkArgument(!unsupported.contains(status), "Need to support %s...", status);
+
+        PartialTxn partialTxn = createPartialTxn(0);
+        RoutingKey routingKey = partialTxn.keys().get(0).asKey().toUnseekable();
+        FullRoute<?> route = partialTxn.keys().toRoute(routingKey);
+        Ranges ranges = AccordTestUtils.fullRange(partialTxn.keys());
+        PartialRoute<?> partialRoute = route.slice(ranges);
+        PartialDeps deps = PartialDeps.builder(ranges).build();
+
+        return AsyncResults.getUninterruptibly(commandStore.submit(PreLoadContext.contextFor(Collections.singleton(txnId), partialTxn.keys()), safe -> {
+            //TODO reuse for modify rather than just create; need to know current and jump there
+            Command current = safe.command(txnId).current();
+            if (status == current.status()) return current;
+            switch (current.status())
+            {
+                case NotWitnessed:
+                    accord.local.Commands.AcceptOutcome result = accord.local.Commands.preaccept(safe, txnId, partialTxn, route, null);
+                    if (result != accord.local.Commands.AcceptOutcome.Success) throw new IllegalStateException("Command mutation rejected: " + result);
+                    if (status == Status.PreAccepted) return safe.command(txnId).current();
+                case PreAccepted:
+                    result = accord.local.Commands.accept(safe, txnId, Ballot.ZERO, partialRoute, partialTxn.keys(), null, executeAt, deps);
+                    if (result != accord.local.Commands.AcceptOutcome.Success) throw new IllegalStateException("Command mutation rejected: " + result);
+                    if (status == Status.Accepted) return safe.command(txnId).current();
+                case Accepted:
+                    //TODO why is there no return to check?
+                    accord.local.Commands.precommit(safe, txnId, executeAt);
+                    if (status == Status.PreCommitted) return safe.command(txnId).current();
+                case PreCommitted:
+                    accord.local.Commands.CommitOutcome commit = accord.local.Commands.commit(safe, txnId, route, null, partialTxn, executeAt, deps);
+                    if (commit != accord.local.Commands.CommitOutcome.Success) throw new IllegalStateException("Command mutation rejected: " + commit);
+                    if (status == Status.Committed) return safe.command(txnId).current();
+                default: throw new IllegalStateException("Unsupported state: " + current.status());
+            }
+        }).beginAsResult());
     }
 
     public static class TestableLoad<K, V> implements AccordStateCache.LoadFunction<K, V>
