@@ -23,22 +23,23 @@ import java.util.Objects;
 import com.google.common.annotations.VisibleForTesting;
 
 import accord.local.Command;
-import accord.local.LiveCommand;
+import accord.local.SafeCommand;
 import accord.primitives.TxnId;
 
-public class AccordLiveCommand extends LiveCommand implements AccordLiveState<Command>
+public class AccordSafeCommand extends SafeCommand implements AccordSafeState<Command>
 {
+    private boolean invalidated;
     private Command original;
     private Command current;
 
-    public AccordLiveCommand(TxnId txnId)
+    public AccordSafeCommand(TxnId txnId)
     {
         super(txnId);
         this.original = null;
         this.current = null;
     }
 
-    public AccordLiveCommand(Command command)
+    public AccordSafeCommand(Command command)
     {
         super(command.txnId());
         this.original = command;
@@ -50,7 +51,7 @@ public class AccordLiveCommand extends LiveCommand implements AccordLiveState<Co
     {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-        AccordLiveCommand that = (AccordLiveCommand) o;
+        AccordSafeCommand that = (AccordSafeCommand) o;
         return Objects.equals(original, that.original) && Objects.equals(current, that.current);
     }
 
@@ -89,5 +90,17 @@ public class AccordLiveCommand extends LiveCommand implements AccordLiveState<Co
         if (current == null)
             return 0;
         return AccordObjectSizes.command(current);
+    }
+
+    @Override
+    public void invalidate()
+    {
+        invalidated = true;
+    }
+
+    @Override
+    public boolean invalidated()
+    {
+        return invalidated;
     }
 }

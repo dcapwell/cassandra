@@ -32,11 +32,11 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import accord.api.RoutingKey;
-import accord.impl.LiveCommandsForKey;
+import accord.impl.SafeCommandsForKey;
 import accord.local.Command;
 import accord.local.Commands;
-import accord.local.LiveCommand;
 import accord.local.PreLoadContext;
+import accord.local.SafeCommand;
 import accord.local.SafeCommandStore;
 import accord.primitives.Ballot;
 import accord.primitives.FullRoute;
@@ -64,7 +64,7 @@ import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.service.accord.AccordCommandStore;
 import org.apache.cassandra.service.accord.AccordKeyspace;
-import org.apache.cassandra.service.accord.AccordLiveCommand;
+import org.apache.cassandra.service.accord.AccordSafeCommand;
 import org.apache.cassandra.service.accord.AccordSafeCommandStore;
 import org.apache.cassandra.service.accord.AccordStateCache;
 import org.apache.cassandra.service.accord.AccordTestUtils;
@@ -117,7 +117,7 @@ public class AsyncOperationTest
         PartitionKey key = (PartitionKey) Iterables.getOnlyElement(txn.keys());
 
         awaitUninterruptibly(commandStore.execute(contextFor(txnId), instance -> {
-            LiveCommand command = instance.ifPresent(txnId);
+            SafeCommand command = instance.ifPresent(txnId);
             Assert.assertNull(command);
         }));
 
@@ -133,7 +133,7 @@ public class AsyncOperationTest
         PartitionKey key = (PartitionKey) Iterables.getOnlyElement(txn.keys());
 
         awaitUninterruptibly(commandStore.execute(contextFor(Collections.emptyList(), Keys.of(key)), instance -> {
-            LiveCommandsForKey cfk = ((AccordSafeCommandStore) instance).maybeCommandsForKey(key);
+            SafeCommandsForKey cfk = ((AccordSafeCommandStore) instance).maybeCommandsForKey(key);
             Assert.assertNull(cfk);
         }));
 
@@ -149,7 +149,7 @@ public class AsyncOperationTest
     private static Command createCommittedAndPersist(AccordCommandStore commandStore, TxnId txnId, Timestamp executeAt)
     {
         Command command = AccordTestUtils.Commands.committed(txnId, createPartialTxn(0), executeAt);
-        AccordLiveCommand liveCommand = AccordTestUtils.liveCommand(txnId);
+        AccordSafeCommand liveCommand = AccordTestUtils.liveCommand(txnId);
         liveCommand.set(command);
         AccordKeyspace.getCommandMutation(commandStore, liveCommand, commandStore.nextSystemTimestampMicros()).apply();
         return command;
@@ -192,7 +192,7 @@ public class AsyncOperationTest
         }).beginAsResult());
     }
 
-    private static void assertFutureState(AccordStateCache.Instance<TxnId, AccordLiveCommand> cache, TxnId txnId, boolean referenceExpected, boolean expectLoadFuture, boolean expectSaveFuture)
+    private static void assertFutureState(AccordStateCache.Instance<TxnId, AccordSafeCommand> cache, TxnId txnId, boolean referenceExpected, boolean expectLoadFuture, boolean expectSaveFuture)
     {
         if (cache.isReferenced(txnId) != referenceExpected)
             throw new AssertionError(referenceExpected ? "Cache reference unexpectedly not found for " + txnId
@@ -224,7 +224,7 @@ public class AsyncOperationTest
         AsyncOperation<Void> operation = new AsyncOperation.ForConsumer(commandStore, ctx, consumer)
         {
 
-            private AccordStateCache.Instance<TxnId, AccordLiveCommand> cache()
+            private AccordStateCache.Instance<TxnId, AccordSafeCommand> cache()
             {
                 return commandStore.commandCache();
             }
@@ -322,9 +322,9 @@ public class AsyncOperationTest
                     return new AsyncLoader(commandStore, preLoadContext.txnIds(), (Iterable<RoutableKey>) preLoadContext.keys())
                     {
                         @Override
-                        AccordStateCache.LoadFunction<TxnId, AccordLiveCommand> loadCommandFunction()
+                        AccordStateCache.LoadFunction<TxnId, AccordSafeCommand> loadCommandFunction()
                         {
-                            AccordStateCache.LoadFunction<TxnId, AccordLiveCommand> delegate = super.loadCommandFunction();
+                            AccordStateCache.LoadFunction<TxnId, AccordSafeCommand> delegate = super.loadCommandFunction();
                             return (txnId, consumer) -> {
                                 if (!failed.get(txnId)) return delegate.apply(txnId, consumer);
 
@@ -421,9 +421,9 @@ public class AsyncOperationTest
                     return new AsyncWriter(commandStore)
                     {
                         @Override
-                        protected AsyncWriter.StateMutationFunction<AccordLiveCommand> writeCommandFunction()
+                        protected AsyncWriter.StateMutationFunction<AccordSafeCommand> writeCommandFunction()
                         {
-                            StateMutationFunction<AccordLiveCommand> delegate = super.writeCommandFunction();
+                            StateMutationFunction<AccordSafeCommand> delegate = super.writeCommandFunction();
                             return (store, updated, timestamp) -> {
                                 if (!failed.get(updated.txnId())) return delegate.apply(store, updated, timestamp);
 

@@ -36,9 +36,9 @@ import accord.utils.async.AsyncResults;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.service.accord.AccordCommandStore;
 import org.apache.cassandra.service.accord.AccordKeyspace;
-import org.apache.cassandra.service.accord.AccordLiveCommand;
-import org.apache.cassandra.service.accord.AccordLiveCommandsForKey;
-import org.apache.cassandra.service.accord.AccordLiveState;
+import org.apache.cassandra.service.accord.AccordSafeCommand;
+import org.apache.cassandra.service.accord.AccordSafeCommandsForKey;
+import org.apache.cassandra.service.accord.AccordSafeState;
 import org.apache.cassandra.service.accord.AccordStateCache;
 import org.apache.cassandra.service.accord.AccordStateCache.LoadFunction;
 import org.apache.cassandra.service.accord.api.PartitionKey;
@@ -71,7 +71,7 @@ public class AsyncLoader
         this.keys = Lists.newArrayList(keys);
     }
 
-    private <K, V extends AccordLiveState<?>> List<AsyncChain<Void>> referenceAndDispatchReads(Iterable<K> keys,
+    private <K, V extends AccordSafeState<?>> List<AsyncChain<Void>> referenceAndDispatchReads(Iterable<K> keys,
                                                                                                AsyncContext<K, V> context,
                                                                                                AccordStateCache.Instance<K, V> cache,
                                                                                                LoadFunction<K, V> loadFunction,
@@ -94,13 +94,13 @@ public class AsyncLoader
     }
 
     @VisibleForTesting
-    LoadFunction<TxnId, AccordLiveCommand> loadCommandFunction()
+    LoadFunction<TxnId, AccordSafeCommand> loadCommandFunction()
     {
         return (txnId, consumer) -> ofRunnable(Stage.READ.executor(), () -> {
             try
             {
                 logger.trace("Starting load of {}", txnId);
-                AccordLiveCommand command = AccordKeyspace.loadCommand(commandStore, txnId);
+                AccordSafeCommand command = AccordKeyspace.loadCommand(commandStore, txnId);
                 logger.trace("Completed load of {}", txnId);
                 consumer.accept(command);
             }
@@ -113,13 +113,13 @@ public class AsyncLoader
     }
 
     @VisibleForTesting
-    LoadFunction<RoutableKey, AccordLiveCommandsForKey> loadCommandsPerKeyFunction()
+    LoadFunction<RoutableKey, AccordSafeCommandsForKey> loadCommandsPerKeyFunction()
     {
         return (key, consumer) -> ofRunnable(Stage.READ.executor(), () -> {
             try
             {
                 logger.trace("Starting load of {}", key);
-                AccordLiveCommandsForKey cfk = AccordKeyspace.loadCommandsForKey(commandStore, (PartitionKey) key);
+                AccordSafeCommandsForKey cfk = AccordKeyspace.loadCommandsForKey(commandStore, (PartitionKey) key);
                 logger.trace("Completed load of {}", key);
                 consumer.accept(cfk);
             }

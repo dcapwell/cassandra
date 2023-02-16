@@ -25,7 +25,6 @@ import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.service.accord.AccordCommandStore;
-import org.apache.cassandra.service.accord.AccordSafeCommandStore;
 import org.apache.cassandra.service.accord.async.AsyncOperation.Context;
 
 import static org.apache.cassandra.cql3.statements.schema.CreateTableStatement.parse;

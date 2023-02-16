@@ -31,8 +31,9 @@ public class AccordStateCacheTest
     private static final long KEY_SIZE = 4;
     private static final long DEFAULT_NODE_SIZE = nodeSize(DEFAULT_ITEM_SIZE);
 
-    private static class Item implements AccordLiveState<Integer>
+    private static class Item implements AccordSafeState<Integer>
     {
+        boolean invalidated;
         long size = DEFAULT_ITEM_SIZE;
 
         Integer original;
@@ -69,6 +70,18 @@ public class AccordStateCacheTest
         public long estimatedSizeOnHeap()
         {
             return size + KEY_SIZE;
+        }
+
+        @Override
+        public void invalidate()
+        {
+            invalidated = true;
+        }
+
+        @Override
+        public boolean invalidated()
+        {
+            return invalidated;
         }
     }
 

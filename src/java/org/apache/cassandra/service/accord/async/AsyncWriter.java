@@ -37,9 +37,9 @@ import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.service.accord.AccordCommandStore;
 import org.apache.cassandra.service.accord.AccordKeyspace;
-import org.apache.cassandra.service.accord.AccordLiveCommand;
-import org.apache.cassandra.service.accord.AccordLiveCommandsForKey;
-import org.apache.cassandra.service.accord.AccordLiveState;
+import org.apache.cassandra.service.accord.AccordSafeCommand;
+import org.apache.cassandra.service.accord.AccordSafeCommandsForKey;
+import org.apache.cassandra.service.accord.AccordSafeState;
 import org.apache.cassandra.service.accord.AccordStateCache;
 
 import static accord.utils.async.AsyncResults.ofRunnable;
@@ -59,8 +59,8 @@ public class AsyncWriter
     private State state = State.INITIALIZED;
     protected AsyncResult<Void> writeResult;
     private final AccordCommandStore commandStore;
-    final AccordStateCache.Instance<TxnId, AccordLiveCommand> commandCache;
-    final AccordStateCache.Instance<RoutableKey, AccordLiveCommandsForKey> cfkCache;
+    final AccordStateCache.Instance<TxnId, AccordSafeCommand> commandCache;
+    final AccordStateCache.Instance<RoutableKey, AccordSafeCommandsForKey> cfkCache;
 
     public AsyncWriter(AccordCommandStore commandStore)
     {
@@ -69,12 +69,12 @@ public class AsyncWriter
         this.cfkCache = commandStore.commandsForKeyCache();
     }
 
-    public interface StateMutationFunction<V extends AccordLiveState<?>>
+    public interface StateMutationFunction<V extends AccordSafeState<?>>
     {
         Mutation apply(AccordCommandStore commandStore, V value, long timestamp);
     }
 
-    private static <K, V extends AccordLiveState<?>> List<AsyncChain<Void>> dispatchWrites(AsyncContext<K, V> context,
+    private static <K, V extends AccordSafeState<?>> List<AsyncChain<Void>> dispatchWrites(AsyncContext<K, V> context,
                                                                                            AccordStateCache.Instance<K, V> cache,
                                                                                            StateMutationFunction<V> mutationFunction,
                                                                                            long timestamp,
@@ -108,12 +108,12 @@ public class AsyncWriter
         return results;
     }
 
-    protected StateMutationFunction<AccordLiveCommand> writeCommandFunction()
+    protected StateMutationFunction<AccordSafeCommand> writeCommandFunction()
     {
         return AccordKeyspace::getCommandMutation;
     }
 
-    protected StateMutationFunction<AccordLiveCommandsForKey> writeCommandForKeysFunction()
+    protected StateMutationFunction<AccordSafeCommandsForKey> writeCommandForKeysFunction()
     {
         return AccordKeyspace::getCommandsForKeyMutation;
     }

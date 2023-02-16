@@ -36,8 +36,8 @@ import accord.primitives.TxnId;
 import accord.utils.Invariants;
 import accord.utils.async.AsyncChains;
 import org.apache.cassandra.service.accord.AccordCommandStore;
-import org.apache.cassandra.service.accord.AccordLiveCommand;
-import org.apache.cassandra.service.accord.AccordLiveCommandsForKey;
+import org.apache.cassandra.service.accord.AccordSafeCommand;
+import org.apache.cassandra.service.accord.AccordSafeCommandsForKey;
 import org.apache.cassandra.service.accord.AccordSafeCommandStore;
 
 public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements Runnable, Function<SafeCommandStore, R>
@@ -52,8 +52,8 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
 
     static class Context
     {
-        final AsyncContext<TxnId, AccordLiveCommand> commands = new AsyncContext<>();
-        final AsyncContext<RoutableKey, AccordLiveCommandsForKey> commandsForKeys = new AsyncContext<>();
+        final AsyncContext<TxnId, AccordSafeCommand> commands = new AsyncContext<>();
+        final AsyncContext<RoutableKey, AccordSafeCommandsForKey> commandsForKeys = new AsyncContext<>();
 
         void getActive(AccordCommandStore commandStore)
         {

@@ -67,8 +67,8 @@ public class AccordCommandStore implements CommandStore
     public final String loggingId;
     private final ExecutorService executor;
     private final AccordStateCache stateCache;
-    private final AccordStateCache.Instance<TxnId, AccordLiveCommand> commandCache;
-    private final AccordStateCache.Instance<RoutableKey, AccordLiveCommandsForKey> commandsForKeyCache;
+    private final AccordStateCache.Instance<TxnId, AccordSafeCommand> commandCache;
+    private final AccordStateCache.Instance<RoutableKey, AccordSafeCommandsForKey> commandsForKeyCache;
     private AsyncOperation<?> currentOperation = null;
     private AccordSafeCommandStore current = null;
     private long lastSystemTimestampMicros = Long.MIN_VALUE;
@@ -96,8 +96,8 @@ public class AccordCommandStore implements CommandStore
         this.executor = executorFactory().sequential(CommandStore.class.getSimpleName() + '[' + id + ']');
         this.threadId = getThreadId(this.executor);
         this.stateCache = new AccordStateCache(0);
-        this.commandCache = stateCache.instance(TxnId.class, AccordLiveCommand.class);
-        this.commandsForKeyCache = stateCache.instance(RoutableKey.class, AccordLiveCommandsForKey.class);
+        this.commandCache = stateCache.instance(TxnId.class, AccordSafeCommand.class);
+        this.commandsForKeyCache = stateCache.instance(RoutableKey.class, AccordSafeCommandsForKey.class);
     }
 
     @Override
@@ -132,12 +132,12 @@ public class AccordCommandStore implements CommandStore
         return executor;
     }
 
-    public AccordStateCache.Instance<TxnId, AccordLiveCommand> commandCache()
+    public AccordStateCache.Instance<TxnId, AccordSafeCommand> commandCache()
     {
         return commandCache;
     }
 
-    public AccordStateCache.Instance<RoutableKey, AccordLiveCommandsForKey> commandsForKeyCache()
+    public AccordStateCache.Instance<RoutableKey, AccordSafeCommandsForKey> commandsForKeyCache()
     {
         return commandsForKeyCache;
     }
@@ -220,8 +220,8 @@ public class AccordCommandStore implements CommandStore
     }
 
     public AccordSafeCommandStore beginOperation(PreLoadContext preLoadContext,
-                                                 AsyncContext<TxnId, AccordLiveCommand> commands,
-                                                 AsyncContext<RoutableKey, AccordLiveCommandsForKey> commandsForKeys)
+                                                 AsyncContext<TxnId, AccordSafeCommand> commands,
+                                                 AsyncContext<RoutableKey, AccordSafeCommandsForKey> commandsForKeys)
     {
         Invariants.checkState(current == null);
         current = new AccordSafeCommandStore(preLoadContext, commands, commandsForKeys, this);

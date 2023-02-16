@@ -26,12 +26,12 @@ import java.util.function.Consumer;
 import com.google.common.annotations.VisibleForTesting;
 
 import accord.utils.Invariants;
-import org.apache.cassandra.service.accord.AccordLiveState;
+import org.apache.cassandra.service.accord.AccordSafeState;
 import org.apache.cassandra.service.accord.AccordStateCache;
 
 import static accord.utils.Invariants.nonNull;
 
-public class AsyncContext<K, V extends AccordLiveState<?>>
+public class AsyncContext<K, V extends AccordSafeState<?>>
 {
     private static final Object REFERENCED = new Object();
 
@@ -115,5 +115,14 @@ public class AsyncContext<K, V extends AccordLiveState<?>>
     public void forEachKey(Consumer<K> consumer)
     {
         values.keySet().forEach(consumer);
+    }
+
+    public void invalidate()
+    {
+        values.forEach((key, state) -> {
+            Invariants.checkState(state != REFERENCED);
+            V value = (V) state;
+            value.invalidate();
+        });
     }
 }

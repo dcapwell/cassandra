@@ -482,7 +482,7 @@ public class AccordKeyspace
         return estimateMapChanges(prev, value);
     }
 
-    public static Mutation getCommandMutation(AccordCommandStore commandStore, AccordLiveCommand liveCommand, long timestampMicros)
+    public static Mutation getCommandMutation(AccordCommandStore commandStore, AccordSafeCommand liveCommand, long timestampMicros)
     {
         try
         {
@@ -600,12 +600,12 @@ public class AccordKeyspace
                                txnId.msb, txnId.lsb, txnId.node.id);
     }
 
-    private static AccordLiveCommand liveCommand(Command command)
+    private static AccordSafeCommand liveCommand(Command command)
     {
-        return new AccordLiveCommand(command);
+        return new AccordSafeCommand(command);
     }
 
-    public static AccordLiveCommand loadCommand(AccordCommandStore commandStore, TxnId txnId)
+    public static AccordSafeCommand loadCommand(AccordCommandStore commandStore, TxnId txnId)
     {
         commandStore.checkNotInStoreThread();
 
@@ -613,7 +613,7 @@ public class AccordKeyspace
 
         if (rows.isEmpty())
         {
-            return new AccordLiveCommand(txnId);
+            return new AccordSafeCommand(txnId);
         }
 
         try
@@ -727,7 +727,7 @@ public class AccordKeyspace
         return makeKey(commandStore, (PartitionKey) cfk.key());
     }
 
-    public static Mutation getCommandsForKeyMutation(AccordCommandStore commandStore, AccordLiveCommandsForKey liveCfk, long timestampMicros)
+    public static Mutation getCommandsForKeyMutation(AccordCommandStore commandStore, AccordSafeCommandsForKey liveCfk, long timestampMicros)
     {
         try
         {
@@ -799,7 +799,7 @@ public class AccordKeyspace
                                                  FULL_PARTITION);
     }
 
-    public static AccordLiveCommandsForKey loadCommandsForKey(AccordCommandStore commandStore, PartitionKey key)
+    public static AccordSafeCommandsForKey loadCommandsForKey(AccordCommandStore commandStore, PartitionKey key)
     {
         commandStore.checkNotInStoreThread();
         long timestampMicros = TimeUnit.MILLISECONDS.toMicros(Clock.Global.currentTimeMillis());
@@ -816,7 +816,7 @@ public class AccordKeyspace
         {
             if (!partitions.hasNext())
             {
-                return new AccordLiveCommandsForKey(key);
+                return new AccordSafeCommandsForKey(key);
             }
 
             Timestamp max = Timestamp.NONE;
@@ -855,7 +855,7 @@ public class AccordKeyspace
                                                                             CommandsForKeySerializer.loader,
                                                                             seriesMaps.get(SeriesKind.BY_ID).build(),
                                                                             seriesMaps.get(SeriesKind.BY_EXECUTE_AT).build());
-            return new AccordLiveCommandsForKey(loaded);
+            return new AccordSafeCommandsForKey(loaded);
         }
         catch (Throwable t)
         {

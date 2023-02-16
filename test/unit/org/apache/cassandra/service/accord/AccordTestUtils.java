@@ -125,14 +125,14 @@ public class AccordTestUtils
         }
     }
 
-    public static AccordLiveCommand liveCommand(TxnId txnId)
+    public static AccordSafeCommand liveCommand(TxnId txnId)
     {
-        return new AccordLiveCommand(txnId);
+        return new AccordSafeCommand(txnId);
     }
 
-    public static AccordLiveCommand liveCommand(Command command)
+    public static AccordSafeCommand liveCommand(Command command)
     {
-        return new AccordLiveCommand(command);
+        return new AccordSafeCommand(command);
     }
 
     public static CommandsForKey commandsForKey(Key key)
@@ -140,14 +140,14 @@ public class AccordTestUtils
         return new CommandsForKey(key, CommandsForKeySerializer.loader);
     }
 
-    public static AccordLiveCommandsForKey liveCommandsForKey(Key key)
+    public static AccordSafeCommandsForKey liveCommandsForKey(Key key)
     {
-        return new AccordLiveCommandsForKey(key);
+        return new AccordSafeCommandsForKey(key);
     }
 
-    public static AccordLiveCommandsForKey liveCommandsForKey(CommandsForKey cfk)
+    public static AccordSafeCommandsForKey liveCommandsForKey(CommandsForKey cfk)
     {
-        return new AccordLiveCommandsForKey(cfk);
+        return new AccordSafeCommandsForKey(cfk);
     }
 
     public static final ProgressLog NOOP_PROGRESS_LOG = new ProgressLog()

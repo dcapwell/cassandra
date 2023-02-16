@@ -30,7 +30,7 @@ import accord.api.Key;
 import accord.api.ProgressLog;
 import accord.impl.AbstractSafeCommandStore;
 import accord.impl.CommandsForKey;
-import accord.impl.LiveCommandsForKey;
+import accord.impl.SafeCommandsForKey;
 import accord.local.CommandStores.RangesForEpoch;
 import accord.local.CommonAttributes;
 import accord.local.NodeTimeService;
@@ -48,15 +48,15 @@ import accord.primitives.TxnId;
 import org.apache.cassandra.service.accord.async.AsyncContext;
 import org.apache.cassandra.service.accord.serializers.CommandsForKeySerializer;
 
-public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordLiveCommand, AccordLiveCommandsForKey>
+public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeCommand, AccordSafeCommandsForKey>
 {
-    private final AsyncContext<TxnId, AccordLiveCommand> commands;
-    private final AsyncContext<RoutableKey, AccordLiveCommandsForKey> commandsForKeys;
+    private final AsyncContext<TxnId, AccordSafeCommand> commands;
+    private final AsyncContext<RoutableKey, AccordSafeCommandsForKey> commandsForKeys;
     private final AccordCommandStore commandStore;
 
     public AccordSafeCommandStore(PreLoadContext context,
-                                  AsyncContext<TxnId, AccordLiveCommand> commands,
-                                  AsyncContext<RoutableKey, AccordLiveCommandsForKey> commandsForKey,
+                                  AsyncContext<TxnId, AccordSafeCommand> commands,
+                                  AsyncContext<RoutableKey, AccordSafeCommandsForKey> commandsForKey,
                                   AccordCommandStore commandStore)
     {
         super(context);
@@ -66,37 +66,37 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordLiveC
     }
 
     @Override
-    protected AccordLiveCommand getCommandInternal(TxnId txnId)
+    protected AccordSafeCommand getCommandInternal(TxnId txnId)
     {
         return commands.get(txnId);
     }
 
     @Override
-    protected void addCommandInternal(AccordLiveCommand command)
+    protected void addCommandInternal(AccordSafeCommand command)
     {
         commands.add(command.txnId(), command);
     }
 
     @Override
-    protected AccordLiveCommandsForKey getCommandsForKeyInternal(RoutableKey key)
+    protected AccordSafeCommandsForKey getCommandsForKeyInternal(RoutableKey key)
     {
         return commandsForKeys.get(key);
     }
 
     @Override
-    protected void addCommandsForKeyInternal(AccordLiveCommandsForKey cfk)
+    protected void addCommandsForKeyInternal(AccordSafeCommandsForKey cfk)
     {
         commandsForKeys.add(cfk.key(), cfk);
     }
 
     @Override
-    protected AccordLiveCommand getIfLoaded(TxnId txnId)
+    protected AccordSafeCommand getIfLoaded(TxnId txnId)
     {
         return commandStore.commandCache().referenceAndGetIfLoaded(txnId);
     }
 
     @Override
-    protected AccordLiveCommandsForKey getIfLoaded(RoutableKey key)
+    protected AccordSafeCommandsForKey getIfLoaded(RoutableKey key)
     {
         return commandStore.commandsForKeyCache().referenceAndGetIfLoaded(key);
     }
@@ -151,7 +151,7 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordLiveC
         return ((Keys)keysOrRanges).stream()
                            .map(this::maybeCommandsForKey)
                            .filter(Objects::nonNull)
-                           .map(LiveCommandsForKey::current)
+                           .map(SafeCommandsForKey::current)
                            .filter(Objects::nonNull)
                            .map(CommandsForKey::max)
                            .max(Comparator.naturalOrder())
@@ -169,7 +169,7 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordLiveC
                 for (Key key : keys)
                 {
                     if (!slice.contains(key)) continue;
-                    LiveCommandsForKey forKey = commandsForKey(key);
+                    SafeCommandsForKey forKey = commandsForKey(key);
                     accumulate = map.apply(forKey.current(), accumulate);
                     if (accumulate.equals(terminalValue))
                         return accumulate;
@@ -217,7 +217,7 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordLiveC
     }
 
     @Override
-    public CommonAttributes completeRegistration(Seekables<?, ?> seekables, Ranges ranges, AccordLiveCommand liveCommand, CommonAttributes attrs)
+    public CommonAttributes completeRegistration(Seekables<?, ?> seekables, Ranges ranges, AccordSafeCommand liveCommand, CommonAttributes attrs)
     {
         for (Seekable seekable : seekables)
             attrs = completeRegistration(seekable, ranges, liveCommand, attrs);
@@ -225,16 +225,23 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordLiveC
     }
 
     @Override
-    public CommonAttributes completeRegistration(Seekable seekable, Ranges ranges, AccordLiveCommand liveCommand, CommonAttributes attrs)
+    public CommonAttributes completeRegistration(Seekable seekable, Ranges ranges, AccordSafeCommand liveCommand, CommonAttributes attrs)
     {
         Key key = (Key) seekable;
         if (ranges.contains(key))
         {
-            AccordLiveCommandsForKey cfk = commandsForKey(key);
+            AccordSafeCommandsForKey cfk = commandsForKey(key);
             cfk.register(liveCommand.current());
             attrs = attrs.mutableAttrs().addListener(CommandsForKey.listener(key));
         }
         return attrs;
+    }
+
+    @Override
+    protected void invalidateSafeState()
+    {
+        commands.invalidate();
+        commandsForKeys.invalidate();
     }
 
     @Override

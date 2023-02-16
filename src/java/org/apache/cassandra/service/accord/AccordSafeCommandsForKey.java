@@ -24,21 +24,22 @@ import com.google.common.annotations.VisibleForTesting;
 
 import accord.api.Key;
 import accord.impl.CommandsForKey;
-import accord.impl.LiveCommandsForKey;
+import accord.impl.SafeCommandsForKey;
 
-public class AccordLiveCommandsForKey extends LiveCommandsForKey implements AccordLiveState<CommandsForKey>
+public class AccordSafeCommandsForKey extends SafeCommandsForKey implements AccordSafeState<CommandsForKey>
 {
+    private boolean invalidated;
     private CommandsForKey original;
     private CommandsForKey current;
 
-    public AccordLiveCommandsForKey(Key key)
+    public AccordSafeCommandsForKey(Key key)
     {
         super(key);
         this.original = null;
         this.current = null;
     }
 
-    public AccordLiveCommandsForKey(CommandsForKey cfk)
+    public AccordSafeCommandsForKey(CommandsForKey cfk)
     {
         super(cfk.key());
         this.original = cfk;
@@ -50,7 +51,7 @@ public class AccordLiveCommandsForKey extends LiveCommandsForKey implements Acco
     {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-        AccordLiveCommandsForKey that = (AccordLiveCommandsForKey) o;
+        AccordSafeCommandsForKey that = (AccordSafeCommandsForKey) o;
         return Objects.equals(original, that.original) && Objects.equals(current, that.current);
     }
 
@@ -90,5 +91,17 @@ public class AccordLiveCommandsForKey extends LiveCommandsForKey implements Acco
             return 0;
 
         return AccordObjectSizes.commandsForKey(current);
+    }
+
+    @Override
+    public void invalidate()
+    {
+        invalidated = true;
+    }
+
+    @Override
+    public boolean invalidated()
+    {
+        return invalidated;
     }
 }

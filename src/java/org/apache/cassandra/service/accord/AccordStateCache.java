@@ -74,7 +74,7 @@ public class AccordStateCache
         }
     }
 
-    public static class Node<K, V extends AccordLiveState<?>>
+    public static class Node<K, V extends AccordSafeState<?>>
     {
         static final long EMPTY_SIZE = ObjectSizes.measure(new AccordStateCache.Node(null, null));
 
@@ -247,7 +247,7 @@ public class AccordStateCache
 
     // don't evict if there's an outstanding save result. If an item is evicted then reloaded
     // before it's mutation is applied, out of date info will be loaded
-    private <K, V extends AccordLiveState<?>> boolean canEvict(Node<K, V> node)
+    private <K, V extends AccordSafeState<?>> boolean canEvict(Node<K, V> node)
     {
         return node.isLoaded() &&
                !hasActiveAsyncResult(saveResults, node.key) &&
@@ -315,7 +315,7 @@ public class AccordStateCache
         resultMap.put(key, result);
     }
 
-    private <K, V extends AccordLiveState<?>> Node<K, V> maybeCleanupLoad(Node<K, V> node)
+    private <K, V extends AccordSafeState<?>> Node<K, V> maybeCleanupLoad(Node<K, V> node)
     {
         if (node.maybeFinishLoad())
             updateSize(node);
@@ -339,7 +339,7 @@ public class AccordStateCache
         getAsyncResult(writeResults, key);
     }
 
-    public class Instance<K, V extends AccordLiveState<?>>
+    public class Instance<K, V extends AccordSafeState<?>>
     {
         private final Class<K> keyClass;
         private final Class<V> valClass;
@@ -598,7 +598,7 @@ public class AccordStateCache
         }
     }
 
-    public <K, V extends AccordLiveState<?>> Instance<K, V> instance(Class<K> keyClass, Class<V> valClass)
+    public <K, V extends AccordSafeState<?>> Instance<K, V> instance(Class<K> keyClass, Class<V> valClass)
     {
         Instance<K, V> instance = new Instance<>(keyClass, valClass);
         if (!instances.add(instance))

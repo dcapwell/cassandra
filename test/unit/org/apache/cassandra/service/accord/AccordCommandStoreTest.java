@@ -118,11 +118,11 @@ public class AccordCommandStoreTest
         Command command = Command.SerializerSupport.executed(attrs, SaveStatus.Applied, executeAt, promised, accepted,
                                                              waitingOnCommit, waitingOnApply, result.left, result.right);
 
-        AccordLiveCommand liveCommand = AccordTestUtils.liveCommand(txnId);
+        AccordSafeCommand liveCommand = AccordTestUtils.liveCommand(txnId);
         liveCommand.set(command);
         AccordKeyspace.getCommandMutation(commandStore, liveCommand, commandStore.nextSystemTimestampMicros()).apply();
         logger.info("E: {}", command);
-        AccordLiveCommand actual = AccordKeyspace.loadCommand(commandStore, txnId);
+        AccordSafeCommand actual = AccordKeyspace.loadCommand(commandStore, txnId);
         logger.info("A: {}", actual);
 
         Assert.assertEquals(command, actual.current());
@@ -143,7 +143,7 @@ public class AccordCommandStoreTest
         Command command1 = preaccepted(txnId1, txn, timestamp(1, clock.incrementAndGet(), 1));
         Command command2 = preaccepted(txnId2, txn, timestamp(1, clock.incrementAndGet(), 1));
 
-        AccordLiveCommandsForKey cfk = liveCommandsForKey(key);
+        AccordSafeCommandsForKey cfk = liveCommandsForKey(key);
         cfk.initialize(CommandsForKeySerializer.loader);
         cfk.updateMax(maxTimestamp);
 
@@ -162,7 +162,7 @@ public class AccordCommandStoreTest
 
         AccordKeyspace.getCommandsForKeyMutation(commandStore, cfk, commandStore.nextSystemTimestampMicros()).apply();
         logger.info("E: {}", cfk);
-        AccordLiveCommandsForKey actual = AccordKeyspace.loadCommandsForKey(commandStore, key);
+        AccordSafeCommandsForKey actual = AccordKeyspace.loadCommandsForKey(commandStore, key);
         logger.info("A: {}", actual);
 
         Assert.assertEquals(cfk.current(), actual.current());

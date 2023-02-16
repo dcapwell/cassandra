@@ -18,9 +18,9 @@
 
 package org.apache.cassandra.service.accord;
 
-import accord.local.LiveState;
+import accord.local.SafeState;
 
-public interface AccordLiveState<V> extends LiveState<V>
+public interface AccordSafeState<V> extends SafeState<V>
 {
     void set(V update);
     V original();

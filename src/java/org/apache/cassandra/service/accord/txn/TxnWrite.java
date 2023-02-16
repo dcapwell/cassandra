@@ -53,7 +53,7 @@ import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.schema.ColumnMetadata;
-import org.apache.cassandra.service.accord.AccordLiveCommandsForKey;
+import org.apache.cassandra.service.accord.AccordSafeCommandsForKey;
 import org.apache.cassandra.service.accord.AccordSafeCommandStore;
 import org.apache.cassandra.service.accord.api.PartitionKey;
 import org.apache.cassandra.utils.ByteBufferUtil;
@@ -348,7 +348,7 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
         // TODO (expected, efficiency): 99.9999% of the time we can just use executeAt.hlc(), so can avoid bringing
         //  cfk into memory by retaining at all times in memory key ranges that are dirty and must use this logic;
         //  any that aren't can just use executeAt.hlc
-        AccordLiveCommandsForKey cfk = ((AccordSafeCommandStore) safeStore).commandsForKey((RoutableKey) key);
+        AccordSafeCommandsForKey cfk = ((AccordSafeCommandStore) safeStore).commandsForKey((RoutableKey) key);
         cfk.updateLastExecutionTimestamps(executeAt, true);
         long timestamp = cfk.current().timestampMicrosFor(executeAt, true);
         // TODO (low priority - do we need to compute nowInSeconds, or can we just use executeAt?)
