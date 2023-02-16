@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.service.accord;
 
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -27,6 +28,8 @@ import java.util.function.Function;
 import accord.api.Agent;
 import accord.api.DataStore;
 import accord.api.ProgressLog;
+import accord.impl.CommandsForKey;
+import accord.local.Command;
 import accord.local.CommandStore;
 import accord.local.CommandStores.RangesForEpoch;
 import accord.local.CommandStores.RangesForEpochHolder;
@@ -37,7 +40,6 @@ import accord.primitives.RoutableKey;
 import accord.primitives.TxnId;
 import accord.utils.Invariants;
 import accord.utils.async.AsyncChain;
-import org.apache.cassandra.service.accord.async.AsyncContext;
 import org.apache.cassandra.service.accord.async.AsyncOperation;
 import org.apache.cassandra.utils.Clock;
 import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
@@ -67,8 +69,8 @@ public class AccordCommandStore implements CommandStore
     public final String loggingId;
     private final ExecutorService executor;
     private final AccordStateCache stateCache;
-    private final AccordStateCache.Instance<TxnId, AccordSafeCommand> commandCache;
-    private final AccordStateCache.Instance<RoutableKey, AccordSafeCommandsForKey> commandsForKeyCache;
+    private final AccordStateCache.Instance<TxnId, Command, AccordSafeCommand> commandCache;
+    private final AccordStateCache.Instance<RoutableKey, CommandsForKey, AccordSafeCommandsForKey> commandsForKeyCache;
     private AsyncOperation<?> currentOperation = null;
     private AccordSafeCommandStore current = null;
     private long lastSystemTimestampMicros = Long.MIN_VALUE;
@@ -96,8 +98,8 @@ public class AccordCommandStore implements CommandStore
         this.executor = executorFactory().sequential(CommandStore.class.getSimpleName() + '[' + id + ']');
         this.threadId = getThreadId(this.executor);
         this.stateCache = new AccordStateCache(0);
-        this.commandCache = stateCache.instance(TxnId.class, AccordSafeCommand.class);
-        this.commandsForKeyCache = stateCache.instance(RoutableKey.class, AccordSafeCommandsForKey.class);
+        this.commandCache = stateCache.instance(TxnId.class, accord.local.Command.class, AccordSafeCommand::new, AccordObjectSizes::command);
+        this.commandsForKeyCache = stateCache.instance(RoutableKey.class, CommandsForKey.class, AccordSafeCommandsForKey::new, AccordObjectSizes::commandsForKey);
     }
 
     @Override
@@ -132,12 +134,12 @@ public class AccordCommandStore implements CommandStore
         return executor;
     }
 
-    public AccordStateCache.Instance<TxnId, AccordSafeCommand> commandCache()
+    public AccordStateCache.Instance<TxnId, Command, AccordSafeCommand> commandCache()
     {
         return commandCache;
     }
 
-    public AccordStateCache.Instance<RoutableKey, AccordSafeCommandsForKey> commandsForKeyCache()
+    public AccordStateCache.Instance<RoutableKey, CommandsForKey, AccordSafeCommandsForKey> commandsForKeyCache()
     {
         return commandsForKeyCache;
     }
@@ -220,8 +222,8 @@ public class AccordCommandStore implements CommandStore
     }
 
     public AccordSafeCommandStore beginOperation(PreLoadContext preLoadContext,
-                                                 AsyncContext<TxnId, AccordSafeCommand> commands,
-                                                 AsyncContext<RoutableKey, AccordSafeCommandsForKey> commandsForKeys)
+                                                 Map<TxnId, AccordSafeCommand> commands,
+                                                 Map<RoutableKey, AccordSafeCommandsForKey> commandsForKeys)
     {
         Invariants.checkState(current == null);
         current = new AccordSafeCommandStore(preLoadContext, commands, commandsForKeys, this);

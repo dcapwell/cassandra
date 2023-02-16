@@ -600,12 +600,7 @@ public class AccordKeyspace
                                txnId.msb, txnId.lsb, txnId.node.id);
     }
 
-    private static AccordSafeCommand liveCommand(Command command)
-    {
-        return new AccordSafeCommand(command);
-    }
-
-    public static AccordSafeCommand loadCommand(AccordCommandStore commandStore, TxnId txnId)
+    public static Command loadCommand(AccordCommandStore commandStore, TxnId txnId)
     {
         commandStore.checkNotInStoreThread();
 
@@ -613,7 +608,7 @@ public class AccordKeyspace
 
         if (rows.isEmpty())
         {
-            return new AccordSafeCommand(txnId);
+            return null;
         }
 
         try
@@ -642,21 +637,21 @@ public class AccordKeyspace
             switch (status)
             {
                 case NotWitnessed:
-                    return liveCommand(Command.SerializerSupport.notWitnessed(attributes, promised));
+                    return Command.SerializerSupport.notWitnessed(attributes, promised);
                 case PreAccepted:
-                    return liveCommand(Command.SerializerSupport.preaccepted(attributes, executeAt, promised));
+                    return Command.SerializerSupport.preaccepted(attributes, executeAt, promised);
                 case AcceptedInvalidate:
                 case AcceptedInvalidateWithDefinition:
                 case Accepted:
                 case AcceptedWithDefinition:
-                    return liveCommand(Command.SerializerSupport.accepted(attributes, status, executeAt, promised, accepted));
+                    return Command.SerializerSupport.accepted(attributes, status, executeAt, promised, accepted);
                 case Committed:
                 case ReadyToExecute:
-                    return liveCommand(Command.SerializerSupport.committed(attributes, status, executeAt, promised, accepted, waitingOnCommit, waitingOnApply));
+                    return Command.SerializerSupport.committed(attributes, status, executeAt, promised, accepted, waitingOnCommit, waitingOnApply);
                 case PreApplied:
                 case Applied:
                 case Invalidated:
-                    return liveCommand(Command.SerializerSupport.executed(attributes, status, executeAt, promised, accepted, waitingOnCommit, waitingOnApply, writes, result));
+                    return Command.SerializerSupport.executed(attributes, status, executeAt, promised, accepted, waitingOnCommit, waitingOnApply, writes, result);
                 default:
                     throw new IllegalStateException("Unhandled status " + status);
             }
@@ -799,7 +794,7 @@ public class AccordKeyspace
                                                  FULL_PARTITION);
     }
 
-    public static AccordSafeCommandsForKey loadCommandsForKey(AccordCommandStore commandStore, PartitionKey key)
+    public static CommandsForKey loadCommandsForKey(AccordCommandStore commandStore, PartitionKey key)
     {
         commandStore.checkNotInStoreThread();
         long timestampMicros = TimeUnit.MILLISECONDS.toMicros(Clock.Global.currentTimeMillis());
@@ -816,7 +811,7 @@ public class AccordKeyspace
         {
             if (!partitions.hasNext())
             {
-                return new AccordSafeCommandsForKey(key);
+                return null;
             }
 
             Timestamp max = Timestamp.NONE;
@@ -851,11 +846,10 @@ public class AccordKeyspace
             }
             Invariants.checkState(!partitions.hasNext());
 
-            CommandsForKey loaded = CommandsForKey.SerializerSupport.create(key, max, lastExecutedTimestamp, lastExecutedMicros, lastWriteTimestamp,
-                                                                            CommandsForKeySerializer.loader,
-                                                                            seriesMaps.get(SeriesKind.BY_ID).build(),
-                                                                            seriesMaps.get(SeriesKind.BY_EXECUTE_AT).build());
-            return new AccordSafeCommandsForKey(loaded);
+            return CommandsForKey.SerializerSupport.create(key, max, lastExecutedTimestamp, lastExecutedMicros, lastWriteTimestamp,
+                                                           CommandsForKeySerializer.loader,
+                                                           seriesMaps.get(SeriesKind.BY_ID).build(),
+                                                           seriesMaps.get(SeriesKind.BY_EXECUTE_AT).build());
         }
         catch (Throwable t)
         {

@@ -21,16 +21,19 @@ package org.apache.cassandra.service.accord.async;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.function.BiConsumer;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import accord.impl.CommandsForKey;
+import accord.local.Command;
 import accord.primitives.RoutableKey;
 import accord.primitives.TxnId;
 import accord.utils.Invariants;
-import accord.utils.async.AsyncChain;
+import accord.utils.async.AsyncChains;
 import accord.utils.async.AsyncResult;
 import accord.utils.async.AsyncResults;
 import org.apache.cassandra.concurrent.Stage;
@@ -41,8 +44,6 @@ import org.apache.cassandra.service.accord.AccordSafeCommand;
 import org.apache.cassandra.service.accord.AccordSafeCommandsForKey;
 import org.apache.cassandra.service.accord.AccordSafeState;
 import org.apache.cassandra.service.accord.AccordStateCache;
-
-import static accord.utils.async.AsyncResults.ofRunnable;
 
 public class AsyncWriter
 {
@@ -59,8 +60,8 @@ public class AsyncWriter
     private State state = State.INITIALIZED;
     protected AsyncResult<Void> writeResult;
     private final AccordCommandStore commandStore;
-    final AccordStateCache.Instance<TxnId, AccordSafeCommand> commandCache;
-    final AccordStateCache.Instance<RoutableKey, AccordSafeCommandsForKey> cfkCache;
+    final AccordStateCache.Instance<TxnId, Command, AccordSafeCommand> commandCache;
+    final AccordStateCache.Instance<RoutableKey, CommandsForKey, AccordSafeCommandsForKey> cfkCache;
 
     public AsyncWriter(AccordCommandStore commandStore)
     {
@@ -69,43 +70,27 @@ public class AsyncWriter
         this.cfkCache = commandStore.commandsForKeyCache();
     }
 
-    public interface StateMutationFunction<V extends AccordSafeState<?>>
+    public interface StateMutationFunction<V extends AccordSafeState<?, ?>>
     {
         Mutation apply(AccordCommandStore commandStore, V value, long timestamp);
     }
 
-    private static <K, V extends AccordSafeState<?>> List<AsyncChain<Void>> dispatchWrites(AsyncContext<K, V> context,
-                                                                                           AccordStateCache.Instance<K, V> cache,
-                                                                                           StateMutationFunction<V> mutationFunction,
-                                                                                           long timestamp,
-                                                                                           AccordCommandStore commandStore,
-                                                                                           List<AsyncChain<Void>> results)
+    private static <K, V, S extends AccordSafeState<K, V>> void assembleWrites(Map<K, S> context,
+                                                                               AccordStateCache.Instance<K, V, S> cache,
+                                                                               StateMutationFunction<S> mutationFunction,
+                                                                               long timestamp,
+                                                                               AccordCommandStore commandStore,
+                                                                               List<Runnable> runnables)
     {
-        context.forEachUpdated((key, value) -> {
+        context.forEach((key, value) -> {
             Invariants.checkArgument(value.hasUpdate());
             Mutation mutation = mutationFunction.apply(commandStore, value, timestamp);
             if (logger.isTraceEnabled())
                 logger.trace("Dispatching mutation for {}, {} -> {}", key, value.current(), mutation);
-            AsyncResult<Void> result = ofRunnable(Stage.MUTATION.executor(), () -> {
-                try
-                {
-                    if (logger.isTraceEnabled())
-                        logger.trace("Applying mutation for {}: {}", key, mutation);
-                    mutation.apply();
-                    if (logger.isTraceEnabled())
-                        logger.trace("Completed applying mutation for {}: {}", key, mutation);
-                }
-                catch (Throwable t)
-                {
-                    logger.error(String.format("Exception applying mutation for %s: %s", key, mutation), t);
-                    throw t;
-                }
-            });
+            AsyncResults.Unscheduled<Void> result = AsyncResults.unscheduled(() -> mutation.apply());
             cache.addSaveResult(key, result);
-            results.add(result);
+            runnables.add(result);
         });
-
-        return results;
     }
 
     protected StateMutationFunction<AccordSafeCommand> writeCommandFunction()
@@ -123,24 +108,24 @@ public class AsyncWriter
         if (context.commands.isEmpty() && context.commandsForKeys.isEmpty())
             return null;
 
-        List<AsyncChain<Void>> results = new ArrayList<>(context.commands.size() + context.commandsForKeys.size());
+        List<Runnable> writes = new ArrayList<>(context.commands.size() + context.commandsForKeys.size());
 
         long timestamp = commandStore.nextSystemTimestampMicros();
-        results = dispatchWrites(context.commands,
-                                 commandStore.commandCache(),
-                                 writeCommandFunction(),
-                                 timestamp,
-                                 commandStore,
-                                 results);
+        assembleWrites(context.commands,
+                       commandStore.commandCache(),
+                       writeCommandFunction(),
+                       timestamp,
+                       commandStore,
+                       writes);
 
-        results = dispatchWrites(context.commandsForKeys,
-                                 commandStore.commandsForKeyCache(),
-                                 writeCommandForKeysFunction(),
-                                 timestamp,
-                                 commandStore,
-                                 results);
+        assembleWrites(context.commandsForKeys,
+                       commandStore.commandsForKeyCache(),
+                       writeCommandForKeysFunction(),
+                       timestamp,
+                       commandStore,
+                       writes);
 
-        return !results.isEmpty() ? AsyncResults.reduce(results, (a, b) -> null).beginAsResult() : null;
+        return !writes.isEmpty() ? AsyncChains.ofRunnables(Stage.MUTATION.executor(), writes).beginAsResult() : null;
     }
 
     @VisibleForTesting
@@ -170,8 +155,8 @@ public class AsyncWriter
                         writeResult.addCallback(callback, commandStore.executor());
                         break;
                     }
-                    context.commands.forEachKey(commandStore.commandCache()::cleanupSaveResult);
-                    context.commandsForKeys.forEachKey(commandStore.commandsForKeyCache()::cleanupSaveResult);
+                    context.commands.keySet().forEach(commandStore.commandCache()::cleanupSaveResult);
+                    context.commandsForKeys.keySet().forEach(commandStore.commandsForKeyCache()::cleanupSaveResult);
                     setState(State.FINISHED);
                 case FINISHED:
                     break;

@@ -19,31 +19,28 @@
 package org.apache.cassandra.service.accord;
 
 import java.util.Objects;
+import java.util.function.Function;
 
 import com.google.common.annotations.VisibleForTesting;
 
 import accord.local.Command;
 import accord.local.SafeCommand;
 import accord.primitives.TxnId;
+import accord.utils.async.AsyncChain;
 
-public class AccordSafeCommand extends SafeCommand implements AccordSafeState<Command>
+public class AccordSafeCommand extends SafeCommand implements AccordSafeState<TxnId, Command>
 {
     private boolean invalidated;
+    private final AccordLoadingState<TxnId, Command> global;
     private Command original;
     private Command current;
 
-    public AccordSafeCommand(TxnId txnId)
+    public AccordSafeCommand(AccordLoadingState<TxnId, Command> global)
     {
-        super(txnId);
+        super(global.key());
+        this.global = global;
         this.original = null;
         this.current = null;
-    }
-
-    public AccordSafeCommand(Command command)
-    {
-        super(command.txnId());
-        this.original = command;
-        this.current = command;
     }
 
     @Override
@@ -74,11 +71,6 @@ public class AccordSafeCommand extends SafeCommand implements AccordSafeState<Co
         this.current = command;
     }
 
-    public void resetOriginal()
-    {
-        original = current;
-    }
-
     public Command original()
     {
         return original;
@@ -102,5 +94,29 @@ public class AccordSafeCommand extends SafeCommand implements AccordSafeState<Co
     public boolean invalidated()
     {
         return invalidated;
+    }
+
+    @Override
+    public AccordLoadingState.LoadingState loadingState()
+    {
+        return global.state();
+    }
+
+    @Override
+    public Runnable load(Function<TxnId, Command> loadFunction)
+    {
+        return global.load(loadFunction);
+    }
+
+    @Override
+    public AsyncChain<?> listen()
+    {
+        return global.listen();
+    }
+
+    @Override
+    public Throwable failure()
+    {
+        return global.failure();
     }
 }

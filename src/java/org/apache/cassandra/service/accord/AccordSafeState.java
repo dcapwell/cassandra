@@ -18,14 +18,18 @@
 
 package org.apache.cassandra.service.accord;
 
-import accord.local.SafeState;
+import java.util.function.Function;
 
-public interface AccordSafeState<V> extends SafeState<V>
+import accord.local.SafeState;
+import accord.utils.async.AsyncChain;
+import org.apache.cassandra.service.accord.AccordLoadingState.LoadingState;
+
+public interface AccordSafeState<K, V> extends SafeState<V>
 {
     void set(V update);
     V original();
-    void resetOriginal();
     long estimatedSizeOnHeap();
+
     default boolean hasUpdate()
     {
         return original() != current();
@@ -35,4 +39,11 @@ public interface AccordSafeState<V> extends SafeState<V>
     {
         set(original());
     }
+
+    LoadingState loadingState();
+    Runnable load(Function<K, V> loadFunction);
+    AsyncChain<?> listen();
+    Throwable failure();
+
+
 }

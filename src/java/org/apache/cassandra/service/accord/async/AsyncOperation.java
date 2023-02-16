@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.service.accord.async;
 
+import java.util.HashMap;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -39,6 +40,7 @@ import org.apache.cassandra.service.accord.AccordCommandStore;
 import org.apache.cassandra.service.accord.AccordSafeCommand;
 import org.apache.cassandra.service.accord.AccordSafeCommandsForKey;
 import org.apache.cassandra.service.accord.AccordSafeCommandStore;
+import org.apache.cassandra.service.accord.AccordSafeState;
 
 public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements Runnable, Function<SafeCommandStore, R>
 {
@@ -52,25 +54,19 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
 
     static class Context
     {
-        final AsyncContext<TxnId, AccordSafeCommand> commands = new AsyncContext<>();
-        final AsyncContext<RoutableKey, AccordSafeCommandsForKey> commandsForKeys = new AsyncContext<>();
-
-        void getActive(AccordCommandStore commandStore)
-        {
-            commands.getActive(commandStore.commandCache());
-            commandsForKeys.getActive(commandStore.commandsForKeyCache());
-        }
+        final HashMap<TxnId, AccordSafeCommand> commands = new HashMap<>();
+        final HashMap<RoutableKey, AccordSafeCommandsForKey> commandsForKeys = new HashMap<>();
 
         void releaseResources(AccordCommandStore commandStore)
         {
-            commands.releaseResources(commandStore.commandCache());
-            commandsForKeys.releaseResources(commandStore.commandsForKeyCache());
+            commands.forEach(((txnId, safeCommand) -> commandStore.commandCache().release(txnId, safeCommand)));
+            commandsForKeys.forEach((key, safeCFK) -> commandStore.commandsForKeyCache().release(key, safeCFK));
         }
 
         void revertChanges()
         {
-            commands.revertChanges();
-            commandsForKeys.revertChanges();
+            commands.values().forEach(AccordSafeState::revert);
+            commandsForKeys.values().forEach(AccordSafeState::revert);
         }
     }
 
@@ -206,7 +202,6 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
                     return;
 
                 state = State.PREPARING_OPERATION;
-                context.getActive(commandStore);
                 safeStore = commandStore.beginOperation(preLoadContext, context.commands, context.commandsForKeys);
                 state = State.RUNNING;
                 result = apply(safeStore);

@@ -19,31 +19,29 @@
 package org.apache.cassandra.service.accord;
 
 import java.util.Objects;
+import java.util.function.Function;
 
 import com.google.common.annotations.VisibleForTesting;
 
 import accord.api.Key;
 import accord.impl.CommandsForKey;
 import accord.impl.SafeCommandsForKey;
+import accord.primitives.RoutableKey;
+import accord.utils.async.AsyncChain;
 
-public class AccordSafeCommandsForKey extends SafeCommandsForKey implements AccordSafeState<CommandsForKey>
+public class AccordSafeCommandsForKey extends SafeCommandsForKey implements AccordSafeState<RoutableKey, CommandsForKey>
 {
     private boolean invalidated;
+    private final AccordLoadingState<RoutableKey, CommandsForKey> global;
     private CommandsForKey original;
     private CommandsForKey current;
 
-    public AccordSafeCommandsForKey(Key key)
+    public AccordSafeCommandsForKey(AccordLoadingState<RoutableKey, CommandsForKey> global)
     {
-        super(key);
+        super((Key) global.key());
+        this.global = global;
         this.original = null;
         this.current = null;
-    }
-
-    public AccordSafeCommandsForKey(CommandsForKey cfk)
-    {
-        super(cfk.key());
-        this.original = cfk;
-        this.current = cfk;
     }
 
     @Override
@@ -74,11 +72,6 @@ public class AccordSafeCommandsForKey extends SafeCommandsForKey implements Acco
         this.current = cfk;
     }
 
-    public void resetOriginal()
-    {
-        original = current;
-    }
-
     public CommandsForKey original()
     {
         return original;
@@ -103,5 +96,29 @@ public class AccordSafeCommandsForKey extends SafeCommandsForKey implements Acco
     public boolean invalidated()
     {
         return invalidated;
+    }
+
+    @Override
+    public AccordLoadingState.LoadingState loadingState()
+    {
+        return global.state();
+    }
+
+    @Override
+    public Runnable load(Function<RoutableKey, CommandsForKey> loadFunction)
+    {
+        return global.load(loadFunction);
+    }
+
+    @Override
+    public AsyncChain<?> listen()
+    {
+        return global.listen();
+    }
+
+    @Override
+    public Throwable failure()
+    {
+        return global.failure();
     }
 }

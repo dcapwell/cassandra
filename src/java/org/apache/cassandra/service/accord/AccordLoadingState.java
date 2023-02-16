@@ -24,6 +24,9 @@ import java.util.function.Function;
 import accord.utils.async.AsyncChain;
 import accord.utils.async.AsyncResults;
 
+/**
+ * Global state that manages loading states
+ */
 public abstract class AccordLoadingState<K, V>
 {
     public enum LoadingState { NOT_FOUND, PENDING, LOADED, FAILED }
@@ -31,30 +34,11 @@ public abstract class AccordLoadingState<K, V>
 
     private static final NonValueState NOT_FOUND = new NonValueState() {};
 
-    private static class PendingLoad<V> extends AsyncResults.Settable<Void> implements NonValueState, Runnable
+    private static class PendingLoad<V> extends AsyncResults.Unscheduled<V> implements NonValueState
     {
-        Callable<V> loadFunction;
-        volatile V result;
-        Throwable failure;
-
-        public PendingLoad(Callable<V> loadFunction)
+        public PendingLoad(Callable<V> callable)
         {
-            this.loadFunction = loadFunction;
-        }
-
-        @Override
-        public void run()
-        {
-            try
-            {
-                result = loadFunction.call();
-                trySuccess(null);
-            }
-            catch (Throwable t)
-            {
-                failure = t;
-                tryFailure(t);
-            }
+            super(callable);
         }
     }
 
@@ -82,15 +66,15 @@ public abstract class AccordLoadingState<K, V>
         if (!load.isDone())
             return LoadingState.PENDING;
 
-        if (load.failure != null)
+        if (load.isSuccess())
         {
-            state = new FailedLoad(load.failure);
-            return LoadingState.FAILED;
+            state = load.result();
+            return LoadingState.LOADED;
         }
         else
         {
-            state = load.result;
-            return LoadingState.LOADED;
+            state = new FailedLoad(load.failure());
+            return LoadingState.FAILED;
         }
     }
 
@@ -171,7 +155,7 @@ public abstract class AccordLoadingState<K, V>
         return pendingLoad;
     }
 
-    public AsyncChain<Void> listen()
+    public AsyncChain<?> listen()
     {
         checkState(LoadingState.PENDING, false);
         return (PendingLoad<V>) state;

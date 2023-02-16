@@ -19,6 +19,7 @@
 package org.apache.cassandra.service.accord;
 
 import java.util.Comparator;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.BiFunction;
 
@@ -45,18 +46,17 @@ import accord.primitives.Seekable;
 import accord.primitives.Seekables;
 import accord.primitives.Timestamp;
 import accord.primitives.TxnId;
-import org.apache.cassandra.service.accord.async.AsyncContext;
 import org.apache.cassandra.service.accord.serializers.CommandsForKeySerializer;
 
 public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeCommand, AccordSafeCommandsForKey>
 {
-    private final AsyncContext<TxnId, AccordSafeCommand> commands;
-    private final AsyncContext<RoutableKey, AccordSafeCommandsForKey> commandsForKeys;
+    private final Map<TxnId, AccordSafeCommand> commands;
+    private final Map<RoutableKey, AccordSafeCommandsForKey> commandsForKeys;
     private final AccordCommandStore commandStore;
 
     public AccordSafeCommandStore(PreLoadContext context,
-                                  AsyncContext<TxnId, AccordSafeCommand> commands,
-                                  AsyncContext<RoutableKey, AccordSafeCommandsForKey> commandsForKey,
+                                  Map<TxnId, AccordSafeCommand> commands,
+                                  Map<RoutableKey, AccordSafeCommandsForKey> commandsForKey,
                                   AccordCommandStore commandStore)
     {
         super(context);
@@ -74,7 +74,7 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     @Override
     protected void addCommandInternal(AccordSafeCommand command)
     {
-        commands.add(command.txnId(), command);
+        commands.put(command.txnId(), command);
     }
 
     @Override
@@ -86,7 +86,7 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     @Override
     protected void addCommandsForKeyInternal(AccordSafeCommandsForKey cfk)
     {
-        commandsForKeys.add(cfk.key(), cfk);
+        commandsForKeys.put(cfk.key(), cfk);
     }
 
     @Override
@@ -240,8 +240,8 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     @Override
     protected void invalidateSafeState()
     {
-        commands.invalidate();
-        commandsForKeys.invalidate();
+        commands.values().forEach(AccordSafeCommand::invalidate);
+        commandsForKeys.values().forEach(AccordSafeCommandsForKey::invalidate);
     }
 
     @Override

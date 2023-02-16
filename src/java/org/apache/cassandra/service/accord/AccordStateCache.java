@@ -20,18 +20,15 @@ package org.apache.cassandra.service.accord;
 
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.function.Consumer;
-
-import javax.annotation.Nonnull;
+import java.util.function.Function;
+import java.util.function.ToLongFunction;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,43 +49,18 @@ public class AccordStateCache
 {
     private static final Logger logger = LoggerFactory.getLogger(AccordStateCache.class);
 
-    public interface LoadFunction<K, V>
+    public static class Node<K, V> extends AccordLoadingState<K, V>
     {
-        AsyncResult<Void> apply(K key, Consumer<V> valueConsumer);
-    }
+        static final long EMPTY_SIZE = ObjectSizes.measure(new AccordStateCache.Node(null));
 
-    private static class PendingLoad<V> implements Consumer<V>
-    {
-        volatile V value = null;
-        final AsyncResult<Void> result;
-
-        public <K> PendingLoad(K key, LoadFunction<K, V> function)
-        {
-            this.result = function.apply(key, this);
-        }
-
-        @Override
-        public void accept(V v)
-        {
-            this.value = v;
-        }
-    }
-
-    public static class Node<K, V extends AccordSafeState<?>>
-    {
-        static final long EMPTY_SIZE = ObjectSizes.measure(new AccordStateCache.Node(null, null));
-
-        final K key;
-        @Nonnull Object state;
         private Node<?, ?> prev;
         private Node<?, ?> next;
         private int references = 0;
         private long lastQueriedEstimatedSizeOnHeap = 0;
 
-        public Node(K key, PendingLoad<V> load)
+        public Node(K key)
         {
-            this.key = key;
-            this.state = load;
+            super(key);
         }
 
         public int referenceCount()
@@ -96,54 +68,30 @@ public class AccordStateCache
             return references;
         }
 
-        boolean maybeFinishLoad()
-        {
-            if (!(state instanceof PendingLoad))
-                return false;
-
-            PendingLoad<V> load = (PendingLoad<V>) state;
-            if (!load.result.isDone())
-                return false;
-
-            // if the load is completed, switch the state to the loaded value
-            state = Invariants.nonNull(load.value);
-            return true;
-        }
-
         boolean isLoaded()
         {
-            return !(state instanceof PendingLoad);
+            return state() == LoadingState.LOADED;
         }
 
-        AsyncResult<Void> loadResult()
-        {
-            return state instanceof PendingLoad ? ((PendingLoad<V>) state).result : null;
-        }
-
-        V value()
-        {
-            Invariants.checkState(isLoaded() && state != null);
-            return (V) state;
-        }
-
-        long estimatedSizeOnHeap()
+        long estimatedSizeOnHeap(ToLongFunction<V> estimator)
         {
             long result = EMPTY_SIZE;
-            if (isLoaded() && !value().isEmpty())
-                result += value().estimatedSizeOnHeap();
+            V v;
+            if (isLoaded() && (v = value()) != null)
+                result += estimator.applyAsLong(v);
             lastQueriedEstimatedSizeOnHeap = result;
             return result;
         }
 
-        long estimatedSizeOnHeapDelta()
+        long estimatedSizeOnHeapDelta(ToLongFunction<V> estimator)
         {
             long prevSize = lastQueriedEstimatedSizeOnHeap;
-            return estimatedSizeOnHeap() - prevSize;
+            return estimatedSizeOnHeap(estimator) - prevSize;
         }
 
-        K key()
+        boolean shouldUpdateSize()
         {
-            return key;
+            return isLoaded() && lastQueriedEstimatedSizeOnHeap == EMPTY_SIZE;
         }
     }
 
@@ -166,7 +114,7 @@ public class AccordStateCache
 
     public final Map<Object, Node<?, ?>> active = new HashMap<>();
     private final Map<Object, Node<?, ?>> cache = new HashMap<>();
-    private final Set<Instance<?, ?>> instances = new HashSet<>();
+    private final Set<Instance<?, ?, ?>> instances = new HashSet<>();
 
     private final NamedMap<Object, AsyncResult<Void>> saveResults = new NamedMap<>("saveResults");
 
@@ -240,19 +188,19 @@ public class AccordStateCache
         }
     }
 
-    private void updateSize(Node<?, ?> node)
+    private <K, V> void updateSize(Node<K, V> node, ToLongFunction<V> estimator)
     {
-        bytesCached += node.estimatedSizeOnHeapDelta();
+        bytesCached += node.estimatedSizeOnHeapDelta(estimator);
     }
 
     // don't evict if there's an outstanding save result. If an item is evicted then reloaded
     // before it's mutation is applied, out of date info will be loaded
-    private <K, V extends AccordSafeState<?>> boolean canEvict(Node<K, V> node)
+    private boolean canEvict(Node<?, ?> node)
     {
         return node.isLoaded() &&
-               !hasActiveAsyncResult(saveResults, node.key) &&
-               !hasActiveAsyncResult(readResults, node.key) &&
-               !hasActiveAsyncResult(writeResults, node.key);
+               !hasActiveAsyncResult(saveResults, node.key()) &&
+               !hasActiveAsyncResult(readResults, node.key()) &&
+               !hasActiveAsyncResult(writeResults, node.key());
     }
 
     private void maybeEvict()
@@ -272,7 +220,7 @@ public class AccordStateCache
             logger.trace("Evicting {} {}", evict.value().getClass().getSimpleName(), evict.key());
             unlink(evict);
             cache.remove(evict.key());
-            bytesCached -= evict.estimatedSizeOnHeap();
+            bytesCached -= evict.lastQueriedEstimatedSizeOnHeap;
         }
     }
 
@@ -315,13 +263,6 @@ public class AccordStateCache
         resultMap.put(key, result);
     }
 
-    private <K, V extends AccordSafeState<?>> Node<K, V> maybeCleanupLoad(Node<K, V> node)
-    {
-        if (node.maybeFinishLoad())
-            updateSize(node);
-        return node;
-    }
-
     @VisibleForTesting
     private <K> void maybeCleanupLoad(K key)
     {
@@ -339,16 +280,20 @@ public class AccordStateCache
         getAsyncResult(writeResults, key);
     }
 
-    public class Instance<K, V extends AccordSafeState<?>>
+    public class Instance<K, V, S extends AccordSafeState<K, V>>
     {
         private final Class<K> keyClass;
         private final Class<V> valClass;
+        private final Function<AccordLoadingState<K, V>, S> safeRefFactory;
+        private final ToLongFunction<V> heapEstimator;
         private final Stats stats = new Stats();
 
-        public Instance(Class<K> keyClass, Class<V> valClass)
+        public Instance(Class<K> keyClass, Class<V> valClass, Function<AccordLoadingState<K, V>, S> safeRefFactory, ToLongFunction<V> heapEstimator)
         {
             this.keyClass = keyClass;
             this.valClass = valClass;
+            this.safeRefFactory = safeRefFactory;
+            this.heapEstimator = heapEstimator;
         }
 
         @Override
@@ -356,7 +301,7 @@ public class AccordStateCache
         {
             if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
-            Instance<?, ?> instance = (Instance<?, ?>) o;
+            Instance<?, ?, ?> instance = (Instance<?, ?, ?>) o;
             return keyClass.equals(instance.keyClass) && valClass.equals(instance.valClass);
         }
 
@@ -366,7 +311,7 @@ public class AccordStateCache
             return Objects.hash(keyClass, valClass);
         }
 
-        private Node<K, V> getAndReferenceNode(K key, LoadFunction<K, V> loadFunction)
+        private Node<K, V> reference(K key, boolean createIfAbsent)
         {
             stats.queries++;
             AccordStateCache.this.stats.queries++;
@@ -386,10 +331,10 @@ public class AccordStateCache
             {
                 stats.misses++;
                 AccordStateCache.this.stats.misses++;
-                if (loadFunction == null)
+                if (!createIfAbsent)
                     return null;
-                node = new Node<>(key, new PendingLoad<>(key, loadFunction));
-                updateSize(node);
+                node = new Node<>(key);
+                updateSize(node, heapEstimator);
                 maybeEvict();
             }
             else
@@ -407,47 +352,20 @@ public class AccordStateCache
             return node;
         }
 
-        public V referenceAndGetIfLoaded(K key)
+
+
+        public S reference(K key)
         {
-            Node<K, V> node = getAndReferenceNode(key, null);
+            Node<K, V> node = reference(key, true);
+            return safeRefFactory.apply(node);
+        }
+
+        public S referenceAndGetIfLoaded(K key)
+        {
+            Node<K, V> node = reference(key, false);
             if (node == null || !node.isLoaded())
                 return null;
-            return node.value();
-        }
-
-        public AsyncResult<Void> referenceAndLoad(K key, LoadFunction<K, V> loadFunction)
-        {
-            Invariants.checkArgument(loadFunction != null);
-            return getAndReferenceNode(key, loadFunction).loadResult();
-        }
-
-        /**
-         * Return an immutable map of instances from the given keys. The keys are assumed to be
-         * loaded and referenced, therefore in the active map
-         */
-        public Map<K, V> getActive(Iterable<K> keys)
-        {
-            Iterator<K> keyIter = keys.iterator();
-            if (!keyIter.hasNext())
-                return ImmutableMap.of();
-
-            Map<K, V> result = new HashMap<>();
-            while (keyIter.hasNext())
-            {
-                K key = keyIter.next();
-                Node<K, V> node = (Node<K, V>) active.get(key);
-                maybeCleanupLoad(node);
-                V value = node.value();
-                result.put(key, value);
-            }
-
-            return result;
-        }
-
-        @VisibleForTesting
-        public V getActive(K key)
-        {
-            return (V) maybeCleanupLoad(active.get(key)).value();
+            return safeRefFactory.apply(node);
         }
 
         @VisibleForTesting
@@ -477,7 +395,7 @@ public class AccordStateCache
             return node != null && node.isLoaded();
         }
 
-        public void release(K key, V value)
+        public void release(K key, S value)
         {
             logger.trace("Releasing resources for {}: {}", key, value);
             maybeClearAsyncResult(key);
@@ -486,10 +404,9 @@ public class AccordStateCache
             Invariants.checkState(node.isLoaded());
 
             Invariants.checkState(node.value() == value);
-            if (value.hasUpdate())
+            if (value.hasUpdate() || node.shouldUpdateSize())
             {
-                updateSize(node);
-                value.resetOriginal();
+                updateSize(node, heapEstimator);
             }
 
             if (--node.references == 0)
@@ -598,9 +515,11 @@ public class AccordStateCache
         }
     }
 
-    public <K, V extends AccordSafeState<?>> Instance<K, V> instance(Class<K> keyClass, Class<V> valClass)
+    public <K, V, S extends AccordSafeState<K, V>> Instance<K, V, S> instance(Class<K> keyClass, Class<V> valClass,
+                                                                           Function<AccordLoadingState<K, V>, S> safeRefFactory,
+                                                                           ToLongFunction<V> heapEstimator)
     {
-        Instance<K, V> instance = new Instance<>(keyClass, valClass);
+        Instance<K, V, S> instance = new Instance<>(keyClass, valClass, safeRefFactory, heapEstimator);
         if (!instances.add(instance))
             throw new IllegalArgumentException(String.format("Cache instances for types %s -> %s already exists",
                                                              keyClass.getName(), valClass.getName()));

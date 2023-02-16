@@ -20,7 +20,9 @@ package org.apache.cassandra.service.accord.async;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.function.BiConsumer;
+import java.util.function.Function;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -28,22 +30,21 @@ import com.google.common.collect.Lists;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import accord.impl.CommandsForKey;
+import accord.local.Command;
 import accord.primitives.RoutableKey;
 import accord.primitives.TxnId;
 import accord.utils.async.AsyncChain;
+import accord.utils.async.AsyncChains;
 import accord.utils.async.AsyncResult;
 import accord.utils.async.AsyncResults;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.service.accord.AccordCommandStore;
 import org.apache.cassandra.service.accord.AccordKeyspace;
-import org.apache.cassandra.service.accord.AccordSafeCommand;
-import org.apache.cassandra.service.accord.AccordSafeCommandsForKey;
+import org.apache.cassandra.service.accord.AccordLoadingState;
 import org.apache.cassandra.service.accord.AccordSafeState;
 import org.apache.cassandra.service.accord.AccordStateCache;
-import org.apache.cassandra.service.accord.AccordStateCache.LoadFunction;
 import org.apache.cassandra.service.accord.api.PartitionKey;
-
-import static accord.utils.async.AsyncResults.ofRunnable;
 
 public class AsyncLoader
 {
@@ -71,83 +72,81 @@ public class AsyncLoader
         this.keys = Lists.newArrayList(keys);
     }
 
-    private <K, V extends AccordSafeState<?>> List<AsyncChain<Void>> referenceAndDispatchReads(Iterable<K> keys,
-                                                                                               AsyncContext<K, V> context,
-                                                                                               AccordStateCache.Instance<K, V> cache,
-                                                                                               LoadFunction<K, V> loadFunction,
-                                                                                               List<AsyncChain<Void>> results)
+    private <K, V, S extends AccordSafeState<K, V>> void referenceAndAssembleReads(Iterable<K> keys,
+                                                                                   Map<K, S> context,
+                                                                                   AccordStateCache.Instance<K, V, S> cache,
+                                                                                   Function<K, V> loadFunction,
+                                                                                   List<Runnable> loadRunnables,
+                                                                                   List<AsyncChain<?>> listenChains)
     {
         for (K key : keys)
         {
-            AsyncResult<Void> result = cache.referenceAndLoad(key, loadFunction);
-            context.markReferenced(key);
-            if (result == null)
-                continue;
+            S safeRef = cache.reference(key);
+            context.put(key, safeRef);
+            AccordLoadingState.LoadingState state = safeRef.loadingState();
+            switch (state)
+            {
+                case NOT_FOUND:
+                    loadRunnables.add(safeRef.load(loadFunction));
+                    break;
+                case PENDING:
+                    listenChains.add(safeRef.listen());
+                    break;
+                case LOADED:
+                    break;
+                case FAILED:
+                    throw new RuntimeException(safeRef.failure());
+                default:
+                    throw new IllegalStateException("Unhandled loading state: " + state);
+            }
+        }
+    }
 
-            if (results == null)
-                results = new ArrayList<>();
+    @VisibleForTesting
+    Function<TxnId, Command> loadCommandFunction()
+    {
+        return txnId -> AccordKeyspace.loadCommand(commandStore, txnId);
+    }
 
-            results.add(result);
+    @VisibleForTesting
+    Function<RoutableKey, CommandsForKey> loadCommandsPerKeyFunction()
+    {
+        return key -> AccordKeyspace.loadCommandsForKey(commandStore, (PartitionKey) key);
+    }
+
+    private AsyncResult<?> referenceAndDispatchReads(AsyncOperation.Context context)
+    {
+        List<Runnable> loads = new ArrayList<>();
+        List<AsyncChain<?>> listenChains = new ArrayList<>();
+
+        referenceAndAssembleReads(txnIds,
+                                  context.commands,
+                                  commandStore.commandCache(),
+                                  loadCommandFunction(),
+                                  loads,
+                                  listenChains);
+
+        referenceAndAssembleReads(keys,
+                                  context.commandsForKeys,
+                                  commandStore.commandsForKeyCache(),
+                                  loadCommandsPerKeyFunction(),
+                                  loads,
+                                  listenChains);
+
+        if (loads.isEmpty() && listenChains.isEmpty())
+            return null;
+
+        if (!loads.isEmpty())
+        {
+            AsyncChain<Void> loadChain = AsyncChains.ofRunnables(Stage.READ.executor(), loads);
+
+            if (listenChains.isEmpty())
+                return loadChain.beginAsResult();
+            else
+                listenChains.add(loadChain);
         }
 
-        return results;
-    }
-
-    @VisibleForTesting
-    LoadFunction<TxnId, AccordSafeCommand> loadCommandFunction()
-    {
-        return (txnId, consumer) -> ofRunnable(Stage.READ.executor(), () -> {
-            try
-            {
-                logger.trace("Starting load of {}", txnId);
-                AccordSafeCommand command = AccordKeyspace.loadCommand(commandStore, txnId);
-                logger.trace("Completed load of {}", txnId);
-                consumer.accept(command);
-            }
-            catch (Throwable t)
-            {
-                logger.error("Exception loading {}", txnId, t);
-                throw t;
-            }
-        });
-    }
-
-    @VisibleForTesting
-    LoadFunction<RoutableKey, AccordSafeCommandsForKey> loadCommandsPerKeyFunction()
-    {
-        return (key, consumer) -> ofRunnable(Stage.READ.executor(), () -> {
-            try
-            {
-                logger.trace("Starting load of {}", key);
-                AccordSafeCommandsForKey cfk = AccordKeyspace.loadCommandsForKey(commandStore, (PartitionKey) key);
-                logger.trace("Completed load of {}", key);
-                consumer.accept(cfk);
-            }
-            catch (Throwable t)
-            {
-                logger.error("Exception loading {}", key, t);
-                throw t;
-            }
-        });
-    }
-
-    private AsyncResult<Void> referenceAndDispatchReads(AsyncOperation.Context context)
-    {
-        List<AsyncChain<Void>> results = null;
-
-        results = referenceAndDispatchReads(txnIds,
-                                            context.commands,
-                                            commandStore.commandCache(),
-                                            loadCommandFunction(),
-                                            results);
-
-        results = referenceAndDispatchReads(keys,
-                                            context.commandsForKeys,
-                                            commandStore.commandsForKeyCache(),
-                                            loadCommandsPerKeyFunction(),
-                                            results);
-
-        return results != null ? AsyncResults.reduce(results, (a, b ) -> null).beginAsResult() : null;
+        return AsyncResults.reduce(listenChains, (a, b) -> null).beginAsResult();
     }
 
     @VisibleForTesting
