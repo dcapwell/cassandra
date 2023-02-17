@@ -29,7 +29,8 @@ public interface AccordSafeState<K, V> extends SafeState<V>
 {
     void set(V update);
     V original();
-    void prepareForOperation();
+    void preExecute();
+    void postExecute();
     AccordLoadingState<K, V> global();
 
     default boolean hasUpdate()

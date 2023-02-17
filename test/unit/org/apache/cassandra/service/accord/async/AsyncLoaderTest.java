@@ -132,12 +132,12 @@ public class AsyncLoaderTest
 
         // create / persist
         AccordSafeCommand safeCommand = new AccordSafeCommand(loaded(txnId, null));
-        safeCommand.prepareForOperation();
+        safeCommand.preExecute();
         safeCommand.set(notWitnessed(txnId, txn));
         AccordKeyspace.getCommandMutation(commandStore, safeCommand, commandStore.nextSystemTimestampMicros()).apply();
 
         AccordSafeCommandsForKey cfk = new AccordSafeCommandsForKey(loaded(key, null));
-        safeCommand.prepareForOperation();
+        safeCommand.preExecute();
         cfk.set(commandsForKey(key));
         AccordKeyspace.getCommandsForKeyMutation(commandStore, cfk, commandStore.nextSystemTimestampMicros()).apply();
 

@@ -160,7 +160,7 @@ public class AccordTestUtils
         Assert.assertEquals(AccordLoadingState.LoadingState.PENDING, safeState.loadingState());
         load.run();
         Assert.assertEquals(AccordLoadingState.LoadingState.LOADED, safeState.loadingState());
-        safeState.prepareForOperation();
+        safeState.preExecute();
         Assert.assertEquals(val, safeState.current());
     }
 

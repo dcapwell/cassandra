@@ -205,7 +205,7 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
                 safeStore = commandStore.beginOperation(preLoadContext, context.commands, context.commandsForKeys);
                 state = State.RUNNING;
                 result = apply(safeStore);
-                commandStore.completeOperation(safeStore);
+                commandStore.completeOperation(safeStore, context.commands, context.commandsForKeys);
 
                 state = State.SAVING;
             case SAVING:

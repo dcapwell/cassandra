@@ -81,10 +81,16 @@ public class AccordSafeCommand extends SafeCommand implements AccordSafeState<Tx
     }
 
     @Override
-    public void prepareForOperation()
+    public void preExecute()
     {
         original = global.value();
         current = original;
+    }
+
+    @Override
+    public void postExecute()
+    {
+        global.value(current);
     }
 
     @Override

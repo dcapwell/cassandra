@@ -75,9 +75,15 @@ public class AccordStateCacheTest
         }
 
         @Override
-        public void prepareForOperation()
+        public void preExecute()
         {
             original = global.value();
+        }
+
+        @Override
+        public void postExecute()
+        {
+
         }
 
         @Override
