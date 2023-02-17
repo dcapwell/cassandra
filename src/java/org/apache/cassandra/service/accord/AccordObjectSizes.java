@@ -269,16 +269,15 @@ public class AccordObjectSizes
 
         private static long emptySize(Command command)
         {
-            switch (command.saveStatus())
+            switch (command.status())
             {
                 case NotWitnessed:
                     return NOT_WITNESSED;
                 case PreAccepted:
                     return PREACCEPTED;
                 case AcceptedInvalidate:
-                case AcceptedInvalidateWithDefinition:
                 case Accepted:
-                case AcceptedWithDefinition:
+                case PreCommitted:
                     return ACCEPTED;
                 case Committed:
                 case ReadyToExecute:

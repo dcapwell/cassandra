@@ -32,6 +32,7 @@ import accord.impl.CommandsForKey;
 import accord.local.Command;
 import accord.primitives.RoutableKey;
 import accord.primitives.TxnId;
+import accord.utils.Invariants;
 import accord.utils.async.AsyncChains;
 import accord.utils.async.AsyncResult;
 import accord.utils.async.AsyncResults;
@@ -79,17 +80,18 @@ public class AsyncWriter
                                                                                StateMutationFunction<S> mutationFunction,
                                                                                long timestamp,
                                                                                AccordCommandStore commandStore,
-                                                                               List<Runnable> runnables)
+                                                                               List<AsyncResults.Unscheduled<Void>> chains)
     {
         context.forEach((key, value) -> {
             if (!value.hasUpdate())
                 return;
             Mutation mutation = mutationFunction.apply(commandStore, value, timestamp);
+            Invariants.checkState(!mutation.isEmpty());
             if (logger.isTraceEnabled())
                 logger.trace("Dispatching mutation for {}, {} -> {}", key, value.current(), mutation);
             AsyncResults.Unscheduled<Void> result = AsyncResults.unscheduled(() -> mutation.apply());
             cache.addSaveResult(key, result);
-            runnables.add(result);
+            chains.add(result);
         });
     }
 
@@ -108,7 +110,7 @@ public class AsyncWriter
         if (context.commands.isEmpty() && context.commandsForKeys.isEmpty())
             return null;
 
-        List<Runnable> writes = new ArrayList<>(context.commands.size() + context.commandsForKeys.size());
+        List<AsyncResults.Unscheduled<Void>> writes = new ArrayList<>(context.commands.size() + context.commandsForKeys.size());
 
         long timestamp = commandStore.nextSystemTimestampMicros();
         assembleWrites(context.commands,
@@ -125,7 +127,12 @@ public class AsyncWriter
                        commandStore,
                        writes);
 
-        return !writes.isEmpty() ? AsyncChains.ofRunnables(Stage.MUTATION.executor(), writes).beginAsResult() : null;
+        if (writes.isEmpty())
+            return null;
+
+        AsyncChains.ofRunnables(Stage.MUTATION.executor(), writes).begin(commandStore.agent());
+
+        return AsyncResults.reduce(writes, (a, b) -> null).beginAsResult();
     }
 
     @VisibleForTesting

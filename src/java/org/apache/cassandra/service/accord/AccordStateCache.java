@@ -334,6 +334,7 @@ public class AccordStateCache
                 if (!createIfAbsent)
                     return null;
                 node = new Node<>(key);
+                cache.put(key, node);
                 updateSize(node, heapEstimator);
                 maybeEvict();
             }
@@ -411,7 +412,6 @@ public class AccordStateCache
             {
                 logger.trace("Moving {} from active pool to cache", key);
                 active.remove(key);
-                cache.put(key, node);
                 push(node);
             }
 
