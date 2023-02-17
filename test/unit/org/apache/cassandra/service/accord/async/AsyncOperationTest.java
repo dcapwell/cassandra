@@ -471,6 +471,7 @@ public class AsyncOperationTest
         }
         if (error != null) throw error;
     }
+
     private static <T> void assertNoReferences(AccordStateCache.Instance<T, ?, ?> cache, Iterable<T> keys)
     {
         AssertionError error = null;

@@ -217,7 +217,7 @@ public class AccordStateCache
             if (!canEvict(evict))
                 continue;
 
-            logger.trace("Evicting {} {}", evict.value().getClass().getSimpleName(), evict.key());
+            logger.trace("Evicting {} {}", evict.value(), evict.key());
             unlink(evict);
             cache.remove(evict.key());
             bytesCached -= evict.lastQueriedEstimatedSizeOnHeap;
@@ -399,11 +399,11 @@ public class AccordStateCache
             maybeClearAsyncResult(key);
             Node<K, V> node = (Node<K, V>) active.get(key);
             Invariants.checkState(node != null && node.references > 0);
-            Invariants.checkState(node.isLoaded());
 
             Invariants.checkState(safeRef.global() == node);
-            if (safeRef.hasUpdate() || node.shouldUpdateSize())
+            if (node.isLoaded() && (safeRef.hasUpdate() || node.shouldUpdateSize()))
             {
+                node.value(safeRef.current());
                 updateSize(node, heapEstimator);
             }
 

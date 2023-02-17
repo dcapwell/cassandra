@@ -32,7 +32,6 @@ import accord.impl.CommandsForKey;
 import accord.local.Command;
 import accord.primitives.RoutableKey;
 import accord.primitives.TxnId;
-import accord.utils.Invariants;
 import accord.utils.async.AsyncChains;
 import accord.utils.async.AsyncResult;
 import accord.utils.async.AsyncResults;
@@ -83,7 +82,8 @@ public class AsyncWriter
                                                                                List<Runnable> runnables)
     {
         context.forEach((key, value) -> {
-            Invariants.checkArgument(value.hasUpdate());
+            if (!value.hasUpdate())
+                return;
             Mutation mutation = mutationFunction.apply(commandStore, value, timestamp);
             if (logger.isTraceEnabled())
                 logger.trace("Dispatching mutation for {}, {} -> {}", key, value.current(), mutation);

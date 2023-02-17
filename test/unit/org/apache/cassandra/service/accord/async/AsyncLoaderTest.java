@@ -48,7 +48,6 @@ import org.apache.cassandra.service.accord.AccordLoadingState;
 import org.apache.cassandra.service.accord.AccordSafeCommand;
 import org.apache.cassandra.service.accord.AccordSafeCommandsForKey;
 import org.apache.cassandra.service.accord.AccordStateCache;
-import org.apache.cassandra.service.accord.AccordTestUtils;
 import org.apache.cassandra.service.accord.api.PartitionKey;
 import org.apache.cassandra.service.accord.async.AsyncOperation.Context;
 import org.apache.cassandra.utils.concurrent.AsyncPromise;
