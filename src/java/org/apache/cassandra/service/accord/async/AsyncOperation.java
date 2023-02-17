@@ -59,8 +59,8 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
 
         void releaseResources(AccordCommandStore commandStore)
         {
-            commands.forEach(((txnId, safeCommand) -> commandStore.commandCache().release(txnId, safeCommand)));
-            commandsForKeys.forEach((key, safeCFK) -> commandStore.commandsForKeyCache().release(key, safeCFK));
+            commands.values().forEach(commandStore.commandCache()::release);
+            commandsForKeys.values().forEach(commandStore.commandsForKeyCache()::release);
         }
 
         void revertChanges()

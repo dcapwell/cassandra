@@ -27,7 +27,7 @@ import accord.utils.async.AsyncResults;
 /**
  * Global state that manages loading states
  */
-public abstract class AccordLoadingState<K, V>
+public class AccordLoadingState<K, V>
 {
     public enum LoadingState { NOT_FOUND, PENDING, LOADED, FAILED }
     private interface NonValueState {}
@@ -147,7 +147,7 @@ public abstract class AccordLoadingState<K, V>
      * Return a runnable that will run the loadFunction in a separate thread. When the runnable
      * has completed, the state load will have either completed, or failed.
      */
-    public Runnable load(Function<K, V> loadFunction)
+    public AsyncResults.Unscheduled<V> load(Function<K, V> loadFunction)
     {
         checkState(LoadingState.NOT_FOUND, true);
         PendingLoad<V> pendingLoad = new PendingLoad<>(() -> loadFunction.apply(key));

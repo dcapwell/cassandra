@@ -19,7 +19,6 @@
 package org.apache.cassandra.service.accord;
 
 import java.util.Objects;
-import java.util.function.Function;
 
 import com.google.common.annotations.VisibleForTesting;
 
@@ -27,7 +26,6 @@ import accord.api.Key;
 import accord.impl.CommandsForKey;
 import accord.impl.SafeCommandsForKey;
 import accord.primitives.RoutableKey;
-import accord.utils.async.AsyncChain;
 
 public class AccordSafeCommandsForKey extends SafeCommandsForKey implements AccordSafeState<RoutableKey, CommandsForKey>
 {
@@ -60,6 +58,12 @@ public class AccordSafeCommandsForKey extends SafeCommandsForKey implements Acco
     }
 
     @Override
+    public AccordLoadingState<RoutableKey, CommandsForKey> global()
+    {
+        return global;
+    }
+
+    @Override
     public CommandsForKey current()
     {
         return current;
@@ -78,12 +82,10 @@ public class AccordSafeCommandsForKey extends SafeCommandsForKey implements Acco
     }
 
     @Override
-    public long estimatedSizeOnHeap()
+    public void prepareForOperation()
     {
-        if (current == null)
-            return 0;
-
-        return AccordObjectSizes.commandsForKey(current);
+        original = global.value();
+        current = original;
     }
 
     @Override
@@ -96,29 +98,5 @@ public class AccordSafeCommandsForKey extends SafeCommandsForKey implements Acco
     public boolean invalidated()
     {
         return invalidated;
-    }
-
-    @Override
-    public AccordLoadingState.LoadingState loadingState()
-    {
-        return global.state();
-    }
-
-    @Override
-    public Runnable load(Function<RoutableKey, CommandsForKey> loadFunction)
-    {
-        return global.load(loadFunction);
-    }
-
-    @Override
-    public AsyncChain<?> listen()
-    {
-        return global.listen();
-    }
-
-    @Override
-    public Throwable failure()
-    {
-        return global.failure();
     }
 }

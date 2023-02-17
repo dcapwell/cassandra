@@ -19,14 +19,12 @@
 package org.apache.cassandra.service.accord;
 
 import java.util.Objects;
-import java.util.function.Function;
 
 import com.google.common.annotations.VisibleForTesting;
 
 import accord.local.Command;
 import accord.local.SafeCommand;
 import accord.primitives.TxnId;
-import accord.utils.async.AsyncChain;
 
 public class AccordSafeCommand extends SafeCommand implements AccordSafeState<TxnId, Command>
 {
@@ -59,6 +57,12 @@ public class AccordSafeCommand extends SafeCommand implements AccordSafeState<Tx
     }
 
     @Override
+    public AccordLoadingState<TxnId, Command> global()
+    {
+        return global;
+    }
+
+    @Override
     public Command current()
     {
         return current;
@@ -77,11 +81,10 @@ public class AccordSafeCommand extends SafeCommand implements AccordSafeState<Tx
     }
 
     @Override
-    public long estimatedSizeOnHeap()
+    public void prepareForOperation()
     {
-        if (current == null)
-            return 0;
-        return AccordObjectSizes.command(current);
+        original = global.value();
+        current = original;
     }
 
     @Override
@@ -94,29 +97,5 @@ public class AccordSafeCommand extends SafeCommand implements AccordSafeState<Tx
     public boolean invalidated()
     {
         return invalidated;
-    }
-
-    @Override
-    public AccordLoadingState.LoadingState loadingState()
-    {
-        return global.state();
-    }
-
-    @Override
-    public Runnable load(Function<TxnId, Command> loadFunction)
-    {
-        return global.load(loadFunction);
-    }
-
-    @Override
-    public AsyncChain<?> listen()
-    {
-        return global.listen();
-    }
-
-    @Override
-    public Throwable failure()
-    {
-        return global.failure();
     }
 }

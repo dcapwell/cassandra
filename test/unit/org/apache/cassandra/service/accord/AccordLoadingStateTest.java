@@ -130,14 +130,14 @@ public class AccordLoadingStateTest
         Assert.assertEquals(LoadingState.PENDING, state.state());
 
         // register other callbacks
-        InspectableCallback<Void> callback1 = new InspectableCallback<>();
-        InspectableCallback<Void> callback2 = new InspectableCallback<>();
+        InspectableCallback<Object> callback1 = new InspectableCallback<>();
+        InspectableCallback<Object> callback2 = new InspectableCallback<>();
 
 
         Assert.assertEquals(LoadingState.PENDING, state.state());
-        state.listen().begin(callback1);
+        state.listen().addCallback(callback1);
         runnable.run();
-        state.listen().begin(callback2);
+        state.listen().addCallback(callback2);
 
         Assert.assertTrue(callback1.called);
         Assert.assertNull(callback1.failure);

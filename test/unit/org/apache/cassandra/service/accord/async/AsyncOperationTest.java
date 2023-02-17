@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
@@ -82,6 +83,7 @@ import static org.apache.cassandra.service.accord.AccordTestUtils.createAccordCo
 import static org.apache.cassandra.service.accord.AccordTestUtils.createPartialTxn;
 import static org.apache.cassandra.service.accord.AccordTestUtils.createTxn;
 import static org.apache.cassandra.service.accord.AccordTestUtils.keys;
+import static org.apache.cassandra.service.accord.AccordTestUtils.loaded;
 import static org.apache.cassandra.service.accord.AccordTestUtils.txnId;
 
 public class AsyncOperationTest
@@ -149,9 +151,9 @@ public class AsyncOperationTest
     private static Command createCommittedAndPersist(AccordCommandStore commandStore, TxnId txnId, Timestamp executeAt)
     {
         Command command = AccordTestUtils.Commands.committed(txnId, createPartialTxn(0), executeAt);
-        AccordSafeCommand liveCommand = AccordTestUtils.liveCommand(txnId);
-        liveCommand.set(command);
-        AccordKeyspace.getCommandMutation(commandStore, liveCommand, commandStore.nextSystemTimestampMicros()).apply();
+        AccordSafeCommand safeCommand = new AccordSafeCommand(loaded(txnId, null));
+        safeCommand.set(command);
+        AccordKeyspace.getCommandMutation(commandStore, safeCommand, commandStore.nextSystemTimestampMicros()).apply();
         return command;
     }
 
@@ -192,7 +194,7 @@ public class AsyncOperationTest
         }).beginAsResult());
     }
 
-    private static void assertFutureState(AccordStateCache.Instance<TxnId, AccordSafeCommand> cache, TxnId txnId, boolean referenceExpected, boolean expectLoadFuture, boolean expectSaveFuture)
+    private static void assertFutureState(AccordStateCache.Instance<TxnId, Command, AccordSafeCommand> cache, TxnId txnId, boolean referenceExpected, boolean expectLoadFuture, boolean expectSaveFuture)
     {
         if (cache.isReferenced(txnId) != referenceExpected)
             throw new AssertionError(referenceExpected ? "Cache reference unexpectedly not found for " + txnId
@@ -224,7 +226,7 @@ public class AsyncOperationTest
         AsyncOperation<Void> operation = new AsyncOperation.ForConsumer(commandStore, ctx, consumer)
         {
 
-            private AccordStateCache.Instance<TxnId, AccordSafeCommand> cache()
+            private AccordStateCache.Instance<TxnId, Command, AccordSafeCommand> cache()
             {
                 return commandStore.commandCache();
             }
@@ -322,14 +324,14 @@ public class AsyncOperationTest
                     return new AsyncLoader(commandStore, preLoadContext.txnIds(), (Iterable<RoutableKey>) preLoadContext.keys())
                     {
                         @Override
-                        AccordStateCache.LoadFunction<TxnId, AccordSafeCommand> loadCommandFunction()
+                        Function<TxnId, Command> loadCommandFunction()
                         {
-                            AccordStateCache.LoadFunction<TxnId, AccordSafeCommand> delegate = super.loadCommandFunction();
-                            return (txnId, consumer) -> {
-                                if (!failed.get(txnId)) return delegate.apply(txnId, consumer);
+                            Function<TxnId, Command> delegate = super.loadCommandFunction();
+                            return txnId -> {
+                                if (!failed.get(txnId)) return delegate.apply(txnId);
 
                                 //TODO api doesn't handle this exception, so consumer never sees it!
-                                return AsyncResults.failure(new NullPointerException("txn_id " + txnId));
+                                throw new NullPointerException("txn_id " + txnId);
                             };
                         }
                     };
@@ -469,7 +471,7 @@ public class AsyncOperationTest
         }
         if (error != null) throw error;
     }
-    private static <T> void assertNoReferences(AccordStateCache.Instance<T, ?> cache, Iterable<T> keys)
+    private static <T> void assertNoReferences(AccordStateCache.Instance<T, ?, ?> cache, Iterable<T> keys)
     {
         AssertionError error = null;
         for (T key : keys)

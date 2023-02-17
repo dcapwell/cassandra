@@ -23,7 +23,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -65,8 +65,6 @@ import accord.primitives.Writes;
 import accord.topology.Shard;
 import accord.topology.Topology;
 import accord.utils.async.AsyncChains;
-import accord.utils.async.AsyncResult;
-import accord.utils.async.AsyncResults;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.statements.TransactionStatement;
@@ -125,29 +123,45 @@ public class AccordTestUtils
         }
     }
 
-    public static AccordSafeCommand liveCommand(TxnId txnId)
-    {
-        return new AccordSafeCommand(txnId);
-    }
-
-    public static AccordSafeCommand liveCommand(Command command)
-    {
-        return new AccordSafeCommand(command);
-    }
-
     public static CommandsForKey commandsForKey(Key key)
     {
         return new CommandsForKey(key, CommandsForKeySerializer.loader);
     }
 
-    public static AccordSafeCommandsForKey liveCommandsForKey(Key key)
+    public static <K, V> AccordLoadingState<K, V> loaded(K key, V value)
     {
-        return new AccordSafeCommandsForKey(key);
+        AccordLoadingState<K, V> global = new AccordLoadingState<>(key);
+        global.load(k -> {
+            Assert.assertEquals(key, k);
+            return value;
+        }).run();
+        Assert.assertEquals(AccordLoadingState.LoadingState.LOADED, global.state());
+        return global;
     }
 
-    public static AccordSafeCommandsForKey liveCommandsForKey(CommandsForKey cfk)
+    public static AccordSafeCommand safeCommand(Command command)
     {
-        return new AccordSafeCommandsForKey(cfk);
+        AccordLoadingState<TxnId, Command> global = loaded(command.txnId(), command);
+        return new AccordSafeCommand(global);
+    }
+
+    public static <K, V> Function<K, V> testableLoad(K key, V val)
+    {
+        return k -> {
+            Assert.assertEquals(key, k);
+            return val;
+        };
+    }
+
+    public static <K, V> void testLoad(AccordSafeState<K, V> safeState, V val)
+    {
+        Assert.assertEquals(AccordLoadingState.LoadingState.NOT_FOUND, safeState.loadingState());
+        Runnable load = safeState.load(testableLoad(safeState.key(), val));
+        Assert.assertEquals(AccordLoadingState.LoadingState.PENDING, safeState.loadingState());
+        load.run();
+        Assert.assertEquals(AccordLoadingState.LoadingState.LOADED, safeState.loadingState());
+        safeState.prepareForOperation();
+        Assert.assertEquals(val, safeState.current());
     }
 
     public static final ProgressLog NOOP_PROGRESS_LOG = new ProgressLog()
@@ -356,36 +370,5 @@ public class AccordTestUtils
     public static Keys keys(TableMetadata table, int... keys)
     {
         return Keys.of(IntStream.of(keys).mapToObj(key -> key(table, key)).collect(Collectors.toList()));
-    }
-
-    public static class TestableLoad<K, V> implements AccordStateCache.LoadFunction<K, V>
-    {
-        final AsyncResult.Settable<Void> result = AsyncResults.settable();
-        volatile K key = null;
-        volatile Consumer<V> consumer = null;
-
-        public void complete(V value)
-        {
-            Assert.assertNotNull(key);
-            Assert.assertNotNull(consumer);
-            consumer.accept(value);
-            result.setSuccess(null);
-        }
-
-        @Override
-        public AsyncResult<Void> apply(K key, Consumer<V> consumer)
-        {
-            Assert.assertNotNull(key);
-            Assert.assertNotNull(consumer);
-            this.key = key;
-            this.consumer = consumer;
-            return result;
-        }
-
-        public void assertNotLoaded()
-        {
-            Assert.assertNull(key);
-            Assert.assertNull(consumer);
-        }
     }
 }

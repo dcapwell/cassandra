@@ -87,7 +87,9 @@ public class AsyncLoader
             switch (state)
             {
                 case NOT_FOUND:
-                    loadRunnables.add(safeRef.load(loadFunction));
+                    AsyncResults.Unscheduled<V> load = safeRef.load(loadFunction);
+                    listenChains.add(load);
+                    loadRunnables.add(load);
                     break;
                 case PENDING:
                     listenChains.add(safeRef.listen());
@@ -116,37 +118,30 @@ public class AsyncLoader
 
     private AsyncResult<?> referenceAndDispatchReads(AsyncOperation.Context context)
     {
-        List<Runnable> loads = new ArrayList<>();
+        List<Runnable> loadRunnables = new ArrayList<>();
         List<AsyncChain<?>> listenChains = new ArrayList<>();
 
         referenceAndAssembleReads(txnIds,
                                   context.commands,
                                   commandStore.commandCache(),
                                   loadCommandFunction(),
-                                  loads,
+                                  loadRunnables,
                                   listenChains);
 
         referenceAndAssembleReads(keys,
                                   context.commandsForKeys,
                                   commandStore.commandsForKeyCache(),
                                   loadCommandsPerKeyFunction(),
-                                  loads,
+                                  loadRunnables,
                                   listenChains);
 
-        if (loads.isEmpty() && listenChains.isEmpty())
+        if (loadRunnables.isEmpty() && listenChains.isEmpty())
             return null;
 
-        if (!loads.isEmpty())
-        {
-            AsyncChain<Void> loadChain = AsyncChains.ofRunnables(Stage.READ.executor(), loads);
+        if (!loadRunnables.isEmpty())
+            AsyncChains.ofRunnables(Stage.READ.executor(), loadRunnables).begin(commandStore.agent());
 
-            if (listenChains.isEmpty())
-                return loadChain.beginAsResult();
-            else
-                listenChains.add(loadChain);
-        }
-
-        return AsyncResults.reduce(listenChains, (a, b) -> null).beginAsResult();
+        return !listenChains.isEmpty() ? AsyncResults.reduce(listenChains, (a, b) -> null).beginAsResult() : null;
     }
 
     @VisibleForTesting

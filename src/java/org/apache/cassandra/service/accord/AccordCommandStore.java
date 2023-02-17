@@ -226,6 +226,7 @@ public class AccordCommandStore implements CommandStore
                                                  Map<RoutableKey, AccordSafeCommandsForKey> commandsForKeys)
     {
         Invariants.checkState(current == null);
+        // TODO: set original values on safeRefs
         current = new AccordSafeCommandStore(preLoadContext, commands, commandsForKeys, this);
         return current;
     }

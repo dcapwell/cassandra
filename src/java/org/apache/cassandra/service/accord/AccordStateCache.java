@@ -352,8 +352,6 @@ public class AccordStateCache
             return node;
         }
 
-
-
         public S reference(K key)
         {
             Node<K, V> node = reference(key, true);
@@ -371,7 +369,6 @@ public class AccordStateCache
         @VisibleForTesting
         public Node<K, V> getUnsafe(K key)
         {
-            Preconditions.checkState(!(cache.containsKey(key) && active.containsKey(key)), "Key %s found in cache and active set", key);
             if (active.containsKey(key)) return (Node<K, V>) Objects.requireNonNull(active.get(key), "active");
             return (Node<K, V>) cache.get(key);
         }
@@ -395,16 +392,17 @@ public class AccordStateCache
             return node != null && node.isLoaded();
         }
 
-        public void release(K key, S value)
+        public void release(S safeRef)
         {
-            logger.trace("Releasing resources for {}: {}", key, value);
+            K key = safeRef.global().key();
+            logger.trace("Releasing resources for {}: {}", key, safeRef);
             maybeClearAsyncResult(key);
             Node<K, V> node = (Node<K, V>) active.get(key);
             Invariants.checkState(node != null && node.references > 0);
             Invariants.checkState(node.isLoaded());
 
-            Invariants.checkState(node.value() == value);
-            if (value.hasUpdate() || node.shouldUpdateSize())
+            Invariants.checkState(safeRef.global() == node);
+            if (safeRef.hasUpdate() || node.shouldUpdateSize())
             {
                 updateSize(node, heapEstimator);
             }
@@ -418,15 +416,6 @@ public class AccordStateCache
             }
 
             maybeEvict();
-        }
-
-        /**
-         * Release without a value, used in failure recovery. Key is assumed to have
-         * been already referenced
-         */
-        public void release(K key)
-        {
-            release(key, null);
         }
 
         @VisibleForTesting

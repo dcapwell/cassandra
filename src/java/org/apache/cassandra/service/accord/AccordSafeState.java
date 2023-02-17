@@ -22,13 +22,15 @@ import java.util.function.Function;
 
 import accord.local.SafeState;
 import accord.utils.async.AsyncChain;
+import accord.utils.async.AsyncResults;
 import org.apache.cassandra.service.accord.AccordLoadingState.LoadingState;
 
 public interface AccordSafeState<K, V> extends SafeState<V>
 {
     void set(V update);
     V original();
-    long estimatedSizeOnHeap();
+    void prepareForOperation();
+    AccordLoadingState<K, V> global();
 
     default boolean hasUpdate()
     {
@@ -40,10 +42,28 @@ public interface AccordSafeState<K, V> extends SafeState<V>
         set(original());
     }
 
-    LoadingState loadingState();
-    Runnable load(Function<K, V> loadFunction);
-    AsyncChain<?> listen();
-    Throwable failure();
+    default K key()
+    {
+        return global().key();
+    }
 
+    default LoadingState loadingState()
+    {
+        return global().state();
+    }
 
+    default AsyncResults.Unscheduled<V> load(Function<K, V> loadFunction)
+    {
+        return global().load(loadFunction);
+    }
+
+    default AsyncChain<?> listen()
+    {
+        return global().listen();
+    }
+
+    default Throwable failure()
+    {
+        return global().failure();
+    }
 }

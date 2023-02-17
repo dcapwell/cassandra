@@ -32,6 +32,7 @@ import org.slf4j.LoggerFactory;
 
 import accord.api.Key;
 import accord.api.Result;
+import accord.impl.CommandsForKey;
 import accord.local.Command;
 import accord.local.CommonAttributes;
 import accord.local.SaveStatus;
@@ -58,7 +59,7 @@ import static org.apache.cassandra.service.accord.AccordTestUtils.Commands.preac
 import static org.apache.cassandra.service.accord.AccordTestUtils.ballot;
 import static org.apache.cassandra.service.accord.AccordTestUtils.createAccordCommandStore;
 import static org.apache.cassandra.service.accord.AccordTestUtils.createPartialTxn;
-import static org.apache.cassandra.service.accord.AccordTestUtils.liveCommandsForKey;
+import static org.apache.cassandra.service.accord.AccordTestUtils.loaded;
 import static org.apache.cassandra.service.accord.AccordTestUtils.timestamp;
 import static org.apache.cassandra.service.accord.AccordTestUtils.txnId;
 
@@ -118,14 +119,14 @@ public class AccordCommandStoreTest
         Command command = Command.SerializerSupport.executed(attrs, SaveStatus.Applied, executeAt, promised, accepted,
                                                              waitingOnCommit, waitingOnApply, result.left, result.right);
 
-        AccordSafeCommand liveCommand = AccordTestUtils.liveCommand(txnId);
-        liveCommand.set(command);
-        AccordKeyspace.getCommandMutation(commandStore, liveCommand, commandStore.nextSystemTimestampMicros()).apply();
+        AccordSafeCommand safeCommand = new AccordSafeCommand(loaded(txnId, null));
+        safeCommand.set(command);
+        AccordKeyspace.getCommandMutation(commandStore, safeCommand, commandStore.nextSystemTimestampMicros()).apply();
         logger.info("E: {}", command);
-        AccordSafeCommand actual = AccordKeyspace.loadCommand(commandStore, txnId);
+        Command actual = AccordKeyspace.loadCommand(commandStore, txnId);
         logger.info("A: {}", actual);
 
-        Assert.assertEquals(command, actual.current());
+        Assert.assertEquals(command, actual);
     }
 
     @Test
@@ -143,7 +144,7 @@ public class AccordCommandStoreTest
         Command command1 = preaccepted(txnId1, txn, timestamp(1, clock.incrementAndGet(), 1));
         Command command2 = preaccepted(txnId2, txn, timestamp(1, clock.incrementAndGet(), 1));
 
-        AccordSafeCommandsForKey cfk = liveCommandsForKey(key);
+        AccordSafeCommandsForKey cfk = new AccordSafeCommandsForKey(loaded(key, null));
         cfk.initialize(CommandsForKeySerializer.loader);
         cfk.updateMax(maxTimestamp);
 
@@ -162,9 +163,9 @@ public class AccordCommandStoreTest
 
         AccordKeyspace.getCommandsForKeyMutation(commandStore, cfk, commandStore.nextSystemTimestampMicros()).apply();
         logger.info("E: {}", cfk);
-        AccordSafeCommandsForKey actual = AccordKeyspace.loadCommandsForKey(commandStore, key);
+        CommandsForKey actual = AccordKeyspace.loadCommandsForKey(commandStore, key);
         logger.info("A: {}", actual);
 
-        Assert.assertEquals(cfk.current(), actual.current());
+        Assert.assertEquals(cfk.current(), actual);
     }
 }
