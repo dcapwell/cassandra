@@ -20,6 +20,8 @@ package org.apache.cassandra.service.accord.serializers;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 
 import accord.impl.CommandsForKey.CommandLoader;
 import accord.local.Command;
@@ -31,15 +33,48 @@ import accord.utils.Invariants;
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.db.marshal.ByteBufferAccessor;
 import org.apache.cassandra.db.marshal.ValueAccessor;
+import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.LocalVersionedSerializer;
 import org.apache.cassandra.io.util.DataInputBuffer;
+import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.service.accord.AccordSerializerVersion;
 
 public class CommandsForKeySerializer
 {
-    private static final LocalVersionedSerializer<PartialDeps> depsSerializer = new LocalVersionedSerializer<>(AccordSerializerVersion.CURRENT, AccordSerializerVersion.serializer, DepsSerializer.partialDeps);
+    private static final IVersionedSerializer<List<TxnId>> depsIdSerializer = new IVersionedSerializer<List<TxnId>>()
+    {
+        @Override
+        public void serialize(List<TxnId> ids, DataOutputPlus out, int version) throws IOException
+        {
+            out.writeInt(ids.size());
+            for (int i=0,mi=ids.size(); i<mi; i++)
+                CommandSerializers.txnId.serialize(ids.get(i), out, version);
+        }
+
+        @Override
+        public List<TxnId> deserialize(DataInputPlus in, int version) throws IOException
+        {
+            int size = in.readInt();
+            List<TxnId> ids = new ArrayList<>(size);
+            for (int i=0; i<size; i++)
+                ids.add(CommandSerializers.txnId.deserialize(in, version));
+            return ids;
+        }
+
+        @Override
+        public long serializedSize(List<TxnId> ids, int version)
+        {
+            long size = TypeSizes.INT_SIZE;
+            for (int i=0,mi=ids.size(); i<mi; i++)
+                size += CommandSerializers.txnId.serializedSize(ids.get(i), version);
+            return size;
+        }
+    };
+
+    private static final LocalVersionedSerializer<List<TxnId>> depsIdsLocalSerializer = new LocalVersionedSerializer<>(AccordSerializerVersion.CURRENT, AccordSerializerVersion.serializer, depsIdSerializer);
+
     public static final CommandLoader<ByteBuffer> loader = new AccordCFKLoader();
     private static class AccordCFKLoader implements CommandLoader<ByteBuffer>
     {
@@ -74,7 +109,7 @@ public class CommandsForKeySerializer
 
         private int serializedSize(Command command)
         {
-            return (int) (FIXED_SIZE + (command.partialDeps() != null ? depsSerializer.serializedSize(command.partialDeps()) : 0));
+            return (int) (FIXED_SIZE + (command.partialDeps() != null ? depsIdsLocalSerializer.serializedSize(command.partialDeps().txnIds()) : 0));
         }
 
         private static final ValueAccessor<ByteBuffer> accessor = ByteBufferAccessor.instance;
@@ -109,7 +144,7 @@ public class CommandsForKeySerializer
                 DataOutputPlus out = new DataOutputBuffer(duplicate);
                 try
                 {
-                    depsSerializer.serialize(deps, out);
+                    depsIdsLocalSerializer.serialize(deps.txnIds(), out);
                 }
                 catch (IOException e)
                 {
@@ -138,7 +173,7 @@ public class CommandsForKeySerializer
         }
 
         @Override
-        public PartialDeps partialDeps(ByteBuffer data)
+        public List<TxnId> depsIds(ByteBuffer data)
         {
             byte flags = accessor.getByte(data, FLAG_OFFSET);
             if ((flags & HAS_DEPS) == 0)
@@ -148,7 +183,7 @@ public class CommandsForKeySerializer
             DataInputBuffer in = new DataInputBuffer(buffer, false);
             try
             {
-                return depsSerializer.deserialize(in);
+                return depsIdsLocalSerializer.deserialize(in);
             }
             catch (IOException e)
             {
