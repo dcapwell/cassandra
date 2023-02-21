@@ -21,6 +21,7 @@ package org.apache.cassandra.service.accord.async;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -52,7 +53,6 @@ import accord.primitives.Txn;
 import accord.primitives.TxnId;
 import accord.utils.Gen;
 import accord.utils.Gens;
-import accord.utils.async.AsyncResults;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
@@ -76,7 +76,7 @@ import org.mockito.Mockito;
 
 import static accord.local.PreLoadContext.contextFor;
 import static accord.utils.Property.qt;
-import static accord.utils.async.AsyncChains.awaitUninterruptibly;
+import static accord.utils.async.AsyncChains.getUninterruptibly;
 import static java.util.Collections.singleton;
 import static org.apache.cassandra.cql3.statements.schema.CreateTableStatement.parse;
 import static org.apache.cassandra.service.accord.AccordTestUtils.createAccordCommandStore;
@@ -118,7 +118,7 @@ public class AsyncOperationTest
         Txn txn = createTxn((int)clock.incrementAndGet());
         PartitionKey key = (PartitionKey) Iterables.getOnlyElement(txn.keys());
 
-        awaitUninterruptibly(commandStore.execute(contextFor(txnId), instance -> {
+        getUninterruptibly(commandStore.execute(contextFor(txnId), instance -> {
             SafeCommand command = instance.ifPresent(txnId);
             Assert.assertNull(command);
         }));
@@ -134,7 +134,7 @@ public class AsyncOperationTest
         Txn txn = createTxn((int)clock.incrementAndGet());
         PartitionKey key = (PartitionKey) Iterables.getOnlyElement(txn.keys());
 
-        awaitUninterruptibly(commandStore.execute(contextFor(Collections.emptyList(), Keys.of(key)), instance -> {
+        getUninterruptibly(commandStore.execute(contextFor(Collections.emptyList(), Keys.of(key)), instance -> {
             SafeCommandsForKey cfk = ((AccordSafeCommandStore) instance).maybeCommandsForKey(key);
             Assert.assertNull(cfk);
         }));
@@ -175,23 +175,30 @@ public class AsyncOperationTest
         Ranges ranges = AccordTestUtils.fullRange(partialTxn.keys());
         PartialRoute<?> partialRoute = route.slice(ranges);
         PartialDeps deps = PartialDeps.builder(ranges).build();
-        return AsyncResults.getUninterruptibly(commandStore.submit(PreLoadContext.contextFor(Collections.singleton(txnId), partialTxn.keys()), safe -> {
-            Commands.AcceptOutcome result = Commands.preaccept(safe, txnId, partialTxn, route, null);
-            if (result != Commands.AcceptOutcome.Success) throw new IllegalStateException("Command mutation rejected: " + result);
+        try
+        {
+            return getUninterruptibly(commandStore.submit(PreLoadContext.contextFor(Collections.singleton(txnId), partialTxn.keys()), safe -> {
+                Commands.AcceptOutcome result = Commands.preaccept(safe, txnId, partialTxn, route, null);
+                if (result != Commands.AcceptOutcome.Success) throw new IllegalStateException("Command mutation rejected: " + result);
 
-            result = Commands.accept(safe, txnId, Ballot.ZERO, partialRoute, partialTxn.keys(), null, executeAt, deps);
-            if (result != Commands.AcceptOutcome.Success) throw new IllegalStateException("Command mutation rejected: " + result);
+                result = Commands.accept(safe, txnId, Ballot.ZERO, partialRoute, partialTxn.keys(), null, executeAt, deps);
+                if (result != Commands.AcceptOutcome.Success) throw new IllegalStateException("Command mutation rejected: " + result);
 
-            Commands.CommitOutcome commit = Commands.commit(safe, txnId, route, null, partialTxn, executeAt, deps);
-            if (commit != Commands.CommitOutcome.Success) throw new IllegalStateException("Command mutation rejected: " + result);
+                Commands.CommitOutcome commit = Commands.commit(safe, txnId, route, null, partialTxn, executeAt, deps);
+                if (commit != Commands.CommitOutcome.Success) throw new IllegalStateException("Command mutation rejected: " + result);
 
-            // clear cache
-            long cacheSize = commandStore.getCacheSize();
-            commandStore.setCacheSize(0);
-            commandStore.setCacheSize(cacheSize);
+                // clear cache
+                long cacheSize = commandStore.getCacheSize();
+                commandStore.setCacheSize(0);
+                commandStore.setCacheSize(cacheSize);
 
-            return safe.command(txnId).current();
-        }).beginAsResult());
+                return safe.command(txnId).current();
+            }).beginAsResult());
+        }
+        catch (ExecutionException e)
+        {
+            throw new AssertionError(e);
+        }
     }
 
     private static void assertFutureState(AccordStateCache.Instance<TxnId, Command, AccordSafeCommand> cache, TxnId txnId, boolean referenceExpected, boolean expectLoadFuture, boolean expectSaveFuture)
@@ -213,7 +220,7 @@ public class AsyncOperationTest
      * save and load futures should be cleaned up as part of the operation
      */
     @Test
-    public void testFutureCleanup()
+    public void testFutureCleanup() throws Throwable
     {
         AccordCommandStore commandStore = createAccordCommandStore(clock::incrementAndGet, "ks", "tbl");
 
@@ -285,7 +292,7 @@ public class AsyncOperationTest
 
         commandStore.executor().submit(operation);
 
-        awaitUninterruptibly(operation);
+        getUninterruptibly(operation);
     }
 
     @Test
@@ -340,7 +347,7 @@ public class AsyncOperationTest
 
             commandStore.executor().submit(operation);
 
-            Assertions.assertThatThrownBy(() -> awaitUninterruptibly(operation));
+            Assertions.assertThatThrownBy(() -> getUninterruptibly(operation));
 
             Mockito.verifyNoInteractions(consumer);
 
@@ -381,7 +388,7 @@ public class AsyncOperationTest
 
             commandStore.executor().submit(operation);
 
-            Assertions.assertThatThrownBy(() -> awaitUninterruptibly(operation));
+            Assertions.assertThatThrownBy(() -> getUninterruptibly(operation));
 
             assertNoReferences(commandStore, ids, keys);
         });
@@ -441,7 +448,7 @@ public class AsyncOperationTest
 
             commandStore.executor().submit(operation);
 
-            Assertions.assertThatThrownBy(() -> awaitUninterruptibly(operation));
+            Assertions.assertThatThrownBy(() -> getUninterruptibly(operation));
 
             //TODO what "should" the assert be?  If we can not write the mutations... we can't deref right?
             assertNoReferences(commandStore, ids, keys);

@@ -18,20 +18,13 @@
 
 package org.apache.cassandra.service.accord;
 
-import java.util.stream.IntStream;
-
 import accord.api.Agent;
 import accord.api.DataStore;
 import accord.api.ProgressLog;
-import accord.local.AsyncCommandStores;
 import accord.local.CommandStores;
 import accord.local.NodeTimeService;
-import accord.local.PreLoadContext;
-import accord.local.SafeCommandStore;
 import accord.local.ShardDistributor;
-import accord.primitives.Routables;
 import accord.topology.Topology;
-import accord.utils.MapReduceConsume;
 
 public class AccordCommandStores extends CommandStores<AccordCommandStore>
 {
@@ -75,17 +68,5 @@ public class AccordCommandStores extends CommandStores<AccordCommandStore>
     {
         super.shutdown();
         //TODO shutdown isn't useful by itself, we need a way to "wait" as well.  Should be AutoCloseable or offer awaitTermination as well (think Shutdownable interface)
-    }
-
-    @Override
-    public <O> void mapReduceConsume(PreLoadContext context, Routables<?, ?> keys, long minEpoch, long maxEpoch, MapReduceConsume<? super SafeCommandStore, O> mapReduceConsume)
-    {
-        mapReduceConsume(context, keys, minEpoch, maxEpoch, mapReduceConsume, AsyncCommandStores.AsyncMapReduceAdapter.instance());
-    }
-
-    @Override
-    public <O> void mapReduceConsume(PreLoadContext context, IntStream commandStoreIds, MapReduceConsume<? super SafeCommandStore, O> mapReduceConsume)
-    {
-        mapReduceConsume(context, commandStoreIds, mapReduceConsume, AsyncCommandStores.AsyncMapReduceAdapter.instance());
     }
 }

@@ -264,7 +264,7 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
     }
 
     @Override
-    public void begin(BiConsumer<? super R, Throwable> callback)
+    public void start(BiConsumer<? super R, Throwable> callback)
     {
         Invariants.checkArgument(this.callback == null);
         this.callback = callback;

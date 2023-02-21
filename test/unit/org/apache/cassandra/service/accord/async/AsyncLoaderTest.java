@@ -37,6 +37,7 @@ import accord.local.Command;
 import accord.primitives.PartialTxn;
 import accord.primitives.RoutableKey;
 import accord.primitives.TxnId;
+import accord.utils.async.AsyncChains;
 import accord.utils.async.AsyncResult;
 import accord.utils.async.AsyncResults;
 import org.apache.cassandra.SchemaLoader;
@@ -321,6 +322,6 @@ public class AsyncLoaderTest
         });
 
         promise1.tryFailure(failure);
-        AsyncResults.awaitUninterruptibly(callback);
+        AsyncChains.getUninterruptibly(callback);
     }
 }

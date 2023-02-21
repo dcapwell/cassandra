@@ -34,6 +34,7 @@ import accord.impl.CommandsForKey;
 import accord.local.Command;
 import accord.primitives.RoutableKey;
 import accord.primitives.TxnId;
+import accord.utils.Invariants;
 import accord.utils.async.AsyncChain;
 import accord.utils.async.AsyncChains;
 import accord.utils.async.AsyncResult;
@@ -118,30 +119,33 @@ public class AsyncLoader
 
     private AsyncResult<?> referenceAndDispatchReads(AsyncOperation.Context context)
     {
-        List<Runnable> loadRunnables = new ArrayList<>();
-        List<AsyncChain<?>> listenChains = new ArrayList<>();
+        List<Runnable> runnables = new ArrayList<>();
+        List<AsyncChain<?>> chains = new ArrayList<>();
 
         referenceAndAssembleReads(txnIds,
                                   context.commands,
                                   commandStore.commandCache(),
                                   loadCommandFunction(),
-                                  loadRunnables,
-                                  listenChains);
+                                  runnables,
+                                  chains);
 
         referenceAndAssembleReads(keys,
                                   context.commandsForKeys,
                                   commandStore.commandsForKeyCache(),
                                   loadCommandsPerKeyFunction(),
-                                  loadRunnables,
-                                  listenChains);
+                                  runnables,
+                                  chains);
 
-        if (loadRunnables.isEmpty() && listenChains.isEmpty())
+        if (chains.isEmpty())
+        {
+            Invariants.checkState(runnables.isEmpty());
             return null;
+        }
 
-        if (!loadRunnables.isEmpty())
-            AsyncChains.ofRunnables(Stage.READ.executor(), loadRunnables).begin(commandStore.agent());
+        if (!runnables.isEmpty())
+            AsyncChains.ofRunnables(Stage.READ.executor(), runnables).begin(commandStore.agent());
 
-        return !listenChains.isEmpty() ? AsyncResults.reduce(listenChains, (a, b) -> null).beginAsResult() : null;
+        return !chains.isEmpty() ? AsyncChains.reduce(chains, (a, b) -> null).beginAsResult() : null;
     }
 
     @VisibleForTesting

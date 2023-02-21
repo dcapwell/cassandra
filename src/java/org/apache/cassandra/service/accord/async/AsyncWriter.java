@@ -132,7 +132,7 @@ public class AsyncWriter
 
         AsyncChains.ofRunnables(Stage.MUTATION.executor(), writes).begin(commandStore.agent());
 
-        return AsyncResults.reduce(writes, (a, b) -> null).beginAsResult();
+        return AsyncChains.reduce(writes, (a, b) -> null).beginAsResult();
     }
 
     @VisibleForTesting

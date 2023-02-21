@@ -35,8 +35,8 @@ import org.slf4j.LoggerFactory;
 
 import accord.api.Data;
 import accord.utils.Invariants;
+import accord.utils.async.AsyncChains;
 import accord.utils.async.AsyncResult;
-import accord.utils.async.AsyncResults;
 import org.apache.cassandra.utils.ObjectSizes;
 
 /**
@@ -257,7 +257,7 @@ public class AccordStateCache
         if (existing != null && !existing.isDone())
         {
             logger.trace("Merging result {} with existing {}", result, existing);
-            result = AsyncResults.reduce(ImmutableList.of(existing, result), (a, b) -> null).beginAsResult();
+            result = AsyncChains.reduce(ImmutableList.of(existing, result), (a, b) -> null).beginAsResult();
         }
 
         resultMap.put(key, result);

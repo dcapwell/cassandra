@@ -83,7 +83,7 @@ import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
 
 import static accord.primitives.Routable.Domain.Key;
-import static accord.utils.async.AsyncChains.awaitUninterruptibly;
+import static accord.utils.async.AsyncChains.getUninterruptibly;
 import static java.lang.String.format;
 
 public class AccordTestUtils
@@ -197,7 +197,7 @@ public class AccordTestUtils
     public static Pair<Writes, Result> processTxnResult(AccordCommandStore commandStore, TxnId txnId, PartialTxn txn, Timestamp executeAt) throws Throwable
     {
         AtomicReference<Pair<Writes, Result>> result = new AtomicReference<>();
-        awaitUninterruptibly(commandStore.execute(PreLoadContext.contextFor(Collections.emptyList(), txn.keys()),
+        getUninterruptibly(commandStore.execute(PreLoadContext.contextFor(Collections.emptyList(), txn.keys()),
                               safeStore -> {
                                   TxnRead read = (TxnRead) txn.read();
                                   Data readData = read.keys().stream().map(key -> {

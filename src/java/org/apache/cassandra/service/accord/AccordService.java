@@ -36,9 +36,9 @@ import accord.local.ShardDistributor.EvenSplit;
 import accord.messages.Request;
 import accord.primitives.Txn;
 import accord.topology.TopologyManager;
+import accord.utils.async.AsyncChains;
 import org.apache.cassandra.concurrent.Shutdownable;
 import accord.utils.async.AsyncResult;
-import accord.utils.async.AsyncResults;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.WriteType;
@@ -187,7 +187,7 @@ public class AccordService implements IAccordService, Shutdownable
         {
             metrics.keySize.update(txn.keys().size());
             AsyncResult<Result> asyncResult = node.coordinate(txn);
-            Result result = AsyncResults.getBlocking(asyncResult, DatabaseDescriptor.getTransactionTimeout(TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS);
+            Result result = AsyncChains.getBlocking(asyncResult, DatabaseDescriptor.getTransactionTimeout(TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS);
             return (TxnData) result;
         }
         catch (ExecutionException e)
