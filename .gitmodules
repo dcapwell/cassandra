@@ -1,4 +1,4 @@
 [submodule "modules/accord"]
 	path = modules/accord
-	url = git@github.com:bdeggleston/cassandra-accord.git
+	url = ../cassandra-accord.git
 	branch = immutable-state

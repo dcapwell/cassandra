@@ -33,7 +33,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
@@ -48,6 +47,7 @@ import accord.local.Command;
 import accord.local.CommandListener;
 import accord.local.CommandStore;
 import accord.local.CommonAttributes;
+import accord.local.Listeners;
 import accord.local.Node;
 import accord.local.SaveStatus;
 import accord.local.Status;
@@ -370,19 +370,19 @@ public class AccordKeyspace
         return deserializeTimestampSet(row.getSet(name, BytesType.instance), TxnId::fromBits);
     }
 
-    private static ImmutableSet<CommandListener> deserializeListeners(Set<ByteBuffer> serialized) throws IOException
+    private static Listeners.Immutable deserializeListeners(Set<ByteBuffer> serialized) throws IOException
     {
         if (serialized == null || serialized.isEmpty())
-            return ImmutableSet.of();
-        ImmutableSet.Builder<CommandListener> result = ImmutableSet.builder();
+            return Listeners.Immutable.EMPTY;
+        Listeners result = new Listeners();
         for (ByteBuffer bytes : serialized)
         {
             result.add(deserialize(bytes, CommandsSerializers.listeners));
         }
-        return result.build();
+        return new Listeners.Immutable(result);
     }
 
-    private static ImmutableSet<CommandListener> deserializeListeners(UntypedResultSet.Row row, String name) throws IOException
+    private static Listeners.Immutable deserializeListeners(UntypedResultSet.Row row, String name) throws IOException
     {
         return deserializeListeners(row.getSet(name, BytesType.instance));
     }
