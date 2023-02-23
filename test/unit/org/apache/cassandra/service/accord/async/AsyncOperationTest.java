@@ -33,6 +33,9 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import accord.api.RoutingKey;
 import accord.impl.SafeCommandsForKey;
 import accord.local.Command;
@@ -88,6 +91,7 @@ import static org.apache.cassandra.service.accord.AccordTestUtils.txnId;
 
 public class AsyncOperationTest
 {
+    private static final Logger logger = LoggerFactory.getLogger(AsyncOperationTest.class);
     private static final AtomicLong clock = new AtomicLong(0);
 
     @BeforeClass
@@ -304,12 +308,14 @@ public class AsyncOperationTest
         AccordCommandStore commandStore = createAccordCommandStore(clock::incrementAndGet, "ks", "tbl");
         Gen<TxnId> txnIdGen = rs -> txnId(1, clock.incrementAndGet(), 1);
 
-        qt().withExamples(100).forAll(Gens.random(), Gens.lists(txnIdGen).ofSizeBetween(1, 10)).check((rs, ids) -> {
+        //TODO remove seed once stable
+        qt().withPure(false).withSeed(6074999539617324498L).withExamples(100).forAll(Gens.random(), Gens.lists(txnIdGen).ofSizeBetween(1, 10)).check((rs, ids) -> {
             before(); // truncate tables
 
             // to simulate CommandsForKey not being found, use createCommittedAndPersist periodically as it does not update
             if (rs.nextBoolean()) ids.forEach(id -> createCommittedAndPersist(commandStore, id));
             else ids.forEach(id -> createCommittedUsingLifeCycle(commandStore, id));
+            commandStore.clearCache();
 
             Map<TxnId, Boolean> failed = Maps.newHashMapWithExpectedSize(ids.size());
             for (TxnId id : ids)
@@ -335,6 +341,7 @@ public class AsyncOperationTest
                         {
                             Function<TxnId, Command> delegate = super.loadCommandFunction();
                             return txnId -> {
+                                logger.info("Attempting to load {}; expected to fail? {}", txnId, failed.get(txnId));
                                 if (!failed.get(txnId)) return delegate.apply(txnId);
 
                                 //TODO api doesn't handle this exception, so consumer never sees it!
@@ -368,6 +375,7 @@ public class AsyncOperationTest
             // to simulate CommandsForKey not being found, use createCommittedAndPersist periodically as it does not update
             if (rs.nextBoolean()) ids.forEach(id -> createCommittedAndPersist(commandStore, id));
             else ids.forEach(id -> createCommittedUsingLifeCycle(commandStore, id));
+            commandStore.clearCache();
 
             Map<TxnId, Boolean> failed = Maps.newHashMapWithExpectedSize(ids.size());
             for (TxnId id : ids)
@@ -405,6 +413,7 @@ public class AsyncOperationTest
             // to simulate CommandsForKey not being found, use createCommittedAndPersist periodically as it does not update
             if (rs.nextBoolean()) ids.forEach(id -> createCommittedAndPersist(commandStore, id));
             else ids.forEach(id -> createCommittedUsingLifeCycle(commandStore, id));
+            commandStore.clearCache();
 
             Map<TxnId, Boolean> failed = Maps.newHashMapWithExpectedSize(ids.size());
             for (TxnId id : ids)

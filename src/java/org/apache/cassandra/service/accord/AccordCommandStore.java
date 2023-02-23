@@ -144,6 +144,11 @@ public class AccordCommandStore implements CommandStore
         return commandsForKeyCache;
     }
 
+    public void clearCache()
+    {
+        stateCache.clear();
+    }
+
     public void setCurrentOperation(AsyncOperation<?> operation)
     {
         Invariants.checkState(currentOperation == null);
