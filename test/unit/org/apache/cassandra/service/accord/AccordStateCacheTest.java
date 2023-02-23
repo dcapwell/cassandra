@@ -133,10 +133,10 @@ public class AccordStateCacheTest
         return itemSize + emptyNodeSize();
     }
 
-    private static void assertCacheState(AccordStateCache cache, int active, int cached, long bytes)
+    private static void assertCacheState(AccordStateCache cache, int referencd, int total, long bytes)
     {
-        Assert.assertEquals(active, cache.numActiveEntries());
-        Assert.assertEquals(cached, cache.numCachedEntries());
+        Assert.assertEquals(referencd, cache.numReferencedEntries());
+        Assert.assertEquals(total, cache.totalNumEntries());
         Assert.assertEquals(bytes, cache.bytesCached());
     }
 
@@ -232,7 +232,7 @@ public class AccordStateCacheTest
         Assert.assertSame(items[1].global, cache.tail);
         Assert.assertSame(items[4].global, cache.head);
         Assert.assertFalse(cache.keyIsCached("0"));
-        Assert.assertFalse(cache.keyIsActive("0"));
+        Assert.assertFalse(cache.keyIsReferenced("0"));
 
         testLoad(safeString, "5");
         instance.release(safeString);

@@ -758,7 +758,7 @@ public class AccordKeyspace
                 addCellIfModified(CommandsForKeyColumns.last_write_timestamp, CommandsForKey::lastWriteTimestamp, AccordKeyspace::serializeTimestamp, rowBuilder, timestampMicros, original, cfk);
                 Row row = rowBuilder.build();
                 if (!row.isEmpty())
-                    partitionBuilder.add(rowBuilder.build());
+                    partitionBuilder.add(row);
             }
 
             addSeriesMutations(original, cfk, SeriesKind.BY_ID, partitionBuilder, rowBuilder, timestampMicros, nowInSeconds);

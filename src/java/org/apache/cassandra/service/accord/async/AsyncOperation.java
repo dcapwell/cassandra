@@ -161,8 +161,15 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
     private void finish(R result)
     {
         Invariants.checkArgument(state == State.COMPLETING, "Unexpected state %s", state);
-        callback.accept(result, null);
-        state = State.FINISHED;
+        try
+        {
+            if (callback != null)
+                callback.accept(result, null);
+        }
+        finally
+        {
+            state = State.FINISHED;
+        }
     }
 
     private void fail(Throwable throwable)
@@ -187,8 +194,15 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
                 // TODO: panic?
                 break;
         }
-        callback.accept(null, throwable);
-        state = State.FAILED;
+        try
+        {
+            if (callback != null)
+                callback.accept(null, throwable);
+        }
+        finally
+        {
+            state = State.FAILED;
+        }
     }
 
     protected void runInternal()
@@ -226,6 +240,7 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
                 state = State.COMPLETING;
                 finish(result);
             case FINISHED:
+            case FAILED:
                 break;
             default:
                 throw new IllegalStateException("Unexpected state " + state);

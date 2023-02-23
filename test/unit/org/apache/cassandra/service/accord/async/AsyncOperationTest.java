@@ -345,8 +345,6 @@ public class AsyncOperationTest
                 }
             };
 
-            commandStore.executor().submit(operation);
-
             Assertions.assertThatThrownBy(() -> getUninterruptibly(operation));
 
             Mockito.verifyNoInteractions(consumer);
@@ -385,8 +383,6 @@ public class AsyncOperationTest
             Mockito.doThrow(new NullPointerException("txn_ids " + ids)).when(consumer).accept(Mockito.any());
 
             AsyncOperation<Void> operation = new AsyncOperation.ForConsumer(commandStore, ctx, consumer);
-
-            commandStore.executor().submit(operation);
 
             Assertions.assertThatThrownBy(() -> getUninterruptibly(operation));
 
@@ -445,8 +441,6 @@ public class AsyncOperationTest
                     };
                 }
             };
-
-            commandStore.executor().submit(operation);
 
             Assertions.assertThatThrownBy(() -> getUninterruptibly(operation));
 

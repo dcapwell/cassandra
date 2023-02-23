@@ -73,6 +73,11 @@ public class AccordStateCache
             return state() == LoadingState.LOADED;
         }
 
+        private boolean isUnlinked()
+        {
+            return prev == null && next == null;
+        }
+
         long estimatedSizeOnHeap(ToLongFunction<V> estimator)
         {
             long result = EMPTY_SIZE;
@@ -93,6 +98,19 @@ public class AccordStateCache
         {
             return isLoaded() && lastQueriedEstimatedSizeOnHeap == EMPTY_SIZE;
         }
+
+        void maybeCleanupLoad()
+        {
+            state();
+        }
+
+        @Override
+        public String toString()
+        {
+            return "Node{" + state() +
+                   ", references=" + references +
+                   '}';
+        }
     }
 
     static class Stats
@@ -112,7 +130,6 @@ public class AccordStateCache
         }
     }
 
-    public final Map<Object, Node<?, ?>> active = new HashMap<>();
     private final Map<Object, Node<?, ?>> cache = new HashMap<>();
     private final Set<Instance<?, ?, ?>> instances = new HashSet<>();
 
@@ -121,6 +138,7 @@ public class AccordStateCache
     private final NamedMap<Object, AsyncResult<Data>> readResults = new NamedMap<>("readResults");
     private final NamedMap<Object, AsyncResult<Void>> writeResults = new NamedMap<>("writeResults");
 
+    private int linked = 0;
     Node<?, ?> head;
     Node<?, ?> tail;
     private long maxSizeInBytes;
@@ -170,6 +188,7 @@ public class AccordStateCache
 
         node.prev = null;
         node.next = null;
+        linked--;
     }
 
     private void push(Node<?, ?> node)
@@ -186,6 +205,7 @@ public class AccordStateCache
             head = node;
             tail = node;
         }
+        linked++;
     }
 
     private <K, V> void updateSize(Node<K, V> node, ToLongFunction<V> estimator)
@@ -197,7 +217,8 @@ public class AccordStateCache
     // before it's mutation is applied, out of date info will be loaded
     private boolean canEvict(Node<?, ?> node)
     {
-        return node.isLoaded() &&
+        return node.references == 0 &&
+               node.isLoaded() &&
                !hasActiveAsyncResult(saveResults, node.key()) &&
                !hasActiveAsyncResult(readResults, node.key()) &&
                !hasActiveAsyncResult(writeResults, node.key());
@@ -217,7 +238,7 @@ public class AccordStateCache
             if (!canEvict(evict))
                 continue;
 
-            logger.trace("Evicting {} {}", evict.value(), evict.key());
+            logger.info("Evicting {} {}", evict.value(), evict.key());
             unlink(evict);
             cache.remove(evict.key());
             bytesCached -= evict.lastQueriedEstimatedSizeOnHeap;
@@ -266,9 +287,9 @@ public class AccordStateCache
     @VisibleForTesting
     private <K> void maybeCleanupLoad(K key)
     {
-        Node<?, ?> node = active.get(key);
+        Node<?, ?> node = cache.get(key);
         if (node != null)
-            maybeCleanupLoad(node);;
+            node.maybeCleanupLoad();
     }
 
     private <K> void maybeClearAsyncResult(K key)
@@ -316,17 +337,7 @@ public class AccordStateCache
             stats.queries++;
             AccordStateCache.this.stats.queries++;
 
-            Node<K, V> node = (Node<K, V>) active.get(key);
-            if (node != null)
-            {
-                stats.hits++;
-                AccordStateCache.this.stats.hits++;
-                node.references++;
-                return node;
-            }
-
-            node = (Node<K, V>) cache.get(key);
-
+            Node<K, V> node = (Node<K, V>) cache.get(key);
             if (node == null)
             {
                 stats.misses++;
@@ -342,13 +353,13 @@ public class AccordStateCache
             {
                 stats.hits++;
                 AccordStateCache.this.stats.hits++;
-                unlink(node);
+                if (node.references == 0)
+                    unlink(node);
+                else
+                    Invariants.checkState(node.isUnlinked());
             }
 
-            Preconditions.checkState(node.references == 0);
-
             node.references++;
-            active.put(key, node);
 
             return node;
         }
@@ -370,26 +381,20 @@ public class AccordStateCache
         @VisibleForTesting
         public Node<K, V> getUnsafe(K key)
         {
-            if (active.containsKey(key)) return (Node<K, V>) Objects.requireNonNull(active.get(key), "active");
             return (Node<K, V>) cache.get(key);
         }
 
         @VisibleForTesting
         public boolean isReferenced(K key)
         {
-            Node<K, V> node = (Node<K, V>) active.get(key);
-            if (node == null)
-                return false;
-            Invariants.checkState(node.references > 0);
-            return true;
+            Node<K, V> node = (Node<K, V>) cache.get(key);
+            return node != null && node.references > 0;
         }
 
         @VisibleForTesting
         public boolean isLoaded(K key)
         {
-            Node<K, V> node = (Node<K, V>) active.get(key);
-            if (node == null)
-                node = (Node<K, V>) cache.get(key);
+            Node<K, V> node = (Node<K, V>) cache.get(key);
             return node != null && node.isLoaded();
         }
 
@@ -398,8 +403,8 @@ public class AccordStateCache
             K key = safeRef.global().key();
             logger.trace("Releasing resources for {}: {}", key, safeRef);
             maybeClearAsyncResult(key);
-            Node<K, V> node = (Node<K, V>) active.get(key);
-            Invariants.checkState(node != null && node.references > 0);
+            Node<K, V> node = (Node<K, V>) cache.get(key);
+            Invariants.checkState(node != null && node.references > 0, "node is null or references are zero for %s (%s)", key, node);
 
             Invariants.checkState(safeRef.global() == node);
             if (node.isLoaded() && (safeRef.hasUpdate() || node.shouldUpdateSize()))
@@ -411,7 +416,7 @@ public class AccordStateCache
             if (--node.references == 0)
             {
                 logger.trace("Moving {} from active pool to cache", key);
-                active.remove(key);
+                Invariants.checkState(node.isUnlinked());
                 push(node);
             }
 
@@ -421,13 +426,13 @@ public class AccordStateCache
         @VisibleForTesting
         boolean canEvict(K key)
         {
-            return AccordStateCache.this.canEvict(active.get(key));
+            return AccordStateCache.this.canEvict(cache.get(key));
         }
 
         @VisibleForTesting
         public boolean hasLoadResult(K key)
         {
-            Node<?, ?> node = active.get(key);
+            Node<?, ?> node = cache.get(key);
             return node != null && !node.isLoaded();
         }
 
@@ -516,13 +521,19 @@ public class AccordStateCache
     }
 
     @VisibleForTesting
-    int numActiveEntries()
+    int numReferencedEntries()
     {
-        return active.size();
+        return cache.size() - linked;
     }
 
     @VisibleForTesting
-    int numCachedEntries()
+    int numUnreferencedEntries()
+    {
+        return linked;
+    }
+
+    @VisibleForTesting
+    int totalNumEntries()
     {
         return cache.size();
     }
@@ -534,9 +545,10 @@ public class AccordStateCache
     }
 
     @VisibleForTesting
-    boolean keyIsActive(Object key)
+    boolean keyIsReferenced(Object key)
     {
-        return active.containsKey(key);
+        Node<?, ?> node = cache.get(key);
+        return node != null && node.references > 0;
     }
 
     @VisibleForTesting
@@ -548,7 +560,7 @@ public class AccordStateCache
     @VisibleForTesting
     int references(Object key)
     {
-        Node<?, ?> node = active.get(key);
+        Node<?, ?> node = cache.get(key);
         return node != null ? node.references : 0;
     }
 
