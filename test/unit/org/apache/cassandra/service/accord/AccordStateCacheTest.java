@@ -149,7 +149,7 @@ public class AccordStateCacheTest
 
 
         SafeString safeString1 = instance.reference("1");
-        assertCacheState(cache, 1, 0, emptyNodeSize());
+        assertCacheState(cache, 1, 1, emptyNodeSize());
         testLoad(safeString1, "1");
         Assert.assertNull(cache.head);
         Assert.assertNull(cache.tail);
@@ -160,7 +160,7 @@ public class AccordStateCacheTest
         Assert.assertSame(safeString1.global, cache.head);
 
         SafeString safeString2 = instance.reference("2");
-        assertCacheState(cache, 1, 1, DEFAULT_NODE_SIZE + nodeSize(1));
+        assertCacheState(cache, 1, 2, DEFAULT_NODE_SIZE + nodeSize(1));
         testLoad(safeString2, "2");
         instance.release(safeString2);
         assertCacheState(cache, 0, 2, nodeSize(1) + nodeSize(1));
@@ -228,7 +228,7 @@ public class AccordStateCacheTest
         Assert.assertTrue(instance.isReferenced(safeString.key()));
 
         // since it's not loaded, only the node size is counted here
-        assertCacheState(cache, 1, 4, nodeSize(1) * 4 + nodeSize(0));
+        assertCacheState(cache, 1, 5, nodeSize(1) * 4 + nodeSize(0));
         Assert.assertSame(items[1].global, cache.tail);
         Assert.assertSame(items[4].global, cache.head);
         Assert.assertFalse(cache.keyIsCached("0"));
@@ -257,17 +257,17 @@ public class AccordStateCacheTest
             Assert.assertTrue(instance.isReferenced(safeString.key()));
         }
 
-        assertCacheState(cache, 5, 0, nodeSize(0) * 5);
+        assertCacheState(cache, 5, 5, nodeSize(0) * 5);
         Assert.assertNull(cache.head);
         Assert.assertNull(cache.tail);
 
         instance.release(items[2]);
-        assertCacheState(cache, 4, 0, nodeSize(0) * 4);
+        assertCacheState(cache, 4, 4, nodeSize(0) * 4);
         Assert.assertNull(cache.head);
         Assert.assertNull(cache.tail);
 
         instance.release(items[4]);
-        assertCacheState(cache, 3, 1, nodeSize(0) * 3 + nodeSize(1));
+        assertCacheState(cache, 3, 4, nodeSize(0) * 3 + nodeSize(1));
         Assert.assertSame(items[4].global, cache.tail);
         Assert.assertSame(items[4].global, cache.head);
     }
@@ -283,16 +283,16 @@ public class AccordStateCacheTest
         testLoad(safeString1, "0");
         Assert.assertEquals(LoadingState.LOADED, safeString1.loadingState());
 
-        Assert.assertEquals(1, cache.references(0));
-        assertCacheState(cache, 1, 0, nodeSize(1));
+        Assert.assertEquals(1, cache.references("0"));
+        assertCacheState(cache, 1, 1, nodeSize(0));
 
         SafeString safeString2 = instance.reference("0");
         Assert.assertEquals(LoadingState.LOADED, safeString1.loadingState());
-        Assert.assertEquals(2, cache.references(0));
-        assertCacheState(cache, 1, 0, nodeSize(1));
+        Assert.assertEquals(2, cache.references("0"));
+        assertCacheState(cache, 1, 1, nodeSize(0));
 
         instance.release(safeString1);
-        assertCacheState(cache, 1, 0, nodeSize(1));
+        assertCacheState(cache, 1, 1, nodeSize(1));
         instance.release(safeString2);
         assertCacheState(cache, 0, 1, nodeSize(1));
     }
@@ -360,12 +360,12 @@ public class AccordStateCacheTest
 
         SafeString safeString = instance.reference("1");
         testLoad(safeString, "1");
-        assertCacheState(cache, 1, 0, emptyNodeSize());
+        assertCacheState(cache, 1, 1, emptyNodeSize());
         Assert.assertNull(cache.head);
         Assert.assertNull(cache.tail);
 
         Assert.assertTrue(instance.isReferenced(safeString.key()));
-        assertCacheState(cache, 1, 0, nodeSize(0));
+        assertCacheState(cache, 1, 1, nodeSize(0));
 
         safeString.set("11");
         instance.release(safeString);
