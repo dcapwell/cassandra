@@ -79,6 +79,7 @@ public class CommandsForKeySerializer
     private static class AccordCFKLoader implements CommandLoader<ByteBuffer>
     {
         private static final int HAS_DEPS = 0x01;
+        private static final int HAS_EXECUTE_AT = 0x01;
 
         private static final long FIXED_SIZE;
         private static final int FLAG_OFFSET;
@@ -100,16 +101,19 @@ public class CommandsForKeySerializer
             TXNID_OFFSET = (int) size;
             size += CommandSerializers.txnId.serializedSize();
 
+            FIXED_SIZE = size;
+
             EXECUTEAT_OFFSET = (int) size;
             size += CommandSerializers.timestamp.serializedSize();
 
             DEPS_OFFSET = (int) size;
-            FIXED_SIZE = size;
         }
 
         private int serializedSize(Command command)
         {
-            return (int) (FIXED_SIZE + (command.partialDeps() != null ? depsIdsLocalSerializer.serializedSize(command.partialDeps().txnIds()) : 0));
+            return (int) (FIXED_SIZE
+                          + (command.executeAt() != null ? CommandSerializers.timestamp.serializedSize() : 0)
+                          + (command.partialDeps() != null ? depsIdsLocalSerializer.serializedSize(command.partialDeps().txnIds()) : 0));
         }
 
         private static final ValueAccessor<ByteBuffer> accessor = ByteBufferAccessor.instance;
@@ -128,19 +132,23 @@ public class CommandsForKeySerializer
             int flags = 0;
 
             PartialDeps deps = command.partialDeps();
+            Timestamp executeAt = command.executeAt();
             if (deps != null)
                 flags |= HAS_DEPS;
+            if (executeAt != null)
+                flags |= HAS_EXECUTE_AT;
 
             int size = serializedSize(command);
             ByteBuffer buffer = accessor.allocate(size);
             accessor.putByte(buffer, FLAG_OFFSET, toByte(flags));
             accessor.putByte(buffer, STATUS_OFFSET, toByte(command.status().ordinal()));
             CommandSerializers.txnId.serialize(command.txnId(), buffer, accessor, TXNID_OFFSET);
-            CommandSerializers.timestamp.serialize(command.executeAt(), buffer, accessor, EXECUTEAT_OFFSET);
+            if (executeAt != null)
+                CommandSerializers.timestamp.serialize(executeAt, buffer, accessor, EXECUTEAT_OFFSET);
             if (deps != null)
             {
                 ByteBuffer duplicate = buffer.duplicate();
-                duplicate.position(DEPS_OFFSET);
+                duplicate.position(executeAt != null ? DEPS_OFFSET : EXECUTEAT_OFFSET);
                 DataOutputPlus out = new DataOutputBuffer(duplicate);
                 try
                 {
@@ -163,6 +171,9 @@ public class CommandsForKeySerializer
         @Override
         public Timestamp executeAt(ByteBuffer data)
         {
+            byte flags = accessor.getByte(data, FLAG_OFFSET);
+            if ((flags & HAS_EXECUTE_AT) == 0)
+                return null;
             return CommandSerializers.timestamp.deserialize(data, accessor, EXECUTEAT_OFFSET);
         }
 
@@ -179,7 +190,8 @@ public class CommandsForKeySerializer
             if ((flags & HAS_DEPS) == 0)
                 return null;
             ByteBuffer buffer = data.duplicate();
-            buffer.position(data.position() + DEPS_OFFSET);
+            int offset = (flags & HAS_EXECUTE_AT) == 0 ? EXECUTEAT_OFFSET : DEPS_OFFSET;
+            buffer.position(data.position() + offset);
             DataInputBuffer in = new DataInputBuffer(buffer, false);
             try
             {
