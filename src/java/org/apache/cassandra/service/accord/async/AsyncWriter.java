@@ -86,7 +86,8 @@ public class AsyncWriter
             if (!value.hasUpdate())
                 return;
             Mutation mutation = mutationFunction.apply(commandStore, value, timestamp);
-            Invariants.checkState(!mutation.isEmpty());
+            if (mutation == null)
+                return;
             if (logger.isTraceEnabled())
                 logger.trace("Dispatching mutation for {}, {} -> {}", key, value.current(), mutation);
             AsyncResults.Unscheduled<Void> result = AsyncResults.unscheduled(() -> mutation.apply());

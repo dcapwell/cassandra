@@ -526,7 +526,10 @@ public class AccordKeyspace
 
             ByteBuffer key = CommandsColumns.keyComparator.make(commandStore.id(),
                                                                 serializeTimestamp(command.txnId())).serializeAsPartitionKey();
-            PartitionUpdate update = PartitionUpdate.singleRowUpdate(Commands, key, builder.build());
+            Row row = builder.build();
+            if (row.isEmpty())
+                return null;
+            PartitionUpdate update = PartitionUpdate.singleRowUpdate(Commands, key, row);
             return new Mutation(update);
         }
         catch (IOException e)
@@ -753,13 +756,18 @@ public class AccordKeyspace
                 addCellIfModified(CommandsForKeyColumns.last_executed_timestamp, CommandsForKey::lastExecutedTimestamp, AccordKeyspace::serializeTimestamp, rowBuilder, timestampMicros, original, cfk);
                 addCellIfModified(CommandsForKeyColumns.last_executed_micros, CommandsForKey::lastExecutedMicros, accessor::valueOf, rowBuilder, timestampMicros, original, cfk);
                 addCellIfModified(CommandsForKeyColumns.last_write_timestamp, CommandsForKey::lastWriteTimestamp, AccordKeyspace::serializeTimestamp, rowBuilder, timestampMicros, original, cfk);
-                partitionBuilder.add(rowBuilder.build());
+                Row row = rowBuilder.build();
+                if (!row.isEmpty())
+                    partitionBuilder.add(rowBuilder.build());
             }
 
             addSeriesMutations(original, cfk, SeriesKind.BY_ID, partitionBuilder, rowBuilder, timestampMicros, nowInSeconds);
             addSeriesMutations(original, cfk, SeriesKind.BY_EXECUTE_AT, partitionBuilder, rowBuilder, timestampMicros, nowInSeconds);
 
-            return new Mutation(partitionBuilder.build());
+            PartitionUpdate update = partitionBuilder.build();
+            if (update.isEmpty())
+                return null;
+            return new Mutation(update);
         }
         catch (IOException e)
         {
