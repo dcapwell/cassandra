@@ -32,7 +32,6 @@ import accord.impl.CommandsForKey;
 import accord.local.Command;
 import accord.primitives.RoutableKey;
 import accord.primitives.TxnId;
-import accord.utils.Invariants;
 import accord.utils.async.AsyncChains;
 import accord.utils.async.AsyncResult;
 import accord.utils.async.AsyncResults;
