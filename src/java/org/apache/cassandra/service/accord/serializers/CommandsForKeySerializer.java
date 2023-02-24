@@ -149,8 +149,7 @@ public class CommandsForKeySerializer
             {
                 ByteBuffer duplicate = buffer.duplicate();
                 duplicate.position(executeAt != null ? DEPS_OFFSET : EXECUTEAT_OFFSET);
-                DataOutputPlus out = new DataOutputBuffer(duplicate);
-                try
+                try (DataOutputBuffer out = new DataOutputBuffer(duplicate))
                 {
                     depsIdsLocalSerializer.serialize(deps.txnIds(), out);
                 }
@@ -192,8 +191,7 @@ public class CommandsForKeySerializer
             ByteBuffer buffer = data.duplicate();
             int offset = (flags & HAS_EXECUTE_AT) == 0 ? EXECUTEAT_OFFSET : DEPS_OFFSET;
             buffer.position(data.position() + offset);
-            DataInputBuffer in = new DataInputBuffer(buffer, false);
-            try
+            try (DataInputBuffer in = new DataInputBuffer(buffer, false))
             {
                 return depsIdsLocalSerializer.deserialize(in);
             }
