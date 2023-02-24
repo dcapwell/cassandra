@@ -73,6 +73,20 @@ public class AccordStateCache
             return state() == LoadingState.LOADED;
         }
 
+        public boolean isComplete()
+        {
+            switch (state())
+            {
+                case PENDING:
+                case NOT_FOUND:
+                    return false;
+                case FAILED:
+                case LOADED:
+                    return true;
+                default: throw new UnsupportedOperationException("Unknown state: " + state());
+            }
+        }
+
         private boolean isUnlinked()
         {
             return prev == null && next == null;
@@ -248,13 +262,18 @@ public class AccordStateCache
             if (!canEvict(evict))
                 continue;
 
-            logger.info("Evicting {} {}", evict.value(), evict.key());
-            unlink(evict);
-            Node<?, ?> self = cache.get(evict.key());
-            Invariants.checkState(self == evict, "Leaked node detected; was attempting to remove %s but cache had %s", evict, self);
-            cache.remove(evict.key());
-            bytesCached -= evict.lastQueriedEstimatedSizeOnHeap;
+            evict(evict, true);
         }
+    }
+
+    private void evict(Node<?, ?> evict, boolean unlink)
+    {
+        logger.info("Evicting {} {}", evict.state(), evict.key());
+        if (unlink) unlink(evict);
+        Node<?, ?> self = cache.get(evict.key());
+        Invariants.checkState(self == evict, "Leaked node detected; was attempting to remove %s but cache had %s", evict, self);
+        cache.remove(evict.key());
+        bytesCached -= evict.lastQueriedEstimatedSizeOnHeap;
     }
 
     private static <K, V, F extends AsyncResult<V>> F getAsyncResult(NamedMap<Object, F> resultMap, K key)
@@ -365,6 +384,19 @@ public class AccordStateCache
             }
             else
             {
+                if (node.state() == AccordLoadingState.LoadingState.FAILED)
+                {
+                    if (node.references != 0)
+                    {
+                        //TODO concurrent access to a failed node
+                        // the API does not return Node but instead what node points to, this is a problem in this case as
+                        // releasing 42 would attempt to release the retry and not the failed that is trying to cleanup
+                        throw new UnsupportedOperationException("Attempted to reference failed node " + node);
+                    }
+
+                    evict(node, true);
+                    return reference(key, createIfAbsent);
+                }
                 stats.hits++;
                 AccordStateCache.this.stats.hits++;
                 if (node.references == 0)
@@ -428,9 +460,17 @@ public class AccordStateCache
 
             if (--node.references == 0)
             {
-                logger.trace("Moving {} from active pool to cache", key);
-                Invariants.checkState(node.isUnlinked());
-                push(node);
+                if (node.state() == AccordLoadingState.LoadingState.FAILED)
+                {
+                    logger.trace("Found failed node {}, evicting", key);
+                    evict(node, false);
+                }
+                else
+                {
+                    logger.trace("Moving {} from active pool to cache", key);
+                    Invariants.checkState(node.isUnlinked());
+                    push(node);
+                }
             }
 
             maybeEvict();

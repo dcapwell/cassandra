@@ -18,7 +18,7 @@
 
 package org.apache.cassandra.service.accord.async;
 
-import java.util.Arrays;
+import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -77,7 +77,9 @@ import org.apache.cassandra.service.accord.AccordTestUtils;
 import org.apache.cassandra.service.accord.api.PartitionKey;
 import org.apache.cassandra.utils.AssertionUtils;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.Retry;
 import org.assertj.core.api.Assertions;
+import org.awaitility.Awaitility;
 import org.mockito.Mockito;
 
 import static accord.local.PreLoadContext.contextFor;
@@ -311,8 +313,7 @@ public class AsyncOperationTest
         AccordCommandStore commandStore = createAccordCommandStore(clock::incrementAndGet, "ks", "tbl");
         Gen<TxnId> txnIdGen = rs -> txnId(1, clock.incrementAndGet(), 1);
 
-        //TODO remove seed once stable
-        qt().withPure(false).withSeed(6074999539617324498L).withExamples(100).forAll(Gens.random(), Gens.lists(txnIdGen).ofSizeBetween(1, 10)).check((rs, ids) -> {
+        qt().withPure(false).withExamples(50).forAll(Gens.random(), Gens.lists(txnIdGen).ofSizeBetween(1, 10)).check((rs, ids) -> {
             before(); // truncate tables
 
             createCommand(commandStore, rs, ids);
@@ -325,7 +326,7 @@ public class AsyncOperationTest
 
             Consumer<SafeCommandStore> consumer = Mockito.mock(Consumer.class);
 
-            AsyncOperation<Void> operation = new AsyncOperation.ForConsumer(commandStore, ctx, consumer)
+            AsyncOperation<Void> o1 = new AsyncOperation.ForConsumer(commandStore, ctx, consumer)
             {
                 @Override
                 AsyncLoader createAsyncLoader(AccordCommandStore commandStore, PreLoadContext preLoadContext)
@@ -340,7 +341,6 @@ public class AsyncOperationTest
                                 logger.info("Attempting to load {}; expected to fail? {}", txnId, failed.get(txnId));
                                 if (!failed.get(txnId)) return delegate.apply(txnId);
 
-                                //TODO api doesn't handle this exception, so consumer never sees it!
                                 throw new NullPointerException("txn_id " + txnId);
                             };
                         }
@@ -348,11 +348,21 @@ public class AsyncOperationTest
                 }
             };
 
-            Assertions.assertThatThrownBy(() -> getUninterruptibly(operation));
+            AssertionUtils.assertThatThrownBy(() -> getUninterruptibly(o1))
+                      .hasRootCause()
+                      .isInstanceOf(NullPointerException.class)
+                      .hasNoSuppressedExceptions();
 
             Mockito.verifyNoInteractions(consumer);
 
             assertNoReferences(commandStore, ids, keys);
+            // the first failed load causes the whole operation to fail, so some ids may still be pending
+            // to make sure the next operation does not see a PENDING that will fail, wait for all loads to complete
+            awaitDone(commandStore, ids, keys);
+
+            // can we recover?
+            AsyncOperation.ForConsumer o2 = new AsyncOperation.ForConsumer(commandStore, ctx, store -> ids.forEach(id -> store.command(id).readyToExecute()));
+            getUninterruptibly(o2);
         });
     }
 
@@ -512,5 +522,24 @@ public class AsyncOperationTest
             }
         }
         if (error != null) throw error;
+    }
+
+    private static void awaitDone(AccordCommandStore commandStore, List<TxnId> ids, Keys keys)
+    {
+        awaitDone(commandStore.commandCache(), ids);
+        //TODO this is due to bad typing for Instance, it doesn't use ? extends RoutableKey
+        awaitDone(commandStore.commandsForKeyCache(), (Iterable<RoutableKey>) (Iterable<?>) keys);
+    }
+
+    private static <T> void awaitDone(AccordStateCache.Instance<T, ?, ?> cache, Iterable<T> keys)
+    {
+        for (T key : keys)
+        {
+            AccordStateCache.Node<T, ?> node = cache.getUnsafe(key);
+            if (node == null) continue;
+            Awaitility.await("For node " + node.key() + " to complete")
+            .atMost(Duration.ofMinutes(1))
+            .until(() -> node.isComplete());
+        }
     }
 }
