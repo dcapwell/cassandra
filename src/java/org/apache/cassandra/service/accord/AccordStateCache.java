@@ -108,6 +108,7 @@ public class AccordStateCache
         public String toString()
         {
             return "Node{" + state() +
+                   ", key=" + key() +
                    ", references=" + references +
                    '}';
         }
@@ -163,6 +164,7 @@ public class AccordStateCache
 
     public void clear()
     {
+        head = tail = null;
         cache.clear();
         saveResults.clear();
         readResults.clear();
@@ -248,6 +250,8 @@ public class AccordStateCache
 
             logger.info("Evicting {} {}", evict.value(), evict.key());
             unlink(evict);
+            Node<?, ?> self = cache.get(evict.key());
+            Invariants.checkState(self == evict, "Leaked node detected; was attempting to remove %s but cache had %s", evict, self);
             cache.remove(evict.key());
             bytesCached -= evict.lastQueriedEstimatedSizeOnHeap;
         }
