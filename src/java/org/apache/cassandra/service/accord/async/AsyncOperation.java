@@ -175,24 +175,32 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
     private void fail(Throwable throwable)
     {
         Invariants.checkArgument(state != State.FINISHED && state != State.FAILED, "Unexpected state %s", state);
-        switch (state)
+        try
         {
-            case INITIALIZED:
-            case COMPLETING:
-                // nothing to cleanup, call callback
-                break;
-            case RUNNING:
-                context.revertChanges();
-            case PREPARING_OPERATION:
-                commandStore.abortCurrentOperation();
-            case LOADING:
-                context.releaseResources(commandStore);
-                break;
-            case SAVING:
-            case AWAITING_SAVE:
-                // TODO: revert changs
-                // TODO: panic?
-                break;
+            switch (state)
+            {
+                case INITIALIZED:
+                case COMPLETING:
+                    // nothing to cleanup, call callback
+                    break;
+                case RUNNING:
+                    context.revertChanges();
+                case PREPARING_OPERATION:
+                    commandStore.abortCurrentOperation();
+                case LOADING:
+                    context.releaseResources(commandStore);
+                    break;
+                case SAVING:
+                case AWAITING_SAVE:
+                    // TODO: revert changs
+                    // TODO: panic?
+                    break;
+            }
+        }
+        catch (Throwable cleanup)
+        {
+            commandStore.agent().onUncaughtException(cleanup);
+            throwable.addSuppressed(cleanup);
         }
         try
         {
