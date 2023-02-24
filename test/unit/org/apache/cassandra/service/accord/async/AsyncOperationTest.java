@@ -18,10 +18,12 @@
 
 package org.apache.cassandra.service.accord.async;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -73,6 +75,7 @@ import org.apache.cassandra.service.accord.AccordSafeCommandStore;
 import org.apache.cassandra.service.accord.AccordStateCache;
 import org.apache.cassandra.service.accord.AccordTestUtils;
 import org.apache.cassandra.service.accord.api.PartitionKey;
+import org.apache.cassandra.utils.AssertionUtils;
 import org.apache.cassandra.utils.FBUtilities;
 import org.assertj.core.api.Assertions;
 import org.mockito.Mockito;
@@ -312,16 +315,9 @@ public class AsyncOperationTest
         qt().withPure(false).withSeed(6074999539617324498L).withExamples(100).forAll(Gens.random(), Gens.lists(txnIdGen).ofSizeBetween(1, 10)).check((rs, ids) -> {
             before(); // truncate tables
 
-            // to simulate CommandsForKey not being found, use createCommittedAndPersist periodically as it does not update
-            if (rs.nextBoolean()) ids.forEach(id -> createCommittedAndPersist(commandStore, id));
-            else ids.forEach(id -> createCommittedUsingLifeCycle(commandStore, id));
-            commandStore.clearCache();
+            createCommand(commandStore, rs, ids);
 
-            Map<TxnId, Boolean> failed = Maps.newHashMapWithExpectedSize(ids.size());
-            for (TxnId id : ids)
-                failed.put(id, rs.nextBoolean());
-            if (failed.values().stream().allMatch(b -> b == Boolean.FALSE))
-                failed.put(ids.get(0), Boolean.TRUE);
+            Map<TxnId, Boolean> failed = selectFailedTxn(rs, ids);
 
             assertNoReferences(commandStore, ids, keys);
 
@@ -369,30 +365,27 @@ public class AsyncOperationTest
         AccordCommandStore commandStore = createAccordCommandStore(clock::incrementAndGet, "ks", "tbl");
         Gen<TxnId> txnIdGen = rs -> txnId(1, clock.incrementAndGet(), 1);
 
-        qt().withExamples(100).forAll(Gens.random(), Gens.lists(txnIdGen).ofSizeBetween(1, 10)).check((rs, ids) -> {
+        AtomicInteger counter = new AtomicInteger();
+        qt().withPure(false).withSeed(3131884991952253478L).withExamples(100).forAll(Gens.random(), Gens.lists(txnIdGen).ofSizeBetween(1, 10)).check((rs, ids) -> {
+            logger.info("Test #{}", counter.incrementAndGet());
             before(); // truncate tables
 
-            // to simulate CommandsForKey not being found, use createCommittedAndPersist periodically as it does not update
-            if (rs.nextBoolean()) ids.forEach(id -> createCommittedAndPersist(commandStore, id));
-            else ids.forEach(id -> createCommittedUsingLifeCycle(commandStore, id));
-            commandStore.clearCache();
-
-            Map<TxnId, Boolean> failed = Maps.newHashMapWithExpectedSize(ids.size());
-            for (TxnId id : ids)
-                failed.put(id, rs.nextBoolean());
-            if (failed.values().stream().allMatch(b -> b == Boolean.FALSE))
-                failed.put(ids.get(0), Boolean.TRUE);
-
+            createCommand(commandStore, rs, ids);
             assertNoReferences(commandStore, ids, keys);
 
             PreLoadContext ctx = PreLoadContext.contextFor(ids, keys);
 
             Consumer<SafeCommandStore> consumer = Mockito.mock(Consumer.class);
-            Mockito.doThrow(new NullPointerException("txn_ids " + ids)).when(consumer).accept(Mockito.any());
+            String errorMsg = "txn_ids " + ids;
+            Mockito.doThrow(new NullPointerException(errorMsg)).when(consumer).accept(Mockito.any());
 
             AsyncOperation<Void> operation = new AsyncOperation.ForConsumer(commandStore, ctx, consumer);
 
-            Assertions.assertThatThrownBy(() -> getUninterruptibly(operation));
+            AssertionUtils.assertThatThrownBy(() -> getUninterruptibly(operation))
+                          .hasRootCause()
+                          .isInstanceOf(NullPointerException.class)
+                          .hasMessage(errorMsg)
+                          .hasNoSuppressedExceptions();
 
             assertNoReferences(commandStore, ids, keys);
         });
@@ -410,16 +403,9 @@ public class AsyncOperationTest
         qt().withExamples(100).forAll(Gens.random(), Gens.lists(txnIdGen).ofSizeBetween(1, 10)).check((rs, ids) -> {
             before(); // truncate tables
 
-            // to simulate CommandsForKey not being found, use createCommittedAndPersist periodically as it does not update
-            if (rs.nextBoolean()) ids.forEach(id -> createCommittedAndPersist(commandStore, id));
-            else ids.forEach(id -> createCommittedUsingLifeCycle(commandStore, id));
-            commandStore.clearCache();
+            createCommand(commandStore, rs, ids);
 
-            Map<TxnId, Boolean> failed = Maps.newHashMapWithExpectedSize(ids.size());
-            for (TxnId id : ids)
-                failed.put(id, rs.nextBoolean());
-            if (failed.values().stream().allMatch(b -> b == Boolean.FALSE))
-                failed.put(ids.get(0), Boolean.TRUE);
+            Map<TxnId, Boolean> failed = selectFailedTxn(rs, ids);
 
             assertNoReferences(commandStore, ids, keys);
 
@@ -456,6 +442,24 @@ public class AsyncOperationTest
             //TODO what "should" the assert be?  If we can not write the mutations... we can't deref right?
             assertNoReferences(commandStore, ids, keys);
         });
+    }
+
+    private static void createCommand(AccordCommandStore commandStore, Gen.Random rs, List<TxnId> ids)
+    {
+        // to simulate CommandsForKey not being found, use createCommittedAndPersist periodically as it does not update
+        if (rs.nextBoolean()) ids.forEach(id -> createCommittedAndPersist(commandStore, id));
+        else ids.forEach(id -> createCommittedUsingLifeCycle(commandStore, id));
+        commandStore.clearCache();
+    }
+
+    private static Map<TxnId, Boolean> selectFailedTxn(Gen.Random rs, List<TxnId> ids)
+    {
+        Map<TxnId, Boolean> failed = Maps.newHashMapWithExpectedSize(ids.size());
+        for (TxnId id : ids)
+            failed.put(id, rs.nextBoolean());
+        if (failed.values().stream().allMatch(b -> b == Boolean.FALSE))
+            failed.put(ids.get(0), Boolean.TRUE);
+        return failed;
     }
 
     private static void assertNoReferences(AccordCommandStore commandStore, List<TxnId> ids, Keys keys)

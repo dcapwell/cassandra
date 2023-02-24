@@ -21,11 +21,15 @@ package org.apache.cassandra.utils;
 import org.apache.cassandra.io.util.File;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 
@@ -266,5 +270,31 @@ public final class Throwables
     public static RuntimeException cleaned(Throwable t)
     {
         return unchecked(unwrapped(t));
+    }
+
+    public static List<Throwable> causes(Throwable actual, boolean includeSuppressed)
+    {
+        if (actual.getCause() == null) return Collections.singletonList(actual);
+        List<Throwable> causes = new ArrayList<>();
+        forEach(actual, includeSuppressed, causes::add);
+        return causes;
+    }
+
+    public enum ForEachResult { ALL, PARTIAL }
+
+    public static ForEachResult forEach(Throwable actual, boolean includeSuppressed, Predicate<? super Throwable> fn)
+    {
+        for (Throwable cause = actual; cause != null; cause = cause.getCause())
+        {
+            if (!fn.test(cause)) return ForEachResult.PARTIAL;
+            if (includeSuppressed)
+            {
+                for (Throwable sup : cause.getSuppressed())
+                {
+                    if (forEach(sup, true, fn) == ForEachResult.PARTIAL) return ForEachResult.PARTIAL;
+                }
+            }
+        }
+        return ForEachResult.ALL;
     }
 }
