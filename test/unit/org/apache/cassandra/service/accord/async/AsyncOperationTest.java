@@ -19,6 +19,7 @@
 package org.apache.cassandra.service.accord.async;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +28,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
@@ -77,7 +79,6 @@ import org.apache.cassandra.service.accord.AccordTestUtils;
 import org.apache.cassandra.service.accord.api.PartitionKey;
 import org.apache.cassandra.utils.AssertionUtils;
 import org.apache.cassandra.utils.FBUtilities;
-import org.apache.cassandra.utils.Retry;
 import org.assertj.core.api.Assertions;
 import org.awaitility.Awaitility;
 import org.mockito.Mockito;
@@ -449,8 +450,12 @@ public class AsyncOperationTest
 
             Assertions.assertThatThrownBy(() -> getUninterruptibly(operation));
 
-            //TODO what "should" the assert be?  If we can not write the mutations... we can't deref right?
+
             assertNoReferences(commandStore, ids, keys);
+            assertCanNotEvict(commandStore.commandCache(), failed.entrySet().stream()
+                                                                 .filter(e -> e.getValue())
+                                                                 .map(e -> e.getKey())
+                                                                 .collect(Collectors.toList()));
         });
     }
 
@@ -541,5 +546,20 @@ public class AsyncOperationTest
             .atMost(Duration.ofMinutes(1))
             .until(() -> node.isComplete());
         }
+    }
+
+    private static <T> void assertCanNotEvict(AccordStateCache.Instance<T, ?, ?> cache, Iterable<T> keys)
+    {
+        List<String> errors = new ArrayList<>();
+        for (T key : keys)
+        {
+            if (cache.getUnsafe(key) == null)
+            {
+                errors.add(String.format("Node %s was evicted, but should not be", key));
+                continue;
+            }
+            if (cache.canEvict(key)) errors.add(String.format("Node %s is evictable but should not be", key));
+        }
+        if (!errors.isEmpty()) throw new AssertionError(String.join("\n", errors));
     }
 }

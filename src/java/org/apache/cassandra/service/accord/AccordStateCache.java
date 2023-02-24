@@ -477,7 +477,7 @@ public class AccordStateCache
         }
 
         @VisibleForTesting
-        boolean canEvict(K key)
+        public boolean canEvict(K key)
         {
             return AccordStateCache.this.canEvict(cache.get(key));
         }
