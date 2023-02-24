@@ -33,5 +33,10 @@
         <arg value="-Paccord_artifactId=cassandra-accord" />
         <arg value="-Paccord_version=${version}" />
       </exec>
+      <!-- when dependencies are copied into the build dir they may be ignored if already present, so cleanup to pick up latest changes -->
+      <delete>
+        <fileset dir="${build.dir.lib}/jars" includes="cassandra-accord-*.jar" />
+        <fileset dir="${test.lib}/jars" includes="cassandra-accord-*.jar" />
+      </delete>
     </target>
 </project>
