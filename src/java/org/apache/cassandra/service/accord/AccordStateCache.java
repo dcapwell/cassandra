@@ -353,6 +353,8 @@ public class AccordStateCache
                 if (!createIfAbsent)
                     return null;
                 node = new Node<>(key);
+                // need to store ref right away, so eviction can not remove
+                node.references++;
                 cache.put(key, node);
                 updateSize(node, heapEstimator);
                 maybeEvict();
@@ -365,9 +367,8 @@ public class AccordStateCache
                     unlink(node);
                 else
                     Invariants.checkState(node.isUnlinked());
+                node.references++;
             }
-
-            node.references++;
 
             return node;
         }
