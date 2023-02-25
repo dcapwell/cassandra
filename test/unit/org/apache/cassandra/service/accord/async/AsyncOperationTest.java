@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -47,6 +48,7 @@ import accord.local.Commands;
 import accord.local.PreLoadContext;
 import accord.local.SafeCommand;
 import accord.local.SafeCommandStore;
+import accord.local.Status;
 import accord.primitives.Ballot;
 import accord.primitives.FullRoute;
 import accord.primitives.Keys;
@@ -58,8 +60,11 @@ import accord.primitives.RoutableKey;
 import accord.primitives.Timestamp;
 import accord.primitives.Txn;
 import accord.primitives.TxnId;
+import accord.primitives.Writes;
 import accord.utils.Gen;
 import accord.utils.Gens;
+import accord.utils.async.AsyncChains;
+import accord.utils.async.AsyncResult;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
@@ -77,6 +82,7 @@ import org.apache.cassandra.service.accord.AccordSafeCommandStore;
 import org.apache.cassandra.service.accord.AccordStateCache;
 import org.apache.cassandra.service.accord.AccordTestUtils;
 import org.apache.cassandra.service.accord.api.PartitionKey;
+import org.apache.cassandra.service.accord.txn.TxnData;
 import org.apache.cassandra.utils.AssertionUtils;
 import org.apache.cassandra.utils.FBUtilities;
 import org.assertj.core.api.Assertions;
@@ -424,7 +430,7 @@ public class AsyncOperationTest
 
             Consumer<SafeCommandStore> consumer = store -> ids.forEach(id -> store.command(id).readyToExecute());
 
-            AsyncOperation<Void> operation = new AsyncOperation.ForConsumer(commandStore, ctx, consumer)
+            AsyncOperation<Void> o1 = new AsyncOperation.ForConsumer(commandStore, ctx, consumer)
             {
                 @Override
                 AsyncWriter createAsyncWriter(AccordCommandStore commandStore)
@@ -448,7 +454,7 @@ public class AsyncOperationTest
                 }
             };
 
-            Assertions.assertThatThrownBy(() -> getUninterruptibly(operation));
+            Assertions.assertThatThrownBy(() -> getUninterruptibly(o1));
 
 
             assertNoReferences(commandStore, ids, keys);
@@ -456,6 +462,22 @@ public class AsyncOperationTest
                                                                  .filter(e -> e.getValue())
                                                                  .map(e -> e.getKey())
                                                                  .collect(Collectors.toList()));
+            // first write will fail the operation, so make sure to wait for all write results
+            awaitSaveResult(commandStore.cache());
+
+            // the command should be ReadyToExecute, so move it forward and allow the save
+            AsyncOperation.ForConsumer o2 = new AsyncOperation.ForConsumer(commandStore, ctx, store -> ids.forEach(id -> {
+                SafeCommand command = store.command(id);
+                Command current = command.current();
+                Assertions.assertThat(current.status()).isEqualTo(Status.ReadyToExecute);
+                Writes writes = current.partialTxn().execute(current.executeAt(), new TxnData());
+                command.preapplied(current, current.txnId(), current.asCommitted().waitingOn(), writes, null);
+            }));
+            getUninterruptibly(o2);
+
+            assertNoReferences(commandStore, ids, keys);
+            assertCanEvict(commandStore.commandCache(), ids);
+            assertCanEvict(commandStore.commandsForKeyCache(), (Iterable<RoutableKey>) (Iterable<?>) keys);
         });
     }
 
@@ -546,6 +568,26 @@ public class AsyncOperationTest
             .atMost(Duration.ofMinutes(1))
             .until(() -> node.isComplete());
         }
+    }
+
+    private static void awaitSaveResult(AccordStateCache cache)
+    {
+        for (Map.Entry<Object, AsyncResult<Void>> e : cache.saveResults().entrySet())
+            AsyncChains.awaitUninterruptibly(e.getValue());
+    }
+
+    private static <T> void assertCanEvict(AccordStateCache.Instance<T, ?, ?> cache, Iterable<T> keys)
+    {
+        List<String> errors = new ArrayList<>();
+        for (T key : keys)
+        {
+            AccordStateCache.Node<T, ?> node = cache.getUnsafe(key);
+            if (node == null)
+                continue;
+            Set<AccordStateCache.EvictConditions> result = cache.checkCanEvict(node);
+            if (!result.isEmpty()) errors.add(String.format("Node %s is not evictable but should be; %s", key, result));
+        }
+        if (!errors.isEmpty()) throw new AssertionError(String.join("\n", errors));
     }
 
     private static <T> void assertCanNotEvict(AccordStateCache.Instance<T, ?, ?> cache, Iterable<T> keys)

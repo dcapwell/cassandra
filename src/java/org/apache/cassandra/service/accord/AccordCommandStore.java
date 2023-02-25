@@ -25,6 +25,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import accord.api.Agent;
 import accord.api.DataStore;
 import accord.api.ProgressLog;
@@ -144,6 +146,13 @@ public class AccordCommandStore implements CommandStore
         return commandsForKeyCache;
     }
 
+    @VisibleForTesting
+    public AccordStateCache cache()
+    {
+        return stateCache;
+    }
+
+    @VisibleForTesting
     public void clearCache()
     {
         stateCache.clear();

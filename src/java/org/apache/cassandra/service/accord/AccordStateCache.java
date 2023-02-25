@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.service.accord;
 
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -173,11 +174,18 @@ public class AccordStateCache
         return maxSizeInBytes;
     }
 
+    @VisibleForTesting
     public void clear()
     {
         head = tail = null;
         cache.clear();
         saveResults.clear();
+    }
+
+    @VisibleForTesting
+    public Map<Object, AsyncResult<Void>> saveResults()
+    {
+        return saveResults;
     }
 
     private void unlink(Node<?, ?> node)
@@ -275,7 +283,8 @@ public class AccordStateCache
         if (r == null)
             return null;
 
-        if (!r.isDone())
+        // if the result was a failure, can not remove from the map as this would allow eviction
+        if (!r.isSuccess())
             return r;
 
         if (logger.isTraceEnabled())
@@ -323,6 +332,8 @@ public class AccordStateCache
         getAsyncResult(saveResults, key);
     }
 
+    public enum EvictConditions { REF, NOT_LOADED, PENDING_SAVE }
+
     public class Instance<K, V, S extends AccordSafeState<K, V>>
     {
         private final Class<K> keyClass;
@@ -337,6 +348,19 @@ public class AccordStateCache
             this.valClass = valClass;
             this.safeRefFactory = safeRefFactory;
             this.heapEstimator = heapEstimator;
+        }
+
+        @VisibleForTesting
+        public Set<EvictConditions> checkCanEvict(Node<?, ?> node)
+        {
+            EnumSet<EvictConditions> set = EnumSet.noneOf(EvictConditions.class);
+            if (node.references != 0)
+                set.add(EvictConditions.REF);
+            if (!node.isLoaded())
+                set.add(EvictConditions.NOT_LOADED);
+            if (hasActiveAsyncResult(saveResults, node.key()))
+                set.add(EvictConditions.PENDING_SAVE);
+            return set;
         }
 
         @Override
