@@ -150,9 +150,6 @@ public class AccordStateCache
 
     private final NamedMap<Object, AsyncResult<Void>> saveResults = new NamedMap<>("saveResults");
 
-    private final NamedMap<Object, AsyncResult<Data>> readResults = new NamedMap<>("readResults");
-    private final NamedMap<Object, AsyncResult<Void>> writeResults = new NamedMap<>("writeResults");
-
     private int linked = 0;
     Node<?, ?> head;
     Node<?, ?> tail;
@@ -181,8 +178,6 @@ public class AccordStateCache
         head = tail = null;
         cache.clear();
         saveResults.clear();
-        readResults.clear();
-        writeResults.clear();
     }
 
     private void unlink(Node<?, ?> node)
@@ -243,9 +238,7 @@ public class AccordStateCache
     {
         return node.references == 0 &&
                node.isLoaded() &&
-               !hasActiveAsyncResult(saveResults, node.key()) &&
-               !hasActiveAsyncResult(readResults, node.key()) &&
-               !hasActiveAsyncResult(writeResults, node.key());
+               !hasActiveAsyncResult(saveResults, node.key());
     }
 
     private void maybeEvict()
@@ -328,8 +321,6 @@ public class AccordStateCache
         maybeCleanupLoad(key);
         // will clear if it's done
         getAsyncResult(saveResults, key);
-        getAsyncResult(readResults, key);
-        getAsyncResult(writeResults, key);
     }
 
     public class Instance<K, V, S extends AccordSafeState<K, V>>
@@ -514,36 +505,6 @@ public class AccordStateCache
         public boolean hasSaveResult(K key)
         {
             return saveResults.get(key) != null;
-        }
-
-        public AsyncResult<Data> getReadResult(K key)
-        {
-            return getAsyncResult(readResults, key);
-        }
-
-        public void setReadResult(K key, AsyncResult<Data> result)
-        {
-            setAsyncResult(readResults, key, result);
-        }
-
-        public void cleanupReadResult(K key)
-        {
-            getReadResult(key);
-        }
-
-        public AsyncResult<Void> getWriteResult(K key)
-        {
-            return getAsyncResult(writeResults, key);
-        }
-
-        public void setWriteResult(K key, AsyncResult<Void> result)
-        {
-            setAsyncResult(writeResults, key, result);
-        }
-
-        public void cleanupWriteResult(K key)
-        {
-            getWriteResult(key);
         }
 
         public long cacheQueries()
