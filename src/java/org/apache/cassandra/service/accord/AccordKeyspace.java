@@ -647,6 +647,7 @@ public class AccordKeyspace
                 case AcceptedInvalidateWithDefinition:
                 case Accepted:
                 case AcceptedWithDefinition:
+                case PreCommitted:
                     return Command.SerializerSupport.accepted(attributes, status, executeAt, promised, accepted);
                 case Committed:
                 case ReadyToExecute:
