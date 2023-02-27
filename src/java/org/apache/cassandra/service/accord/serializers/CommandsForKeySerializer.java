@@ -23,6 +23,8 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import accord.impl.CommandsForKey.CommandLoader;
 import accord.local.Command;
 import accord.local.SaveStatus;
@@ -43,7 +45,8 @@ import org.apache.cassandra.service.accord.AccordSerializerVersion;
 
 public class CommandsForKeySerializer
 {
-    private static final IVersionedSerializer<List<TxnId>> depsIdSerializer = new IVersionedSerializer<List<TxnId>>()
+    @VisibleForTesting
+    public static final IVersionedSerializer<List<TxnId>> depsIdSerializer = new IVersionedSerializer<List<TxnId>>()
     {
         @Override
         public void serialize(List<TxnId> ids, DataOutputPlus out, int version) throws IOException
@@ -79,7 +82,7 @@ public class CommandsForKeySerializer
     private static class AccordCFKLoader implements CommandLoader<ByteBuffer>
     {
         private static final int HAS_DEPS = 0x01;
-        private static final int HAS_EXECUTE_AT = 0x01;
+        private static final int HAS_EXECUTE_AT = 0x02;
 
         private static final long FIXED_SIZE;
         private static final int FLAG_OFFSET;
@@ -141,7 +144,7 @@ public class CommandsForKeySerializer
             int size = serializedSize(command);
             ByteBuffer buffer = accessor.allocate(size);
             accessor.putByte(buffer, FLAG_OFFSET, toByte(flags));
-            accessor.putByte(buffer, STATUS_OFFSET, toByte(command.status().ordinal()));
+            accessor.putByte(buffer, STATUS_OFFSET, toByte(command.saveStatus().ordinal()));
             CommandSerializers.txnId.serialize(command.txnId(), buffer, accessor, TXNID_OFFSET);
             if (executeAt != null)
                 CommandSerializers.timestamp.serialize(executeAt, buffer, accessor, EXECUTEAT_OFFSET);
