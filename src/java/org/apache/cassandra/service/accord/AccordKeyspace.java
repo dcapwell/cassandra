@@ -637,16 +637,14 @@ public class AccordKeyspace
             Writes writes = deserializeWithVersionOr(row, "writes", CommandsSerializers.writes, () -> null);
             Result result = deserializeWithVersionOr(row, "result", CommandsSerializers.result, () -> null);
 
-            switch (status)
+            switch (status.status)
             {
                 case NotWitnessed:
                     return Command.SerializerSupport.notWitnessed(attributes, promised);
                 case PreAccepted:
                     return Command.SerializerSupport.preaccepted(attributes, executeAt, promised);
                 case AcceptedInvalidate:
-                case AcceptedInvalidateWithDefinition:
                 case Accepted:
-                case AcceptedWithDefinition:
                 case PreCommitted:
                     return Command.SerializerSupport.accepted(attributes, status, executeAt, promised, accepted);
                 case Committed:

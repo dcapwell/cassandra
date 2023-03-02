@@ -124,7 +124,7 @@ public class AccordStateCache
             return "Node{" + state() +
                    ", key=" + key() +
                    ", references=" + references +
-                   '}';
+                   "}@" + Integer.toHexString(System.identityHashCode(this));
         }
     }
 
@@ -463,7 +463,8 @@ public class AccordStateCache
             logger.trace("Releasing resources for {}: {}", key, safeRef);
             maybeClearAsyncResult(key);
             Node<K, V> node = (Node<K, V>) cache.get(key);
-            Invariants.checkState(node != null && node.references > 0, "node is null or references are zero for %s (%s)", key, node);
+            Invariants.checkState(node != null, "node is null for %s", key);
+            Invariants.checkState(node.references > 0, "references (%d) are zero for %s (%s)", node.references, key, node);
 
             Invariants.checkState(safeRef.global() == node);
             if (node.isLoaded() && (safeRef.hasUpdate() || node.shouldUpdateSize()))
