@@ -66,6 +66,7 @@ public class AccordSafeCommandsForKey extends SafeCommandsForKey implements Acco
     @Override
     public CommandsForKey current()
     {
+        checkNotInvalidated();
         return current;
     }
 
@@ -73,17 +74,20 @@ public class AccordSafeCommandsForKey extends SafeCommandsForKey implements Acco
     @VisibleForTesting
     public void set(CommandsForKey cfk)
     {
+        checkNotInvalidated();
         this.current = cfk;
     }
 
     public CommandsForKey original()
     {
+        checkNotInvalidated();
         return original;
     }
 
     @Override
     public void preExecute()
     {
+        checkNotInvalidated();
         original = global.value();
         current = original;
     }
@@ -91,6 +95,7 @@ public class AccordSafeCommandsForKey extends SafeCommandsForKey implements Acco
     @Override
     public void postExecute()
     {
+        checkNotInvalidated();
         global.value(current);
     }
 

@@ -65,6 +65,7 @@ public class AccordSafeCommand extends SafeCommand implements AccordSafeState<Tx
     @Override
     public Command current()
     {
+        checkNotInvalidated();
         return current;
     }
 
@@ -72,17 +73,20 @@ public class AccordSafeCommand extends SafeCommand implements AccordSafeState<Tx
     @VisibleForTesting
     public void set(Command command)
     {
+        checkNotInvalidated();
         this.current = command;
     }
 
     public Command original()
     {
+        checkNotInvalidated();
         return original;
     }
 
     @Override
     public void preExecute()
     {
+        checkNotInvalidated();
         original = global.value();
         current = original;
     }
@@ -90,6 +94,7 @@ public class AccordSafeCommand extends SafeCommand implements AccordSafeState<Tx
     @Override
     public void postExecute()
     {
+        checkNotInvalidated();
         global.value(current);
     }
 

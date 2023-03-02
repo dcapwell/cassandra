@@ -67,4 +67,10 @@ public interface AccordSafeState<K, V> extends SafeState<V>
     {
         return global().failure();
     }
+
+    default void checkNotInvalidated()
+    {
+        if (invalidated())
+            throw new IllegalStateException("Cannot access invalidated " + this);
+    }
 }
