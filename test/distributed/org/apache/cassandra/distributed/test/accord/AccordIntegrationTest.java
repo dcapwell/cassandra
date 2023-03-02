@@ -107,11 +107,11 @@ public class AccordIntegrationTest extends AccordTestBase
                            "  END IF\n" +
                            "COMMIT TRANSACTION";
             assertRowEqualsWithPreemptedRetry(cluster, new Object[] { null }, query);
-//
-//            String check = "BEGIN TRANSACTION\n" +
-//                           "  SELECT * FROM " + currentTable + " WHERE k = ? AND c = ?;\n" +
-//                           "COMMIT TRANSACTION";
-//            assertRowEqualsWithPreemptedRetry(cluster, new Object[] { 0, 0, 1 }, check, 0, 0);
+
+            String check = "BEGIN TRANSACTION\n" +
+                           "  SELECT * FROM " + currentTable + " WHERE k = ? AND c = ?;\n" +
+                           "COMMIT TRANSACTION";
+            assertRowEqualsWithPreemptedRetry(cluster, new Object[] { 0, 0, 1 }, check, 0, 0);
         });
     }
 }
