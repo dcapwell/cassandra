@@ -93,7 +93,7 @@ public class AccordStateCacheTest
         }
 
         @Override
-        public AsyncResults.Unscheduled<String> load(Function<String, String> loadFunction)
+        public AsyncResults.RunnableResult<String> load(Function<String, String> loadFunction)
         {
             return global.load(loadFunction);
         }

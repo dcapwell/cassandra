@@ -34,7 +34,7 @@ public class AccordLoadingState<K, V>
 
     private static final NonValueState NOT_FOUND = new NonValueState() {};
 
-    private static class PendingLoad<V> extends AsyncResults.Unscheduled<V> implements NonValueState
+    private static class PendingLoad<V> extends AsyncResults.RunnableResult<V> implements NonValueState
     {
         public PendingLoad(Callable<V> callable)
         {
@@ -147,7 +147,7 @@ public class AccordLoadingState<K, V>
      * Return a runnable that will run the loadFunction in a separate thread. When the runnable
      * has completed, the state load will have either completed, or failed.
      */
-    public AsyncResults.Unscheduled<V> load(Function<K, V> loadFunction)
+    public AsyncResults.RunnableResult<V> load(Function<K, V> loadFunction)
     {
         checkState(LoadingState.NOT_FOUND, true);
         PendingLoad<V> pendingLoad = new PendingLoad<>(() -> loadFunction.apply(key));

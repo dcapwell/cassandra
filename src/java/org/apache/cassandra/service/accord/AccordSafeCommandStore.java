@@ -232,7 +232,7 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
         {
             AccordSafeCommandsForKey cfk = commandsForKey(key);
             cfk.register(liveCommand.current());
-            attrs = attrs.mutableAttrs().addListener(CommandsForKey.listener(key));
+            attrs = attrs.mutable().addListener(new CommandsForKey.Listener(key));
         }
         return attrs;
     }

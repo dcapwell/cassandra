@@ -20,7 +20,7 @@ package org.apache.cassandra.service.accord;
 
 import java.util.function.Function;
 
-import accord.local.SafeState;
+import accord.impl.SafeState;
 import accord.utils.async.AsyncChain;
 import accord.utils.async.AsyncResults;
 import org.apache.cassandra.service.accord.AccordLoadingState.LoadingState;
@@ -53,7 +53,7 @@ public interface AccordSafeState<K, V> extends SafeState<V>
         return global().state();
     }
 
-    default AsyncResults.Unscheduled<V> load(Function<K, V> loadFunction)
+    default AsyncResults.RunnableResult<V> load(Function<K, V> loadFunction)
     {
         return global().load(loadFunction);
     }

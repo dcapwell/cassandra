@@ -244,8 +244,8 @@ public class AccordObjectSizes
         return size;
     }
 
-    private static final long EMPTY_COMMAND_LISTENER = measure(Command.listener(null));
-    private static final long EMPTY_CFK_LISTENER = measure(CommandsForKey.listener((Key) null));
+    private static final long EMPTY_COMMAND_LISTENER = measure(new Command.Listener(null));
+    private static final long EMPTY_CFK_LISTENER = measure(new CommandsForKey.Listener((Key) null));
     public static long listener(CommandListener listener)
     {
         if (listener.isTransient())

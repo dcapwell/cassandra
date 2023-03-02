@@ -88,7 +88,7 @@ public class AsyncLoader
             switch (state)
             {
                 case NOT_FOUND:
-                    AsyncResults.Unscheduled<V> load = safeRef.load(loadFunction);
+                    AsyncResults.RunnableResult<V> load = safeRef.load(loadFunction);
                     listenChains.add(load);
                     loadRunnables.add(load);
                     break;

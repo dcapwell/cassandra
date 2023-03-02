@@ -79,7 +79,7 @@ public class AsyncWriter
                                                                                StateMutationFunction<S> mutationFunction,
                                                                                long timestamp,
                                                                                AccordCommandStore commandStore,
-                                                                               List<AsyncResults.Unscheduled<Void>> chains)
+                                                                               List<AsyncResults.RunnableResult<Void>> chains)
     {
         context.forEach((key, value) -> {
             if (!value.hasUpdate())
@@ -89,7 +89,7 @@ public class AsyncWriter
                 return;
             if (logger.isTraceEnabled())
                 logger.trace("Dispatching mutation for {}, {} -> {}", key, value.current(), mutation);
-            AsyncResults.Unscheduled<Void> result = AsyncResults.unscheduled(() -> mutation.apply());
+            AsyncResults.RunnableResult<Void> result = AsyncResults.runnableResult(() -> mutation.apply());
             cache.addSaveResult(key, result);
             chains.add(result);
         });
@@ -110,7 +110,7 @@ public class AsyncWriter
         if (context.commands.isEmpty() && context.commandsForKeys.isEmpty())
             return null;
 
-        List<AsyncResults.Unscheduled<Void>> writes = new ArrayList<>(context.commands.size() + context.commandsForKeys.size());
+        List<AsyncResults.RunnableResult<Void>> writes = new ArrayList<>(context.commands.size() + context.commandsForKeys.size());
 
         long timestamp = commandStore.nextSystemTimestampMicros();
         assembleWrites(context.commands,
