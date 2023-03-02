@@ -65,7 +65,6 @@ public class AccordSafeCommand extends SafeCommand implements AccordSafeState<Tx
     @Override
     public Command current()
     {
-        checkNotInvalidated();
         return current;
     }
 
@@ -79,7 +78,6 @@ public class AccordSafeCommand extends SafeCommand implements AccordSafeState<Tx
 
     public Command original()
     {
-        checkNotInvalidated();
         return original;
     }
 
