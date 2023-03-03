@@ -61,10 +61,8 @@ import static org.apache.cassandra.simulator.Action.Modifiers.DISPLAY_ORIGIN;
 import static org.apache.cassandra.simulator.Action.Modifiers.NONE;
 import static org.apache.cassandra.simulator.SimulatorUtils.failWithOOM;
 import static org.apache.cassandra.simulator.paxos.HistoryChecker.causedBy;
-import static org.apache.cassandra.simulator.paxos.HistoryChecker.fail;
 import static org.apache.cassandra.utils.AssertionUtils.anyOf;
 import static org.apache.cassandra.utils.AssertionUtils.hasCause;
-import static org.apache.cassandra.utils.AssertionUtils.isThrowableInstanceof;
 
 public abstract class PaxosSimulation implements Simulation, ClusterActionListener
 {
