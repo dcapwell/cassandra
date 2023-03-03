@@ -60,12 +60,14 @@ public class AccordSafeCommandsForKey extends SafeCommandsForKey implements Acco
     @Override
     public AccordLoadingState<RoutableKey, CommandsForKey> global()
     {
+        checkNotInvalidated();
         return global;
     }
 
     @Override
     public CommandsForKey current()
     {
+        checkNotInvalidated();
         return current;
     }
 
@@ -79,6 +81,7 @@ public class AccordSafeCommandsForKey extends SafeCommandsForKey implements Acco
 
     public CommandsForKey original()
     {
+        checkNotInvalidated();
         return original;
     }
 

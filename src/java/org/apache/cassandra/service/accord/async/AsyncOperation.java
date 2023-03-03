@@ -227,7 +227,7 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
                 safeStore = commandStore.beginOperation(preLoadContext, context.commands, context.commandsForKeys);
                 state = State.RUNNING;
                 result = apply(safeStore);
-                commandStore.completeOperation(safeStore, context.commands, context.commandsForKeys);
+                safeStore.postExecute(context.commands, context.commandsForKeys);
 
                 state = State.SAVING;
             case SAVING:
@@ -236,9 +236,10 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
 
                 if (state == State.SAVING)
                 {
+                    context.releaseResources(commandStore);
+                    commandStore.completeOperation(safeStore, context.commands, context.commandsForKeys);
                     // with any updates on the way to disk, release resources so operations waiting
                     // to use these objects don't have issues with fields marked as unsaved
-                    context.releaseResources(commandStore);
                     state = State.AWAITING_SAVE;
                 }
 

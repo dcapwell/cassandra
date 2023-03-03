@@ -268,7 +268,7 @@ public class AccordStateCache
 
     private void evict(Node<?, ?> evict, boolean unlink)
     {
-        logger.info("Evicting {} {}", evict.state(), evict.key());
+        logger.info("Evicting {} {} - {}", evict.state(), evict.key(), evict.isLoaded() ? evict.value() : null);
         if (unlink) unlink(evict);
         Node<?, ?> self = cache.get(evict.key());
         Invariants.checkState(self == evict, "Leaked node detected; was attempting to remove %s but cache had %s", evict, self);

@@ -249,4 +249,12 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     {
         return CommandsForKeySerializer.loader;
     }
+
+    public void postExecute(Map<TxnId, AccordSafeCommand> commands,
+                            Map<RoutableKey, AccordSafeCommandsForKey> commandsForKeys)
+    {
+        postExecute();
+        commands.values().forEach(AccordSafeState::postExecute);
+        commandsForKeys.values().forEach(AccordSafeState::postExecute);
+    }
 }

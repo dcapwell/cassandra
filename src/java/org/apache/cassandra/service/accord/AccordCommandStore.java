@@ -251,8 +251,6 @@ public class AccordCommandStore implements CommandStore
                                   Map<RoutableKey, AccordSafeCommandsForKey> commandsForKeys)
     {
         Invariants.checkState(current == store);
-        commands.values().forEach(AccordSafeState::postExecute);
-        commandsForKeys.values().forEach(AccordSafeState::postExecute);
         current.complete();
         current = null;
     }
