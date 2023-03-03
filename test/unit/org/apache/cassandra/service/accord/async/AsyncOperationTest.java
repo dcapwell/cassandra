@@ -318,6 +318,7 @@ public class AsyncOperationTest
         // all txn use the same key; 0
         Keys keys = keys(Schema.instance.getTableMetadata("ks", "tbl"), 0);
         AccordCommandStore commandStore = createAccordCommandStore(clock::incrementAndGet, "ks", "tbl");
+        commandStore.executeBlocking(() -> commandStore.setCacheSize(0));
         Gen<TxnId> txnIdGen = rs -> txnId(1, clock.incrementAndGet(), 1);
 
         qt().withPure(false).withExamples(50).forAll(Gens.random(), Gens.lists(txnIdGen).ofSizeBetween(1, 10)).check((rs, ids) -> {
