@@ -99,7 +99,7 @@ public class AccordCommandStore implements CommandStore
         this.loggingId = String.format("[%s]", id);
         this.executor = executorFactory().sequential(CommandStore.class.getSimpleName() + '[' + id + ']');
         this.threadId = getThreadId(this.executor);
-        this.stateCache = new AccordStateCache(0);
+        this.stateCache = new AccordStateCache(1<<20);
         this.commandCache = stateCache.instance(TxnId.class, accord.local.Command.class, AccordSafeCommand::new, AccordObjectSizes::command);
         this.commandsForKeyCache = stateCache.instance(RoutableKey.class, CommandsForKey.class, AccordSafeCommandsForKey::new, AccordObjectSizes::commandsForKey);
     }
