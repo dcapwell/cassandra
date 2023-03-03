@@ -434,7 +434,9 @@ public class AccordStateCache
             Node<K, V> node = reference(key, false);
             if (node == null || !node.isLoaded())
                 return null;
-            return safeRefFactory.apply(node);
+            S safeRef = safeRefFactory.apply(node);
+            safeRef.preExecute();
+            return safeRef;
         }
 
         @VisibleForTesting
