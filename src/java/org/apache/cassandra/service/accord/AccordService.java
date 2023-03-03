@@ -26,6 +26,9 @@ import java.util.concurrent.TimeoutException;
 
 import com.google.common.annotations.VisibleForTesting;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import accord.api.Result;
 import accord.coordinate.Preempted;
 import accord.coordinate.Timeout;
@@ -35,6 +38,7 @@ import accord.local.Node;
 import accord.local.ShardDistributor.EvenSplit;
 import accord.messages.Request;
 import accord.primitives.Txn;
+import accord.primitives.TxnId;
 import accord.topology.TopologyManager;
 import accord.utils.async.AsyncChains;
 import org.apache.cassandra.concurrent.Shutdownable;
@@ -61,6 +65,8 @@ import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 
 public class AccordService implements IAccordService, Shutdownable
 {
+    private static final Logger logger = LoggerFactory.getLogger(AccordService.class);
+
     public static final AccordClientRequestMetrics readMetrics = new AccordClientRequestMetrics("AccordRead");
     public static final AccordClientRequestMetrics writeMetrics = new AccordClientRequestMetrics("AccordWrite");
 
@@ -125,6 +131,7 @@ public class AccordService implements IAccordService, Shutdownable
     private AccordService()
     {
         Node.Id localId = EndpointMapping.endpointToId(FBUtilities.getBroadcastAddressAndPort());
+        logger.info("Starting accord with nodeId {}", localId);
         this.messageSink = new AccordMessageSink();
         this.configService = new AccordConfigurationService(localId);
         this.scheduler = new AccordScheduler();
@@ -182,11 +189,13 @@ public class AccordService implements IAccordService, Shutdownable
     public TxnData coordinate(Txn txn, ConsistencyLevel consistencyLevel)
     {
         AccordClientRequestMetrics metrics = txn.isWrite() ? writeMetrics : readMetrics;
+        TxnId txnId = null;
         final long startNanos = nanoTime();
         try
         {
             metrics.keySize.update(txn.keys().size());
-            AsyncResult<Result> asyncResult = node.coordinate(txn);
+            txnId = node.nextTxnId(txn.kind(), txn.keys().domain());
+            AsyncResult<Result> asyncResult = node.coordinate(txnId, txn);
             Result result = AsyncChains.getBlocking(asyncResult, DatabaseDescriptor.getTransactionTimeout(TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS);
             return (TxnData) result;
         }
@@ -196,7 +205,7 @@ public class AccordService implements IAccordService, Shutdownable
             if (cause instanceof Timeout)
             {
                 metrics.timeouts.mark();
-                throw throwTimeout(txn, consistencyLevel);
+                throw throwTimeout(txnId, txn, consistencyLevel);
             }
             if (cause instanceof Preempted)
             {
@@ -204,7 +213,7 @@ public class AccordService implements IAccordService, Shutdownable
                 //TODO need to improve
                 // Coordinator "could" query the accord state to see whats going on but that doesn't exist yet.
                 // Protocol also doesn't have a way to denote "unknown" outcome, so using a timeout as the closest match
-                throw throwTimeout(txn, consistencyLevel);
+                throw throwTimeout(txnId, txn, consistencyLevel);
             }
             metrics.failures.mark();
             throw new RuntimeException(cause);
@@ -217,7 +226,7 @@ public class AccordService implements IAccordService, Shutdownable
         catch (TimeoutException e)
         {
             metrics.timeouts.mark();
-            throw throwTimeout(txn, consistencyLevel);
+            throw throwTimeout(txnId, txn, consistencyLevel);
         }
         finally
         {
@@ -225,10 +234,10 @@ public class AccordService implements IAccordService, Shutdownable
         }
     }
 
-    private static RuntimeException throwTimeout(Txn txn, ConsistencyLevel consistencyLevel)
+    private static RuntimeException throwTimeout(TxnId txnId, Txn txn, ConsistencyLevel consistencyLevel)
     {
-        throw txn.isWrite() ? new WriteTimeoutException(WriteType.TRANSACTION, consistencyLevel, 0, 0)
-                            : new ReadTimeoutException(consistencyLevel, 0, 0, false);
+        throw txn.isWrite() ? new WriteTimeoutException(WriteType.TRANSACTION, consistencyLevel, 0, 0, txnId.toString())
+                            : new ReadTimeoutException(consistencyLevel, 0, 0, false, txnId.toString());
     }
 
     @VisibleForTesting
