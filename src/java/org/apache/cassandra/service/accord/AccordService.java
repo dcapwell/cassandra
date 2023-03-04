@@ -53,6 +53,8 @@ import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.service.accord.api.AccordAgent;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey.KeyspaceSplitter;
 import org.apache.cassandra.service.accord.api.AccordScheduler;
+import org.apache.cassandra.service.accord.exceptions.ReadPreemptedException;
+import org.apache.cassandra.service.accord.exceptions.WritePreemptedException;
 import org.apache.cassandra.service.accord.txn.TxnData;
 import org.apache.cassandra.utils.Clock;
 import org.apache.cassandra.utils.ExecutorUtils;
@@ -213,7 +215,7 @@ public class AccordService implements IAccordService, Shutdownable
                 //TODO need to improve
                 // Coordinator "could" query the accord state to see whats going on but that doesn't exist yet.
                 // Protocol also doesn't have a way to denote "unknown" outcome, so using a timeout as the closest match
-                throw throwTimeout(txnId, txn, consistencyLevel);
+                throw throwPreempted(txnId, txn, consistencyLevel);
             }
             metrics.failures.mark();
             throw new RuntimeException(cause);
@@ -238,6 +240,12 @@ public class AccordService implements IAccordService, Shutdownable
     {
         throw txn.isWrite() ? new WriteTimeoutException(WriteType.TRANSACTION, consistencyLevel, 0, 0, txnId.toString())
                             : new ReadTimeoutException(consistencyLevel, 0, 0, false, txnId.toString());
+    }
+
+    private static RuntimeException throwPreempted(TxnId txnId, Txn txn, ConsistencyLevel consistencyLevel)
+    {
+        throw txn.isWrite() ? new WritePreemptedException(WriteType.TRANSACTION, consistencyLevel, 0, 0, txnId.toString())
+                            : new ReadPreemptedException(consistencyLevel, 0, 0, false, txnId.toString());
     }
 
     @VisibleForTesting

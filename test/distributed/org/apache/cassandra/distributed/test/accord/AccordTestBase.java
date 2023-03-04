@@ -52,6 +52,8 @@ import org.apache.cassandra.distributed.test.TestBaseImpl;
 import org.apache.cassandra.distributed.util.QueryResultUtil;
 import org.apache.cassandra.service.accord.AccordService;
 import org.apache.cassandra.service.accord.AccordTestUtils;
+import org.apache.cassandra.service.accord.exceptions.ReadPreemptedException;
+import org.apache.cassandra.service.accord.exceptions.WritePreemptedException;
 import org.apache.cassandra.service.accord.txn.TxnData;
 import org.apache.cassandra.utils.AssertionUtils;
 import org.apache.cassandra.utils.FailingConsumer;
@@ -195,7 +197,7 @@ public abstract class AccordTestBase extends TestBaseImpl
         }
         catch (RuntimeException ex)
         {
-            if (count <= MAX_RETRIES && AssertionUtils.rootCauseIs(Preempted.class).matches(ex))
+            if (count <= MAX_RETRIES && (AssertionUtils.rootCauseIs(ReadPreemptedException.class).matches(ex) || AssertionUtils.rootCauseIs(WritePreemptedException.class).matches(ex)))
             {
                 logger.warn("[Retry attempt={}] Preempted failure for\n{}", count, check);
                 return executeWithRetry0(count + 1, cluster, check, boundValues);
