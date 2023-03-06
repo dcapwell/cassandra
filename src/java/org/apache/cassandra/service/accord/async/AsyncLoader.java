@@ -61,16 +61,16 @@ public class AsyncLoader
     private State state = State.INITIALIZED;
     private final AccordCommandStore commandStore;
 
-    private final List<TxnId> txnIds;
-    private final List<RoutableKey> keys;
+    private final Iterable<TxnId> txnIds;
+    private final Iterable<RoutableKey> keys;
 
     protected AsyncResult<?> readResult;
 
     public AsyncLoader(AccordCommandStore commandStore, Iterable<TxnId> txnIds, Iterable<RoutableKey> keys)
     {
         this.commandStore = commandStore;
-        this.txnIds = Lists.newArrayList(txnIds);
-        this.keys = Lists.newArrayList(keys);
+        this.txnIds = txnIds;
+        this.keys = keys;
     }
 
     private <K, V, S extends AccordSafeState<K, V>> void referenceAndAssembleReads(Iterable<K> keys,
@@ -119,32 +119,32 @@ public class AsyncLoader
 
     private AsyncResult<?> referenceAndDispatchReads(AsyncOperation.Context context)
     {
-        List<Runnable> runnables = new ArrayList<>();
+        List<Runnable> readRunnables = new ArrayList<>();
         List<AsyncChain<?>> chains = new ArrayList<>();
 
         referenceAndAssembleReads(txnIds,
                                   context.commands,
                                   commandStore.commandCache(),
                                   loadCommandFunction(),
-                                  runnables,
+                                  readRunnables,
                                   chains);
 
         referenceAndAssembleReads(keys,
                                   context.commandsForKeys,
                                   commandStore.commandsForKeyCache(),
                                   loadCommandsPerKeyFunction(),
-                                  runnables,
+                                  readRunnables,
                                   chains);
 
         if (chains.isEmpty())
         {
-            Invariants.checkState(runnables.isEmpty());
+            Invariants.checkState(readRunnables.isEmpty());
             return null;
         }
 
         // runnable results are already contained in the chains collection
-        if (!runnables.isEmpty())
-            AsyncChains.ofRunnables(Stage.READ.executor(), runnables).begin(commandStore.agent());
+        if (!readRunnables.isEmpty())
+            AsyncChains.ofRunnables(Stage.READ.executor(), readRunnables).begin(commandStore.agent());
 
         return !chains.isEmpty() ? AsyncChains.reduce(chains, (a, b) -> null).beginAsResult() : null;
     }
