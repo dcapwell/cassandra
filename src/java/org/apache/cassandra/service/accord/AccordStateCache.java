@@ -245,9 +245,8 @@ public class AccordStateCache
     // before it's mutation is applied, out of date info will be loaded
     private boolean canEvict(Node<?, ?> node)
     {
-        return node.references == 0 &&
-               node.isLoaded() &&
-               !hasActiveAsyncResult(saveResults, node.key());
+        Invariants.checkState(node.references == 0);
+        return node.state() == FAILED || !hasActiveAsyncResult(saveResults, node.key());
     }
 
     private void maybeEvict()
