@@ -73,12 +73,11 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
     enum State
     {
         INITIALIZED,
-        SUBMITTED,
         LOADING,
-        PREPARING_OPERATION,
+        PREPARING_OPERATION,  // setup safe store for RUNNING
         RUNNING,
-        SAVING,
-        AWAITING_SAVE,
+        SAVING,  // submits write to mutation stage
+        AWAITING_SAVE,  // wait for writes to complete
         COMPLETING,
         FINISHED,
         FAILED
@@ -158,22 +157,28 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
             run();
     }
 
-    private void finish(R result)
+    private void finish(R result, Throwable failure)
     {
-        Invariants.checkArgument(state == State.COMPLETING, "Unexpected state %s", state);
         try
         {
             if (callback != null)
-                callback.accept(result, null);
+                callback.accept(result, failure);
         }
         finally
         {
-            state = State.FINISHED;
+            state = failure == null ? State.FINISHED : State.FAILED;
         }
+    }
+
+    private void finish(R result)
+    {
+        Invariants.checkArgument(state == State.COMPLETING, "Unexpected state %s", state);
+        finish(result, null);
     }
 
     private void fail(Throwable throwable)
     {
+        Invariants.nonNull(throwable);
         Invariants.checkArgument(state != State.FINISHED && state != State.FAILED, "Unexpected state %s", state);
         try
         {
@@ -202,15 +207,7 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
             commandStore.agent().onUncaughtException(cleanup);
             throwable.addSuppressed(cleanup);
         }
-        try
-        {
-            if (callback != null)
-                callback.accept(null, throwable);
-        }
-        finally
-        {
-            state = State.FAILED;
-        }
+        finish(null, throwable);
     }
 
     protected void runInternal()

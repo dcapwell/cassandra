@@ -142,6 +142,7 @@ public class AsyncLoader
             return null;
         }
 
+        // runnable results are already contained in the chains collection
         if (!runnables.isEmpty())
             AsyncChains.ofRunnables(Stage.READ.executor(), runnables).begin(commandStore.agent());
 

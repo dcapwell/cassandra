@@ -39,6 +39,9 @@ import accord.utils.async.AsyncChains;
 import accord.utils.async.AsyncResult;
 import org.apache.cassandra.utils.ObjectSizes;
 
+import static org.apache.cassandra.service.accord.AccordLoadingState.LoadingState.FAILED;
+import static org.apache.cassandra.service.accord.AccordLoadingState.LoadingState.LOADED;
+
 /**
  * Cache for AccordCommand and AccordCommandsForKey, available memory is shared between the two object types.
  *
@@ -70,7 +73,7 @@ public class AccordStateCache
 
         boolean isLoaded()
         {
-            return state() == LoadingState.LOADED;
+            return state() == LOADED;
         }
 
         public boolean isComplete()
@@ -150,7 +153,7 @@ public class AccordStateCache
 
     private final NamedMap<Object, AsyncResult<Void>> saveResults = new NamedMap<>("saveResults");
 
-    private int linked = 0;
+    private int unreferenced = 0;
     Node<?, ?> head;
     Node<?, ?> tail;
     private long maxSizeInBytes;
@@ -214,7 +217,7 @@ public class AccordStateCache
 
         node.prev = null;
         node.next = null;
-        linked--;
+        unreferenced--;
     }
 
     private void push(Node<?, ?> node)
@@ -231,7 +234,7 @@ public class AccordStateCache
             head = node;
             tail = node;
         }
-        linked++;
+        unreferenced++;
     }
 
     private <K, V> void updateSize(Node<K, V> node, ToLongFunction<V> estimator)
@@ -398,7 +401,7 @@ public class AccordStateCache
             }
             else
             {
-                if (node.state() == AccordLoadingState.LoadingState.FAILED)
+                if (node.state() == FAILED)
                 {
                     if (node.references != 0)
                     {
@@ -477,7 +480,7 @@ public class AccordStateCache
 
             if (--node.references == 0)
             {
-                if (node.state() == AccordLoadingState.LoadingState.FAILED)
+                if (node.state() == FAILED)
                 {
                     logger.trace("Found failed node {}, evicting", key);
                     evict(node, false);
@@ -563,13 +566,13 @@ public class AccordStateCache
     @VisibleForTesting
     int numReferencedEntries()
     {
-        return cache.size() - linked;
+        return cache.size() - unreferenced;
     }
 
     @VisibleForTesting
     int numUnreferencedEntries()
     {
-        return linked;
+        return unreferenced;
     }
 
     @VisibleForTesting
