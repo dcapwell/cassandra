@@ -29,7 +29,6 @@ import java.util.function.ToLongFunction;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -313,7 +312,7 @@ public class AccordStateCache
         if (existing != null && !existing.isDone())
         {
             logger.trace("Merging result {} with existing {}", result, existing);
-            result = AsyncChains.reduce(ImmutableList.of(existing, result), (a, b) -> null).beginAsResult();
+            result = AsyncChains.reduce(existing, result, (a, b) -> null).beginAsResult();
         }
 
         resultMap.put(key, result);
