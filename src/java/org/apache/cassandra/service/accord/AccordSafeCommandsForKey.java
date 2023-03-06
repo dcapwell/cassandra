@@ -58,6 +58,17 @@ public class AccordSafeCommandsForKey extends SafeCommandsForKey implements Acco
     }
 
     @Override
+    public String toString()
+    {
+        return "AccordSafeCommandsForKey{" +
+               "invalidated=" + invalidated +
+               ", global=" + global +
+               ", original=" + original +
+               ", current=" + current +
+               '}';
+    }
+
+    @Override
     public AccordLoadingState<RoutableKey, CommandsForKey> global()
     {
         checkNotInvalidated();

@@ -57,6 +57,17 @@ public class AccordSafeCommand extends SafeCommand implements AccordSafeState<Tx
     }
 
     @Override
+    public String toString()
+    {
+        return "AccordSafeCommand{" +
+               "invalidated=" + invalidated +
+               ", global=" + global +
+               ", original=" + original +
+               ", current=" + current +
+               '}';
+    }
+
+    @Override
     public AccordLoadingState<TxnId, Command> global()
     {
         checkNotInvalidated();
