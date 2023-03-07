@@ -155,7 +155,7 @@ public class AccordTestUtils
 
     public static <K, V> void testLoad(AccordSafeState<K, V> safeState, V val)
     {
-        Assert.assertEquals(AccordLoadingState.LoadingState.NOT_FOUND, safeState.loadingState());
+        Assert.assertEquals(AccordLoadingState.LoadingState.UNINITIALIZED, safeState.loadingState());
         Runnable load = safeState.load(testableLoad(safeState.key(), val));
         Assert.assertEquals(AccordLoadingState.LoadingState.PENDING, safeState.loadingState());
         load.run();

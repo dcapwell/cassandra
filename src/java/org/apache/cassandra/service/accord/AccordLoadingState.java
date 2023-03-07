@@ -29,10 +29,10 @@ import accord.utils.async.AsyncResults;
  */
 public class AccordLoadingState<K, V>
 {
-    public enum LoadingState { NOT_FOUND, PENDING, LOADED, FAILED }
+    public enum LoadingState { UNINITIALIZED, PENDING, LOADED, FAILED }
     private interface NonValueState {}
 
-    private static final NonValueState NOT_FOUND = new NonValueState() {};
+    private static final NonValueState UNINITIALIZED = new NonValueState() {};
 
     private static class PendingLoad<V> extends AsyncResults.RunnableResult<V> implements NonValueState
     {
@@ -53,7 +53,7 @@ public class AccordLoadingState<K, V>
     }
 
     private final K key;
-    private Object state = NOT_FOUND;
+    private Object state = UNINITIALIZED;
 
     public AccordLoadingState(K key)
     {
@@ -94,8 +94,8 @@ public class AccordLoadingState<K, V>
         if (!(state instanceof NonValueState))
             return LoadingState.LOADED;
 
-        if (state == NOT_FOUND)
-            return LoadingState.NOT_FOUND;
+        if (state == UNINITIALIZED)
+            return LoadingState.UNINITIALIZED;
 
         if (state instanceof PendingLoad)
             return attemptLoadCompletion
@@ -149,7 +149,7 @@ public class AccordLoadingState<K, V>
      */
     public AsyncResults.RunnableResult<V> load(Function<K, V> loadFunction)
     {
-        checkState(LoadingState.NOT_FOUND, true);
+        checkState(LoadingState.UNINITIALIZED, true);
         PendingLoad<V> pendingLoad = new PendingLoad<>(() -> loadFunction.apply(key));
         state = pendingLoad;
         return pendingLoad;

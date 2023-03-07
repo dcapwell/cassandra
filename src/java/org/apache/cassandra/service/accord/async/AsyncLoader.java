@@ -25,7 +25,6 @@ import java.util.function.BiConsumer;
 import java.util.function.Function;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.Lists;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -87,7 +86,7 @@ public class AsyncLoader
             AccordLoadingState.LoadingState state = safeRef.loadingState();
             switch (state)
             {
-                case NOT_FOUND:
+                case UNINITIALIZED:
                     AsyncResults.RunnableResult<V> load = safeRef.load(loadFunction);
                     listenChains.add(load);
                     loadRunnables.add(load);

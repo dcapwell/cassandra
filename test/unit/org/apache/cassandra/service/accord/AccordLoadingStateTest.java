@@ -70,7 +70,7 @@ public class AccordLoadingStateTest
     {
         LoadableState state = new LoadableState("K");
 
-        Assert.assertEquals(LoadingState.NOT_FOUND, state.state());
+        Assert.assertEquals(LoadingState.UNINITIALIZED, state.state());
         assertIllegalState(() -> state.value());
         assertIllegalState(() -> state.value("VVVV"));
         assertIllegalState(() -> state.listen());
@@ -93,7 +93,7 @@ public class AccordLoadingStateTest
     public void loadNullTest()
     {
         LoadableState state = new LoadableState("K");
-        Assert.assertEquals(LoadingState.NOT_FOUND, state.state());
+        Assert.assertEquals(LoadingState.UNINITIALIZED, state.state());
 
         assertIllegalState(() -> state.value());
         assertIllegalState(() -> state.value("VVVV"));
@@ -117,7 +117,7 @@ public class AccordLoadingStateTest
     public void additionalCallbackTest()
     {
         LoadableState state = new LoadableState("K");
-        Assert.assertEquals(LoadingState.NOT_FOUND, state.state());
+        Assert.assertEquals(LoadingState.UNINITIALIZED, state.state());
 
         assertIllegalState(() -> state.value());
         assertIllegalState(() -> state.value("VVVV"));
@@ -157,7 +157,7 @@ public class AccordLoadingStateTest
     {
         LoadableState state = new LoadableState("K");
 
-        Assert.assertEquals(LoadingState.NOT_FOUND, state.state());
+        Assert.assertEquals(LoadingState.UNINITIALIZED, state.state());
         assertIllegalState(() -> state.value());
         assertIllegalState(() -> state.value("VVVV"));
         assertIllegalState(() -> state.listen());

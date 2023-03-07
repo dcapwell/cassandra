@@ -80,7 +80,7 @@ public class AccordStateCache
             switch (state())
             {
                 case PENDING:
-                case NOT_FOUND:
+                case UNINITIALIZED:
                     return false;
                 case FAILED:
                 case LOADED:

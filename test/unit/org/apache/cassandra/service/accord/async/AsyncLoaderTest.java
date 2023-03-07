@@ -234,7 +234,7 @@ public class AsyncLoaderTest
 
         // acquire / release
         AccordSafeCommand safeCommand = commandCache.reference(txnId);
-        Assert.assertEquals(AccordLoadingState.LoadingState.NOT_FOUND, safeCommand.loadingState());
+        Assert.assertEquals(AccordLoadingState.LoadingState.UNINITIALIZED, safeCommand.loadingState());
         Runnable load = safeCommand.load(testableLoad(safeCommand.key(), notWitnessed(txnId, txn)));
         Assert.assertEquals(AccordLoadingState.LoadingState.PENDING, safeCommand.loadingState());
         Assert.assertTrue(commandCache.isReferenced(txnId));
