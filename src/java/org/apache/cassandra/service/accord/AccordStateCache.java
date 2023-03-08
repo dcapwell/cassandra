@@ -260,6 +260,7 @@ public class AccordStateCache
             Node<?, ?> evict = current;
             current = current.prev;
 
+            // TODO (expected, efficiency): can this be reworked so we're not skipping unevictable nodes everytime we try to evict?
             if (!canEvict(evict))
                 continue;
 
