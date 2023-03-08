@@ -579,16 +579,13 @@ public class AsyncOperationTest
 
     private static <T> void assertCanEvict(AccordStateCache.Instance<T, ?, ?> cache, Iterable<T> keys)
     {
-        List<String> errors = new ArrayList<>();
         for (T key : keys)
         {
             AccordStateCache.Node<T, ?> node = cache.getUnsafe(key);
             if (node == null)
                 continue;
-            Set<AccordStateCache.EvictConditions> result = cache.checkCanEvict(node);
-            if (!result.isEmpty()) errors.add(String.format("Node %s is not evictable but should be; %s", key, result));
+            Assert.assertTrue("Unable to evict " + node.key(), cache.canEvict(node.key()));
         }
-        if (!errors.isEmpty()) throw new AssertionError(String.join("\n", errors));
     }
 
     private static <T> void assertCanNotEvict(AccordStateCache.Instance<T, ?, ?> cache, Iterable<T> keys)

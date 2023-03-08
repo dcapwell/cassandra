@@ -18,7 +18,6 @@
 
 package org.apache.cassandra.service.accord;
 
-import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -337,8 +336,6 @@ public class AccordStateCache
         getAsyncResult(saveResults, key);
     }
 
-    public enum EvictConditions { REF, NOT_LOADED, PENDING_SAVE }
-
     public class Instance<K, V, S extends AccordSafeState<K, V>>
     {
         private final Class<K> keyClass;
@@ -353,19 +350,6 @@ public class AccordStateCache
             this.valClass = valClass;
             this.safeRefFactory = safeRefFactory;
             this.heapEstimator = heapEstimator;
-        }
-
-        @VisibleForTesting
-        public Set<EvictConditions> checkCanEvict(Node<?, ?> node)
-        {
-            EnumSet<EvictConditions> set = EnumSet.noneOf(EvictConditions.class);
-            if (node.references != 0)
-                set.add(EvictConditions.REF);
-            if (!node.isLoaded())
-                set.add(EvictConditions.NOT_LOADED);
-            if (hasActiveAsyncResult(saveResults, node.key()))
-                set.add(EvictConditions.PENDING_SAVE);
-            return set;
         }
 
         @Override
