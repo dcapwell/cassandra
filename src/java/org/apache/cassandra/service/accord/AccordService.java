@@ -238,13 +238,13 @@ public class AccordService implements IAccordService, Shutdownable
 
     private static RuntimeException throwTimeout(TxnId txnId, Txn txn, ConsistencyLevel consistencyLevel)
     {
-        throw txn.isWrite() ? new WriteTimeoutException(WriteType.TRANSACTION, consistencyLevel, 0, 0, txnId.toString())
+        throw txn.isWrite() ? new WriteTimeoutException(WriteType.CAS, consistencyLevel, 0, 0, txnId.toString())
                             : new ReadTimeoutException(consistencyLevel, 0, 0, false, txnId.toString());
     }
 
     private static RuntimeException throwPreempted(TxnId txnId, Txn txn, ConsistencyLevel consistencyLevel)
     {
-        throw txn.isWrite() ? new WritePreemptedException(WriteType.TRANSACTION, consistencyLevel, 0, 0, txnId.toString())
+        throw txn.isWrite() ? new WritePreemptedException(WriteType.CAS, consistencyLevel, 0, 0, txnId.toString())
                             : new ReadPreemptedException(consistencyLevel, 0, 0, false, txnId.toString());
     }
 
