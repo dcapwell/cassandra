@@ -89,9 +89,9 @@ public class AccordStateCache
             }
         }
 
-        private boolean isUnlinked()
+        private boolean isInQueue()
         {
-            return prev == null && next == null;
+            return prev != null && next != null;
         }
 
         long estimatedSizeOnHeap(ToLongFunction<V> estimator)
@@ -270,7 +270,11 @@ public class AccordStateCache
     private void evict(Node<?, ?> evict, boolean unlink)
     {
         logger.trace("Evicting {} {} - {}", evict.state(), evict.key(), evict.isLoaded() ? evict.value() : null);
-        if (unlink) unlink(evict);
+        if (unlink)
+            unlink(evict);
+        else
+            Invariants.checkState(!evict.isInQueue());
+
         Node<?, ?> self = cache.get(evict.key());
         Invariants.checkState(self == evict, "Leaked node detected; was attempting to remove %s but cache had %s", evict, self);
         cache.remove(evict.key());
@@ -417,7 +421,7 @@ public class AccordStateCache
                 if (node.references == 0)
                     unlink(node);
                 else
-                    Invariants.checkState(node.isUnlinked());
+                    Invariants.checkState(!node.isInQueue());
                 node.references++;
             }
 
@@ -486,7 +490,7 @@ public class AccordStateCache
                 else
                 {
                     logger.trace("Moving {} from active pool to cache", key);
-                    Invariants.checkState(node.isUnlinked());
+                    Invariants.checkState(!node.isInQueue());
                     push(node);
                 }
             }
