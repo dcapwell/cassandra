@@ -157,6 +157,7 @@ import static org.apache.cassandra.utils.FBUtilities.getBroadcastAddressAndPort;
 public class StreamSession
 {
     private static final Logger logger = LoggerFactory.getLogger(StreamSession.class);
+    private static final int DEBUG_STACKTRACE_LIMIT = Integer.parseInt(System.getProperty("cassandra.streaming.debug_stacktrace_limit", "2"));
 
     public enum PrepareDirection { SEND, ACK }
 
@@ -702,7 +703,7 @@ public class StreamSession
             channel.sendControlMessage(new SessionFailedMessage()).awaitUninterruptibly();
         }
         StringBuilder failureReason = new StringBuilder("Failed because of an unknown exception\n");
-        boundStackTrace(e, 2, failureReason); //bound the stacktrace with a specified limit on the number of lines
+        boundStackTrace(e, DEBUG_STACKTRACE_LIMIT, failureReason);
         return closeSession(State.FAILED, failureReason.toString());
     }
 
@@ -1356,6 +1357,11 @@ public class StreamSession
 
         StackTraceElement[] stackTrace = e.getStackTrace();
         out.append(e.getClass().getName() + ": " + e.getMessage()).append('\n');
+
+        // When dealing with the leaf, ignore how many stack traces were already written, and allow the max.
+        // This is here as the leaf tends to show where the issue started, so tends to be impactful for debugging
+        if (e.getCause() == null)
+            counter = limit;
 
         for (int i = 0, size = Math.min(e.getStackTrace().length, limit); i < size && counter > 0; i++)
         {
