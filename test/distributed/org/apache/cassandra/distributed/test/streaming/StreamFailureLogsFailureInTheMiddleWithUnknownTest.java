@@ -22,7 +22,7 @@ import java.io.IOException;
 
 import org.junit.Test;
 
-public class StreamFailureLogsFailureInTheMiddleWithUnknown extends AbstractStreamFailureLogs
+public class StreamFailureLogsFailureInTheMiddleWithUnknownTest extends AbstractStreamFailureLogs
 {
     @Test
     public void failureInTheMiddleWithUnknown() throws IOException
