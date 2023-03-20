@@ -26,7 +26,7 @@ import java.util.concurrent.ForkJoinPool;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import org.junit.Test;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import net.bytebuddy.ByteBuddy;
@@ -49,37 +49,13 @@ import org.assertj.core.api.Assertions;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
 
-public class StreamFailureTest extends TestBaseImpl
+public class AbstractStreamFailureLogs extends TestBaseImpl
 {
-    private static final int FAILING_NODE = 2;
+    private static final Logger logger = LoggerFactory.getLogger(AbstractStreamFailureLogs.class);
 
-    private static final Logger logger = LoggerFactory.getLogger(StreamFailureTest.class);
+    protected static final int FAILING_NODE = 2;
 
-    @Test
-    public void failureInTheMiddleWithUnknown() throws IOException
-    {
-        streamTest(true, "java.lang.RuntimeException: TEST", FAILING_NODE);
-    }
-
-    @Test
-    public void failureInTheMiddleWithEOF() throws IOException
-    {
-        streamTest(false, "Session peer /127.0.0.1:7012 Failed because there was an java.nio.channels.ClosedChannelException with state=STREAMING", FAILING_NODE);
-    }
-
-    @Test
-    public void failureDueToSessionFailed() throws IOException
-    {
-        streamTest(true,"Remote peer /127.0.0.2:7012 failed stream session", 1);
-    }
-
-    @Test
-    public void failureDueToSessionTimeout() throws IOException
-    {
-        streamTimeoutTest("Session timed out");
-    }
-
-    private void streamTest(boolean zeroCopyStreaming, String reason, Integer failedNode) throws IOException
+    protected void streamTest(boolean zeroCopyStreaming, String reason, Integer failedNode) throws IOException
     {
         try (Cluster cluster = Cluster.build(2)
                                       .withInstanceInitializer(BBStreamHelper::install)
@@ -103,7 +79,7 @@ public class StreamFailureTest extends TestBaseImpl
         }
     }
 
-    private void streamTimeoutTest(String reason) throws IOException
+    protected void streamTimeoutTest(String reason) throws IOException
     {
         try (Cluster cluster = Cluster.build(2)
                                       .withInstanceInitializer(BBStreamTimeoutHelper::install)
