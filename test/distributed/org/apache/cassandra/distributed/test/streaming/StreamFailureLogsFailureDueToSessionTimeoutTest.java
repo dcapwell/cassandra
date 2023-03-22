@@ -23,7 +23,6 @@ import java.nio.ByteBuffer;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 import com.google.common.util.concurrent.UncheckedTimeoutException;
 import org.junit.Test;
