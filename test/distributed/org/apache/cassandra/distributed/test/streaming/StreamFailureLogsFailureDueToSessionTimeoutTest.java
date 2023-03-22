@@ -100,6 +100,8 @@ public class StreamFailureLogsFailureDueToSessionTimeoutTest extends AbstractStr
                 long remainingMillis = TimeUnit.NANOSECONDS.toMillis(deadlineNanos - Clock.Global.nanoTime());
                 if (remainingMillis <= 0)
                     throw new UncheckedTimeoutException("Condition not met within 1 minute");
+                // await may block signal from triggering notify, so make sure not to block for more than 500ms
+                remainingMillis = Math.min(remainingMillis, 500);
                 synchronized (this)
                 {
                     try
