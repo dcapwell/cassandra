@@ -43,7 +43,6 @@ import org.apache.cassandra.distributed.test.TestBaseImpl;
 import org.apache.cassandra.io.sstable.RangeAwareSSTableWriter;
 import org.apache.cassandra.io.sstable.SSTableZeroCopyWriter;
 import org.apache.cassandra.io.util.SequentialWriter;
-import org.apache.cassandra.utils.Shared;
 import org.assertj.core.api.Assertions;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
@@ -69,7 +68,7 @@ public class AbstractStreamFailureLogs extends TestBaseImpl
 
             cluster.schemaChange(withKeyspace("CREATE TABLE %s.tbl (pk int PRIMARY KEY)"));
 
-            triggerStreaming(cluster, zeroCopyStreaming);
+            triggerStreaming(cluster);
             // make sure disk failure policy is not triggered
 
             IInvokableInstance failingNode = cluster.get(failedNode);
@@ -78,7 +77,7 @@ public class AbstractStreamFailureLogs extends TestBaseImpl
         }
     }
 
-    protected void triggerStreaming(Cluster cluster, boolean expectedEntireSSTable)
+    protected void triggerStreaming(Cluster cluster)
     {
         IInvokableInstance node1 = cluster.get(1);
         IInvokableInstance node2 = cluster.get(2);
@@ -115,101 +114,6 @@ public class AbstractStreamFailureLogs extends TestBaseImpl
         Assertions.assertThat(qr.next().getString("failure_cause")).contains(reason);
     }
 
-    @Shared
-    public static class TestCondition
-    {
-        private volatile boolean signaled = false;
-
-        public void await()
-        {
-            while (!signaled)
-            {
-                synchronized (this)
-                {
-                    try
-                    {
-                        this.wait();
-                    }
-                    catch (InterruptedException e)
-                    {
-                        throw new AssertionError(e);
-                    }
-                }
-            }
-        }
-
-        public void signal()
-        {
-            signaled = true;
-            synchronized (this)
-            {
-                this.notify();
-            }
-        }
-    }
-
-    @Shared
-    public static class State
-    {
-        public static final TestCondition STREAM_IS_RUNNING = new TestCondition();
-        public static final TestCondition UNBLOCK_STREAM = new TestCondition();
-
-    }
-
-    public static class BBStreamTimeoutHelper
-    {
-        @SuppressWarnings("unused")
-        public static int writeDirectlyToChannel(ByteBuffer buf, @SuperCall Callable<Integer> zuper) throws Exception
-        {
-            if (isCaller(SSTableZeroCopyWriter.class.getName(), "write"))
-            {
-                State.STREAM_IS_RUNNING.signal();
-                State.UNBLOCK_STREAM.await();
-            }
-            // different context; pass through
-            return zuper.call();
-        }
-
-        @SuppressWarnings("unused")
-        public static boolean append(UnfilteredRowIterator partition, @SuperCall Callable<Boolean> zuper) throws Exception
-        {
-            if (isCaller(CassandraIncomingFile.class.getName(), "read")) // handles compressed and non-compressed
-                throw new java.nio.channels.ClosedChannelException();
-            // different context; pass through
-            return zuper.call();
-        }
-
-        private static boolean isCaller(String klass, String method)
-        {
-            StackTraceElement[] stack = Thread.currentThread().getStackTrace();
-            for (int i = 0; i < stack.length; i++)
-            {
-                StackTraceElement e = stack[i];
-                if (klass.equals(e.getClassName()) && method.equals(e.getMethodName()))
-                    return true;
-            }
-            return false;
-        }
-
-        public static void install(ClassLoader classLoader, Integer num)
-        {
-            if (num != FAILING_NODE)
-                return;
-            new ByteBuddy().rebase(SequentialWriter.class)
-                           .method(named("writeDirectlyToChannel").and(takesArguments(1)))
-                           .intercept(MethodDelegation.to(BBStreamTimeoutHelper.class))
-                           .make()
-                           .load(classLoader, ClassLoadingStrategy.Default.INJECTION);
-
-            new ByteBuddy().rebase(RangeAwareSSTableWriter.class)
-                           .method(named("append").and(takesArguments(1)))
-                           .intercept(MethodDelegation.to(BBStreamTimeoutHelper.class))
-                           .make()
-                           .load(classLoader, ClassLoadingStrategy.Default.INJECTION);
-        }
-
-    }
-
     public static class BBStreamHelper
     {
         @SuppressWarnings("unused")
@@ -230,18 +134,6 @@ public class AbstractStreamFailureLogs extends TestBaseImpl
             return zuper.call();
         }
 
-        private static boolean isCaller(String klass, String method)
-        {
-            StackTraceElement[] stack = Thread.currentThread().getStackTrace();
-            for (int i = 0; i < stack.length; i++)
-            {
-                StackTraceElement e = stack[i];
-                if (klass.equals(e.getClassName()) && method.equals(e.getMethodName()))
-                    return true;
-            }
-            return false;
-        }
-
         public static void install(ClassLoader classLoader, Integer num)
         {
             if (num != FAILING_NODE)
@@ -259,5 +151,17 @@ public class AbstractStreamFailureLogs extends TestBaseImpl
                            .load(classLoader, ClassLoadingStrategy.Default.INJECTION);
 
         }
+    }
+
+    protected static boolean isCaller(String klass, String method)
+    {
+        StackTraceElement[] stack = Thread.currentThread().getStackTrace();
+        for (int i = 0; i < stack.length; i++)
+        {
+            StackTraceElement e = stack[i];
+            if (klass.equals(e.getClassName()) && method.equals(e.getMethodName()))
+                return true;
+        }
+        return false;
     }
 }
