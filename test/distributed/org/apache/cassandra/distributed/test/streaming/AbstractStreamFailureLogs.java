@@ -22,7 +22,6 @@ import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ForkJoinPool;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -51,7 +50,7 @@ import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
 
 public class AbstractStreamFailureLogs extends TestBaseImpl
 {
-    private static final Logger logger = LoggerFactory.getLogger(AbstractStreamFailureLogs.class);
+    protected static final Logger logger = LoggerFactory.getLogger(AbstractStreamFailureLogs.class);
 
     protected static final int FAILING_NODE = 2;
 
@@ -79,32 +78,7 @@ public class AbstractStreamFailureLogs extends TestBaseImpl
         }
     }
 
-    protected void streamTimeoutTest(String reason) throws IOException
-    {
-        try (Cluster cluster = Cluster.build(2)
-                                      .withInstanceInitializer(BBStreamTimeoutHelper::install)
-                                      .withConfig(c -> c.with(Feature.values())
-                                                        // when die, this will try to halt JVM, which is easier to validate in the test
-                                                        // other levels require checking state of the subsystems
-                                                        .set("stream_transfer_task_timeout", "1ms"))
-                                      .start())
-        {
-
-            init(cluster);
-            cluster.schemaChange(withKeyspace("CREATE TABLE %s.tbl (pk int PRIMARY KEY)"));
-
-            ForkJoinPool.commonPool().execute(() -> triggerStreaming(cluster, true));
-            State.STREAM_IS_RUNNING.await();
-            logger.info("Streaming is running... time to wake it up");
-            State.UNBLOCK_STREAM.signal();
-
-            IInvokableInstance failingNode = cluster.get(1);
-
-            searchForLog(failingNode, reason);
-        }
-    }
-
-    private void triggerStreaming(Cluster cluster, boolean expectedEntireSSTable)
+    protected void triggerStreaming(Cluster cluster, boolean expectedEntireSSTable)
     {
         IInvokableInstance node1 = cluster.get(1);
         IInvokableInstance node2 = cluster.get(2);
@@ -118,7 +92,7 @@ public class AbstractStreamFailureLogs extends TestBaseImpl
         node2.nodetoolResult("repair", "-full", KEYSPACE, "tbl").asserts().failure();
     }
 
-    private void searchForLog(IInvokableInstance failingNode, String reason)
+    protected void searchForLog(IInvokableInstance failingNode, String reason)
     {
         LogResult<List<String>> result = failingNode.logs().grepForErrors(-1, Pattern.compile("Stream failed:"));
         // grepForErrors will include all ERROR logs even if they don't match the pattern; for this reason need to filter after the fact
