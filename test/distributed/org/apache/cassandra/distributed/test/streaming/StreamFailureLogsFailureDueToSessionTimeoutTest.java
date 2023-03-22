@@ -83,7 +83,6 @@ public class StreamFailureLogsFailureDueToSessionTimeoutTest extends AbstractStr
     {
         public static final TestCondition STREAM_IS_RUNNING = new TestCondition();
         public static final TestCondition UNBLOCK_STREAM = new TestCondition();
-
     }
 
     @Shared
@@ -143,7 +142,10 @@ public class StreamFailureLogsFailureDueToSessionTimeoutTest extends AbstractStr
         public static boolean append(UnfilteredRowIterator partition, @SuperCall Callable<Boolean> zuper) throws Exception
         {
             if (isCaller(CassandraIncomingFile.class.getName(), "read")) // handles compressed and non-compressed
-                throw new java.nio.channels.ClosedChannelException();
+            {
+                State.STREAM_IS_RUNNING.signal();
+                State.UNBLOCK_STREAM.await();
+            }
             // different context; pass through
             return zuper.call();
         }
