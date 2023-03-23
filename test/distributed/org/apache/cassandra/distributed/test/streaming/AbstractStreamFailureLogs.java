@@ -93,15 +93,22 @@ public class AbstractStreamFailureLogs extends TestBaseImpl
 
     protected void searchForLog(IInvokableInstance failingNode, String reason)
     {
+        searchForLog(failingNode, true, reason);
+    }
+
+    protected boolean searchForLog(IInvokableInstance failingNode, boolean failIfNoMatch, String reason)
+    {
         LogResult<List<String>> result = failingNode.logs().grepForErrors(-1, Pattern.compile("Stream failed:"));
         // grepForErrors will include all ERROR logs even if they don't match the pattern; for this reason need to filter after the fact
         List<String> matches = result.getResult();
 
         matches = matches.stream().filter(s -> s.startsWith("WARN")).collect(Collectors.toList());
         logger.info("Stream failed logs found: {}", String.join("\n", matches));
+        if (matches.isEmpty() && !failIfNoMatch)
+            return false;
 
         Assertions.assertThat(matches)
-                  .describedAs("node%d expected 1 element but was not true", failingNode.config().num())
+                  .describedAs("node%d expected to find %s but could not", failingNode.config().num(), reason)
                   .hasSize(1);
         String logLine = matches.get(0);
         Assertions.assertThat(logLine).contains(reason);
@@ -112,6 +119,7 @@ public class AbstractStreamFailureLogs extends TestBaseImpl
         SimpleQueryResult qr = failingNode.executeInternalWithResult("SELECT * FROM system_views.streaming WHERE id=?", planId);
         Assertions.assertThat(qr.hasNext()).isTrue();
         Assertions.assertThat(qr.next().getString("failure_cause")).contains(reason);
+        return true;
     }
 
     public static class BBStreamHelper

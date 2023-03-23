@@ -63,15 +63,25 @@ public class StreamFailureLogsFailureDueToSessionTimeoutTest extends AbstractStr
             cluster.schemaChange(withKeyspace("CREATE TABLE %s.tbl (pk int PRIMARY KEY)"));
 
             ForkJoinPool.commonPool().execute(() -> triggerStreaming(cluster));
-            if (State.STREAM_IS_RUNNING.await(false))
-                logger.info("Streaming is running... time to wake it up");
-            else
-                logger.warn("Timeout waiting for stream to start... did it already timeout?");
+            for (int i = 0; i < 3; i++)
+            {
+                if (State.STREAM_IS_RUNNING.await(false))
+                {
+                    logger.info("Streaming is running... time to wake it up");
+                    break;
+                }
+                else
+                {
+                    if (searchForLog(cluster.get(1), false, "Session timed out"))
+                    {
+                        logger.warn("Stream timed out before this test could trigger a timeout");
+                        break;
+                    }
+                    logger.warn("Timeout waiting for stream to start... don't see the stream as timed out");
+                }
+            }
             State.UNBLOCK_STREAM.signal();
-
-            IInvokableInstance failingNode = cluster.get(1);
-
-            searchForLog(failingNode, "Session timed out");
+            searchForLog(cluster.get(1), "Session timed out");
         }
     }
 
