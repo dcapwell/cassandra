@@ -50,11 +50,6 @@ public class StreamFailureLogsFailureDueToSessionTimeoutTest extends AbstractStr
     @Test
     public void failureDueToSessionTimeout() throws IOException
     {
-        streamTimeoutTest("Session timed out");
-    }
-
-    protected void streamTimeoutTest(String reason) throws IOException
-    {
         try (Cluster cluster = Cluster.build(2)
                                       .withInstanceInitializer(BBStreamTimeoutHelper::install)
                                       .withConfig(c -> c.with(Feature.values())
@@ -68,13 +63,20 @@ public class StreamFailureLogsFailureDueToSessionTimeoutTest extends AbstractStr
             cluster.schemaChange(withKeyspace("CREATE TABLE %s.tbl (pk int PRIMARY KEY)"));
 
             ForkJoinPool.commonPool().execute(() -> triggerStreaming(cluster));
-            State.STREAM_IS_RUNNING.await();
-            logger.info("Streaming is running... time to wake it up");
-            State.UNBLOCK_STREAM.signal();
+            if (State.STREAM_IS_RUNNING.await(false))
+            {
+                logger.info("Streaming is running... time to wake it up");
+                State.UNBLOCK_STREAM.signal();
+            }
+            else
+            {
+                logger.info("Timeout waiting for stream to start... did it already timeout?");
+                State.UNBLOCK_STREAM.signal();
+            }
 
             IInvokableInstance failingNode = cluster.get(1);
 
-            searchForLog(failingNode, reason);
+            searchForLog(failingNode, "Session timed out");
         }
     }
 
@@ -92,12 +94,20 @@ public class StreamFailureLogsFailureDueToSessionTimeoutTest extends AbstractStr
 
         public void await()
         {
+            await(true);
+        }
+
+        public boolean await(boolean throwOnTimeout)
+        {
             long deadlineNanos = Clock.Global.nanoTime() + TimeUnit.MINUTES.toNanos(1);
             while (!signaled)
             {
                 long remainingMillis = TimeUnit.NANOSECONDS.toMillis(deadlineNanos - Clock.Global.nanoTime());
                 if (remainingMillis <= 0)
-                    throw new UncheckedTimeoutException("Condition not met within 1 minute");
+                {
+                    if (throwOnTimeout) throw new UncheckedTimeoutException("Condition not met within 1 minute");
+                    return false;
+                }
                 // await may block signal from triggering notify, so make sure not to block for more than 500ms
                 remainingMillis = Math.min(remainingMillis, 500);
                 synchronized (this)
@@ -112,6 +122,7 @@ public class StreamFailureLogsFailureDueToSessionTimeoutTest extends AbstractStr
                     }
                 }
             }
+            return true;
         }
 
         public void signal()
