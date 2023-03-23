@@ -64,15 +64,10 @@ public class StreamFailureLogsFailureDueToSessionTimeoutTest extends AbstractStr
 
             ForkJoinPool.commonPool().execute(() -> triggerStreaming(cluster));
             if (State.STREAM_IS_RUNNING.await(false))
-            {
                 logger.info("Streaming is running... time to wake it up");
-                State.UNBLOCK_STREAM.signal();
-            }
             else
-            {
-                logger.info("Timeout waiting for stream to start... did it already timeout?");
-                State.UNBLOCK_STREAM.signal();
-            }
+                logger.warn("Timeout waiting for stream to start... did it already timeout?");
+            State.UNBLOCK_STREAM.signal();
 
             IInvokableInstance failingNode = cluster.get(1);
 
