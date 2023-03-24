@@ -40,6 +40,7 @@ import org.apache.cassandra.io.sstable.SSTableZeroCopyWriter;
 import org.apache.cassandra.io.util.SequentialWriter;
 import org.apache.cassandra.utils.Clock;
 import org.apache.cassandra.utils.Shared;
+import org.awaitility.Awaitility;
 
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
@@ -62,25 +63,19 @@ public class StreamFailureLogsFailureDueToSessionTimeoutTest extends AbstractStr
             cluster.schemaChange(withKeyspace("CREATE TABLE %s.tbl (pk int PRIMARY KEY)"));
 
             ForkJoinPool.commonPool().execute(() -> triggerStreaming(cluster));
-            for (int i = 0; i < 3; i++)
+            try
             {
-                if (State.STREAM_IS_RUNNING.await(false))
-                {
-                    logger.info("Streaming is running... time to wake it up");
-                    break;
-                }
-                else
-                {
-                    if (searchForLog(cluster.get(1), false, "Session timed out"))
-                    {
-                        logger.warn("Stream timed out before this test could trigger a timeout");
-                        break;
-                    }
-                    logger.warn("Timeout waiting for stream to start... don't see the stream as timed out");
-                }
+                Awaitility.await("Did not see stream running or timed out")
+                          .atMost(3, TimeUnit.MINUTES)
+                          .until(() -> State.STREAM_IS_RUNNING.await(false) || searchForLog(cluster.get(1), false, "Session timed out"));
             }
-            State.UNBLOCK_STREAM.signal();
-            searchForLog(cluster.get(1), "Session timed out");
+            finally
+            {
+                State.UNBLOCK_STREAM.signal();
+            }
+            Awaitility.await("Unable to find 'Session timed out'")
+                      .atMost(1, TimeUnit.MINUTES)
+                      .until(() -> searchForLog(cluster.get(1), false, "Session timed out"));
         }
     }
 
