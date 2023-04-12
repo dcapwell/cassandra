@@ -28,7 +28,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.zip.CRC32;
-
 import javax.annotation.Nonnull;
 
 import org.slf4j.Logger;
