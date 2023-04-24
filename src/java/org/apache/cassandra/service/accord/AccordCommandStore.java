@@ -44,6 +44,7 @@ import accord.primitives.TxnId;
 import accord.utils.Invariants;
 import accord.utils.async.AsyncChain;
 import accord.utils.async.AsyncChains;
+import org.apache.cassandra.journal.AsyncWriteCallback;
 import org.apache.cassandra.service.accord.async.AsyncOperation;
 import org.apache.cassandra.utils.Clock;
 import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
@@ -282,9 +283,9 @@ public class AccordCommandStore implements CommandStore
         return journal.mustAppend(preLoadContext);
     }
 
-    public void appendToJournal(PreLoadContext preLoadContext, Runnable onDurable)
+    public void appendToJournal(PreLoadContext preLoadContext, AsyncWriteCallback callback)
     {
-        journal.append(id, preLoadContext, executor, onDurable);
+        journal.append(id, preLoadContext, executor, callback);
     }
 
     @Override
