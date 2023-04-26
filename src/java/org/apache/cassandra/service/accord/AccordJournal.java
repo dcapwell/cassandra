@@ -139,21 +139,6 @@ public class AccordJournal
         }
 
         @Override
-        public boolean equals(Object o)
-        {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-            Key key = (Key) o;
-            return storeId == key.storeId && Objects.equals(txnId, key.txnId) && type == key.type;
-        }
-
-        @Override
-        public int hashCode()
-        {
-            return Objects.hash(txnId, type, storeId);
-        }
-
-        @Override
         public String toString()
         {
             return "Key{" +
