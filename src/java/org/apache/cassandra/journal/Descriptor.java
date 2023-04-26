@@ -76,7 +76,7 @@ final class Descriptor implements Comparable<Descriptor>
      */
     final int userVersion;
 
-    private Descriptor(File directory, long timestamp, int generation, int journalVersion, int userVersion)
+    Descriptor(File directory, long timestamp, int generation, int journalVersion, int userVersion)
     {
         this.directory = directory;
         this.timestamp = timestamp;
@@ -88,6 +88,11 @@ final class Descriptor implements Comparable<Descriptor>
     static Descriptor create(File directory, long timestamp, int userVersion)
     {
         return new Descriptor(directory, timestamp, 1, CURRENT_JOURNAL_VERSION, userVersion);
+    }
+
+    static Descriptor fromFile(File file)
+    {
+        return fromName(file.parent(), file.name());
     }
 
     static Descriptor fromName(File directory, String name)
