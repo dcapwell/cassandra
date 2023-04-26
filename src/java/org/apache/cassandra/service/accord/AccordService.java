@@ -137,7 +137,6 @@ public class AccordService implements IAccordService, Shutdownable
         this.messageSink = new AccordMessageSink();
         this.configService = new AccordConfigurationService(localId);
         this.scheduler = new AccordScheduler();
-        this.journal = new AccordJournal().start();
         this.node = new Node(localId,
                              messageSink,
                              configService,
