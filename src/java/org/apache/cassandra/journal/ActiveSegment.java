@@ -19,6 +19,7 @@ package org.apache.cassandra.journal;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.StandardOpenOption;
 import java.util.*;
@@ -27,6 +28,7 @@ import java.util.concurrent.locks.LockSupport;
 
 import com.codahale.metrics.Timer;
 import org.apache.cassandra.io.util.*;
+import org.apache.cassandra.utils.SyncUtil;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.concurrent.Ref;
 import org.apache.cassandra.utils.concurrent.WaitQueue;
@@ -66,7 +68,7 @@ final class ActiveSegment<K> extends Segment<K, MutableIndex<K>>
         try
         {
             channel = FileChannel.open(file.toPath(), StandardOpenOption.WRITE, StandardOpenOption.READ, StandardOpenOption.CREATE);
-            buffer = MappedBuffer.open(channel, FileChannel.MapMode.READ_WRITE, 0, params.segmentSize());
+            buffer = channel.map(FileChannel.MapMode.READ_WRITE, 0, params.segmentSize());
             endOfBuffer = buffer.capacity();
             selfRef = new Ref<>(this, new Tidier(descriptor, channel, buffer, syncedOffsets));
         }
@@ -91,7 +93,7 @@ final class ActiveSegment<K> extends Segment<K, MutableIndex<K>>
     @Override
     boolean read(int offset, EntrySerializer.EntryHolder<K> into)
     {
-        MappedBuffer duplicate = buffer.duplicate().position(offset).limit(buffer.capacity());
+        ByteBuffer duplicate = (ByteBuffer) buffer.duplicate().position(offset).limit(buffer.capacity());
         try
         {
             EntrySerializer.read(into, keySupport, duplicate, descriptor.userVersion);
@@ -180,10 +182,10 @@ final class ActiveSegment<K> extends Segment<K, MutableIndex<K>>
     {
         private final Descriptor descriptor;
         private final FileChannel channel;
-        private final MappedBuffer buffer;
+        private final ByteBuffer buffer;
         private final SyncedOffsets syncedOffsets;
 
-        Tidier(Descriptor descriptor, FileChannel channel, MappedBuffer buffer, SyncedOffsets syncedOffsets)
+        Tidier(Descriptor descriptor, FileChannel channel, ByteBuffer buffer, SyncedOffsets syncedOffsets)
         {
             this.descriptor = descriptor;
             this.channel = channel;
@@ -194,7 +196,7 @@ final class ActiveSegment<K> extends Segment<K, MutableIndex<K>>
         @Override
         public void tidy()
         {
-            buffer.clean();
+            FileUtils.clean(buffer);
             try
             {
                 channel.close();
@@ -258,7 +260,7 @@ final class ActiveSegment<K> extends Segment<K, MutableIndex<K>>
     {
         try
         {
-            buffer.syncForce();
+            SyncUtil.force((MappedByteBuffer) buffer);
         }
         catch (Exception e) // MappedByteBuffer.force() does not declare IOException but can actually throw it
         {
@@ -316,7 +318,7 @@ final class ActiveSegment<K> extends Segment<K, MutableIndex<K>>
                 opGroup.close();
                 return null;
             }
-            return new Allocation(opGroup, buffer.duplicate().position(position).limit(position + totalSize));
+            return new Allocation(opGroup, (ByteBuffer) buffer.duplicate().position(position).limit(position + totalSize));
         }
         catch (Throwable t)
         {
@@ -352,10 +354,10 @@ final class ActiveSegment<K> extends Segment<K, MutableIndex<K>>
     final class Allocation
     {
         private final OpOrder.Group appendOp;
-        private final MappedBuffer buffer;
+        private final ByteBuffer buffer;
         private final int position;
 
-        Allocation(OpOrder.Group appendOp, MappedBuffer buffer)
+        Allocation(OpOrder.Group appendOp, ByteBuffer buffer)
         {
             this.appendOp = appendOp;
             this.buffer = buffer;
@@ -364,7 +366,7 @@ final class ActiveSegment<K> extends Segment<K, MutableIndex<K>>
 
         void write(K id, ByteBuffer record, Set<Integer> hosts)
         {
-            try (DataOutputStreamPlus out = buffer.out())
+            try (BufferedDataOutputStreamPlus out = new DataOutputBufferFixed(buffer))
             {
                 EntrySerializer.write(id, record, hosts, keySupport, out, descriptor.userVersion);
                 index.update(id, position);

@@ -19,6 +19,7 @@ package org.apache.cassandra.journal;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
@@ -32,7 +33,6 @@ import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.io.util.File;
 import org.apache.cassandra.io.util.FileUtils;
-import org.apache.cassandra.io.util.MappedBuffer;
 import org.apache.cassandra.utils.Crc;
 
 import static org.apache.cassandra.journal.Journal.validateCRC;
@@ -56,13 +56,13 @@ final class OnDiskIndex<K> extends Index<K>
     private final Descriptor descriptor;
 
     private final FileChannel channel;
-    private volatile MappedBuffer buffer;
+    private volatile MappedByteBuffer buffer;
     private final int entryCount;
 
     private volatile K firstId, lastId;
 
     private OnDiskIndex(
-        Descriptor descriptor, KeySupport<K> keySupport, FileChannel channel, MappedBuffer buffer, int entryCount)
+        Descriptor descriptor, KeySupport<K> keySupport, FileChannel channel, MappedByteBuffer buffer, int entryCount)
     {
         super(keySupport);
 
@@ -83,11 +83,11 @@ final class OnDiskIndex<K> extends Index<K>
     {
         File file = descriptor.fileFor(Component.INDEX);
         FileChannel channel = null;
-        MappedBuffer buffer = null;
+        MappedByteBuffer buffer = null;
         try
         {
             channel = FileChannel.open(file.toPath(), StandardOpenOption.READ);
-            buffer = MappedBuffer.open(channel, FileChannel.MapMode.READ_ONLY, 0, channel.size());
+            buffer = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size());
 
             int entryCount = buffer.getInt(0);
             OnDiskIndex<K> index = new OnDiskIndex<>(descriptor, keySupport, channel, buffer, entryCount);
@@ -97,8 +97,7 @@ final class OnDiskIndex<K> extends Index<K>
         }
         catch (Throwable e)
         {
-            if (buffer != null)
-                buffer.clean();
+            FileUtils.clean(buffer);
             FileUtils.closeQuietly(channel);
             throw new JournalReadError(descriptor, file, e);
         }
@@ -118,7 +117,7 @@ final class OnDiskIndex<K> extends Index<K>
     {
         try
         {
-            buffer.clean();
+            FileUtils.clean(buffer);
             buffer = null;
             channel.close();
         }
@@ -132,13 +131,13 @@ final class OnDiskIndex<K> extends Index<K>
     {
         CRC32 crc = Crc.crc32();
 
-        try (DataInputBuffer in = buffer.duplicate().in())
+        try (DataInputBuffer in = new DataInputBuffer(buffer, true))
         {
             int entryCount = in.readInt();
             updateChecksumInt(crc, entryCount);
             validateCRC(crc, in.readInt());
 
-            crc.update(buffer.read(FILE_PREFIX_SIZE, entryCount * ENTRY_SIZE));
+            Crc.updateCrc32(crc, buffer, FILE_PREFIX_SIZE, FILE_PREFIX_SIZE + entryCount * ENTRY_SIZE);
             in.skipBytesFully(entryCount * ENTRY_SIZE);
             validateCRC(crc, in.readInt());
 
@@ -245,8 +244,7 @@ final class OnDiskIndex<K> extends Index<K>
 
     private K keyAtIndex(int index)
     {
-        ByteBuffer bb = buffer.read(FILE_PREFIX_SIZE + index * ENTRY_SIZE, keySupport.serializedSize(descriptor.userVersion));
-        return keySupport.deserialize(bb, 0, descriptor.userVersion);
+        return keySupport.deserialize(buffer, FILE_PREFIX_SIZE + index * ENTRY_SIZE, descriptor.userVersion);
     }
 
     private int offsetAtIndex(int index)
@@ -284,8 +282,7 @@ final class OnDiskIndex<K> extends Index<K>
     private int compareWithKeyAt(K key, int keyIndex)
     {
         int offset = FILE_PREFIX_SIZE + ENTRY_SIZE * keyIndex;
-        ByteBuffer bb = buffer.read(offset, keySupport.serializedSize(descriptor.userVersion));
-        return keySupport.compareWithKeyAt(key, bb, 0, descriptor.userVersion);
+        return keySupport.compareWithKeyAt(key, buffer, offset, descriptor.userVersion);
     }
 
     static <K> OnDiskIndex<K> rebuildAndPersist(Descriptor descriptor, KeySupport<K> keySupport, int fsyncedLimit)

@@ -27,7 +27,6 @@ import org.agrona.collections.IntHashSet;
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.io.util.DataOutputPlus;
-import org.apache.cassandra.io.util.MappedBuffer;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.Crc;
 
@@ -74,14 +73,14 @@ final class EntrySerializer
 
     static <K> void read(EntryHolder<K> into,
                          KeySupport<K> keySupport,
-                         MappedBuffer buffer,
+                         ByteBuffer buffer,
                          int userVersion)
     throws IOException
     {
         CRC32 crc = Crc.crc32();
         into.clear();
 
-        DataInputBuffer in = buffer.in();
+        DataInputBuffer in = new DataInputBuffer(buffer, false);
 
         K key = keySupport.deserialize(in, userVersion);
         keySupport.updateChecksum(crc, key, userVersion);
@@ -111,7 +110,7 @@ final class EntrySerializer
 
     static <K> boolean tryRead(EntryHolder<K> into,
                                KeySupport<K> keySupport,
-                               MappedBuffer buffer,
+                               ByteBuffer buffer,
                                DataInputBuffer in,
                                int syncedOffset,
                                int userVersion)
@@ -124,8 +123,7 @@ final class EntrySerializer
         if (buffer.remaining() < fixedSize)
             return handleReadException(new EOFException(), buffer.limit(), syncedOffset);
 
-        ByteBuffer bb = buffer.read(buffer.position(), fixedSize - TypeSizes.INT_SIZE);
-        updateChecksum(crc, bb, 0, bb.remaining());
+        updateChecksum(crc, buffer, buffer.position(), fixedSize - TypeSizes.INT_SIZE);
         int fixedCrc = buffer.getInt(buffer.position() + fixedSize - TypeSizes.INT_SIZE);
 
         try
@@ -154,8 +152,7 @@ final class EntrySerializer
         if (buffer.remaining() < variableSize)
             return handleReadException(new EOFException(), buffer.limit(), syncedOffset);
 
-        bb = buffer.read(buffer.position(), variableSize - TypeSizes.INT_SIZE);
-        updateChecksum(crc, bb, 0, bb.remaining());
+        updateChecksum(crc, buffer, buffer.position(), variableSize - TypeSizes.INT_SIZE);
         int variableCrc = buffer.getInt(buffer.position() + variableSize - TypeSizes.INT_SIZE);
 
         try
@@ -181,7 +178,9 @@ final class EntrySerializer
             throw new AssertionError(); // can't happen
         }
 
-        into.value = buffer.read(buffer.position() - recordSize, recordSize);
+        into.value = (ByteBuffer) buffer.duplicate()
+                                        .position(buffer.position() - recordSize)
+                                        .limit(buffer.position());
 
         in.skipBytesFully(TypeSizes.INT_SIZE);
         return true;

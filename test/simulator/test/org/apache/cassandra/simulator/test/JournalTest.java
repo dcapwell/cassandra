@@ -57,7 +57,6 @@ import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.io.util.File;
 import org.apache.cassandra.io.util.Files;
-import org.apache.cassandra.io.util.MappedBuffer;
 import org.apache.cassandra.journal.AsyncWriteCallback;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.KeyspaceParams;
@@ -78,12 +77,6 @@ import org.apache.cassandra.utils.concurrent.CountDownLatch;
 
 public class JournalTest extends SimulationTestBase
 {
-    static
-    {
-        System.setProperty(MappedBuffer.KEY_TYPE, MappedBuffer.Type.MOCKED.name());
-    }
-
-
     @Test
     public void test() throws IOException
     {
