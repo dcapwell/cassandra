@@ -19,7 +19,9 @@
 package org.apache.cassandra.simulator.test;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import javax.annotation.Nullable;
 
 import com.google.common.collect.ImmutableMap;
@@ -56,6 +58,7 @@ import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.io.util.File;
 import org.apache.cassandra.io.util.Files;
 import org.apache.cassandra.io.util.MappedBuffer;
+import org.apache.cassandra.journal.AsyncWriteCallback;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.schema.Schema;
@@ -103,6 +106,12 @@ public class JournalTest extends SimulationTestBase
         catch (InterruptedException e)
         {
             throw new AssertionError(e);
+        }
+        if (!State.exceptions.isEmpty())
+        {
+            AssertionError error = new AssertionError("Exceptions found during test");
+            State.exceptions.forEach(error::addSuppressed);
+            throw error;
         }
         State.journal.shutdown();
         State.logger.info("Run complete");
@@ -167,6 +176,7 @@ public class JournalTest extends SimulationTestBase
         private static final int events = 100;
         private static final CountDownLatch eventsWritten = CountDownLatch.newCountDownLatch(events);
         private static final CountDownLatch eventsDurable = CountDownLatch.newCountDownLatch(events);
+        private static final List<Throwable> exceptions = new CopyOnWriteArrayList<>();
 
         static
         {
@@ -176,7 +186,21 @@ public class JournalTest extends SimulationTestBase
         public static void append(int event)
         {
             TxnRequest<?> request = toRequest(event);
-            journal.append(0, request, executor, () -> durable(event));
+            journal.append(0, request, executor, new AsyncWriteCallback()
+            {
+                @Override
+                public void onSuccess()
+                {
+                    durable(event);
+                }
+
+                @Override
+                public void onError(Throwable error)
+                {
+                    eventsDurable.decrement(); // to make sure we don't block forever
+                    exceptions.add(error);
+                }
+            });
             eventsWritten.decrement();
             logger.info("append({}); remaining {}", event, eventsWritten.count());
         }
