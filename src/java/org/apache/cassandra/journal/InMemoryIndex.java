@@ -32,7 +32,7 @@ import org.apache.cassandra.io.util.FileOutputStreamPlus;
 /**
  * An index for a segment that's still being updated by journal writers concurrently.
  */
-final class InMemoryIndex<K> extends Index<K>
+final class InMemoryIndex<K> extends MutableIndex<K>
 {
     private static final int[] EMPTY = new int[0];
 

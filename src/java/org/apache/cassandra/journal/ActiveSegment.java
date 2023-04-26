@@ -19,7 +19,6 @@ package org.apache.cassandra.journal;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.StandardOpenOption;
 import java.util.*;
@@ -28,12 +27,11 @@ import java.util.concurrent.locks.LockSupport;
 
 import com.codahale.metrics.Timer;
 import org.apache.cassandra.io.util.*;
-import org.apache.cassandra.utils.*;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.concurrent.Ref;
 import org.apache.cassandra.utils.concurrent.WaitQueue;
 
-final class ActiveSegment<K> extends Segment<K>
+final class ActiveSegment<K> extends Segment<K, MutableIndex<K>>
 {
     final FileChannel channel;
 
@@ -58,10 +56,10 @@ final class ActiveSegment<K> extends Segment<K>
     // a signal that writers can wait on to be notified of a completed flush in BATCH and GROUP FlushMode
     private final WaitQueue flushComplete = WaitQueue.newWaitQueue();
 
-    private final Ref<Segment<K>> selfRef;
+    private final Ref<Segment<K, ?>> selfRef;
 
     private ActiveSegment(
-        Descriptor descriptor, Params params, SyncedOffsets syncedOffsets, Index<K> index, Metadata metadata, KeySupport<K> keySupport)
+        Descriptor descriptor, Params params, SyncedOffsets syncedOffsets, MutableIndex<K> index, Metadata metadata, KeySupport<K> keySupport)
     {
         super(descriptor, syncedOffsets, index, metadata, keySupport);
 
@@ -81,7 +79,7 @@ final class ActiveSegment<K> extends Segment<K>
     static <K> ActiveSegment<K> create(Descriptor descriptor, Params params, KeySupport<K> keySupport)
     {
         SyncedOffsets syncedOffsets = SyncedOffsets.active(descriptor, true);
-        Index<K> index = InMemoryIndex.create(keySupport);
+        MutableIndex<K> index = InMemoryIndex.create(keySupport);
         Metadata metadata = Metadata.create();
         return new ActiveSegment<>(descriptor, params, syncedOffsets, index, metadata, keySupport);
     }
@@ -167,13 +165,13 @@ final class ActiveSegment<K> extends Segment<K>
     }
 
     @Override
-    public Ref<Segment<K>> tryRef()
+    public Ref<Segment<K, ?>> tryRef()
     {
         return selfRef.tryRef();
     }
 
     @Override
-    public Ref<Segment<K>> ref()
+    public Ref<Segment<K, ?>> ref()
     {
         return selfRef.ref();
     }

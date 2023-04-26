@@ -39,11 +39,11 @@ import org.apache.cassandra.utils.concurrent.Ref;
  * Can be compacted with input from {@code PersistedInvalidations} into a new smaller segment,
  * with invalidated entries removed.
  */
-final class StaticSegment<K> extends Segment<K>
+final class StaticSegment<K> extends Segment<K, Index<K>>
 {
     final FileChannel channel;
 
-    private final Ref<Segment<K>> selfRef;
+    private final Ref<Segment<K, ?>> selfRef;
 
     private StaticSegment(Descriptor descriptor,
                           FileChannel channel,
@@ -128,13 +128,13 @@ final class StaticSegment<K> extends Segment<K>
     }
 
     @Override
-    public Ref<Segment<K>> tryRef()
+    public Ref<Segment<K, ?>> tryRef()
     {
         return selfRef.tryRef();
     }
 
     @Override
-    public Ref<Segment<K>> ref()
+    public Ref<Segment<K, ?>> ref()
     {
         return selfRef.ref();
     }

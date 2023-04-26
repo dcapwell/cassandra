@@ -17,25 +17,23 @@
  */
 package org.apache.cassandra.journal;
 
-import java.nio.ByteBuffer;
-
 import org.apache.cassandra.io.util.File;
 import org.apache.cassandra.io.util.MappedBuffer;
 import org.apache.cassandra.utils.*;
 import org.apache.cassandra.utils.concurrent.RefCounted;
 
-abstract class Segment<K> implements Closeable, RefCounted<Segment<K>>
+abstract class Segment<K, I extends Index<K>> implements Closeable, RefCounted<Segment<K, ?>>
 {
     final File file;
     final Descriptor descriptor;
     final SyncedOffsets syncedOffsets;
-    final Index<K> index;
+    final I index;
     final Metadata metadata;
     final KeySupport<K> keySupport;
 
     MappedBuffer buffer;
 
-    Segment(Descriptor descriptor, SyncedOffsets syncedOffsets, Index<K> index, Metadata metadata, KeySupport<K> keySupport)
+    Segment(Descriptor descriptor, SyncedOffsets syncedOffsets, I index, Metadata metadata, KeySupport<K> keySupport)
     {
         this.file = descriptor.fileFor(Component.DATA);
         this.descriptor = descriptor;

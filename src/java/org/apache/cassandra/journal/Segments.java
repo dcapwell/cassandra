@@ -46,7 +46,7 @@ class Segments<K>
     private final Map<Descriptor, StaticSegment<K>> staticSegments;
 
     // cached Iterable of concatenated active and static segments
-    private final Iterable<Segment<K>> allSegments;
+    private final Iterable<Segment<K, ?>> allSegments;
 
     Segments(List<ActiveSegment<K>> activeSegments, Map<Descriptor, StaticSegment<K>> staticSegments)
     {
@@ -115,7 +115,7 @@ class Segments<K>
         return new Segments<>(activeSegments, newStaticSegments);
     }
 
-    Iterable<Segment<K>> all()
+    Iterable<Segment<K, ?>> all()
     {
         return allSegments;
     }
@@ -162,7 +162,7 @@ class Segments<K>
         }
         if (null == selectedStatic) selectedStatic = emptyMap();
 
-        Refs<Segment<K>> refs = null;
+        Refs<Segment<K, ?>> refs = null;
         if (!selectedActive.isEmpty() || !selectedStatic.isEmpty())
         {
             refs = Refs.tryRef(Iterables.concat(selectedActive, selectedStatic.values()));
@@ -174,10 +174,10 @@ class Segments<K>
 
     static class ReferencedSegments<K> extends Segments<K> implements AutoCloseable
     {
-        public final Refs<Segment<K>> refs;
+        public final Refs<Segment<K, ?>> refs;
 
         ReferencedSegments(
-            List<ActiveSegment<K>> activeSegments, Map<Descriptor, StaticSegment<K>> staticSegments, Refs<Segment<K>> refs)
+            List<ActiveSegment<K>> activeSegments, Map<Descriptor, StaticSegment<K>> staticSegments, Refs<Segment<K, ?>> refs)
         {
             super(activeSegments, staticSegments);
             this.refs = refs;

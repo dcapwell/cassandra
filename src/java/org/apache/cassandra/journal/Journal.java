@@ -185,7 +185,7 @@ public class Journal<K, V>
     {
         try (ReferencedSegments<K> segments = selectAndReference(id))
         {
-            for (Segment<K> segment : segments.all())
+            for (Segment<K, ?> segment : segments.all())
                 if (segment.read(id, consumer))
                     return true;
         }
@@ -211,7 +211,7 @@ public class Journal<K, V>
 
         try (ReferencedSegments<K> segments = selectAndReference(id))
         {
-            for (Segment<K> segment : segments.all())
+            for (Segment<K, ?> segment : segments.all())
             {
                 if (segment.read(id, holder))
                 {

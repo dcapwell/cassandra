@@ -288,18 +288,6 @@ final class OnDiskIndex<K> extends Index<K>
         return keySupport.compareWithKeyAt(key, bb, 0, descriptor.userVersion);
     }
 
-    @Override
-    public void update(K id, int offset)
-    {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void persist(Descriptor descriptor)
-    {
-        throw new UnsupportedOperationException();
-    }
-
     static <K> OnDiskIndex<K> rebuildAndPersist(Descriptor descriptor, KeySupport<K> keySupport, int fsyncedLimit)
     {
         InMemoryIndex<K> index = InMemoryIndex.rebuild(descriptor, keySupport, fsyncedLimit);
