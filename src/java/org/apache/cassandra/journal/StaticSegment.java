@@ -310,20 +310,19 @@ final class StaticSegment<K> extends Segment<K, Index<K>>
 
         private boolean doAdvance()
         {
-            throw new UnsupportedOperationException();
-//            offset = buffer.position();
-//            try
-//            {
-//                if (!EntrySerializer.tryRead(holder, keySupport, buffer, in, fsyncedLimit, descriptor.userVersion))
-//                    return eof();
-//            }
-//            catch (IOException e)
-//            {
-//                throw new JournalReadError(descriptor, file, e);
-//            }
-//
-//            state = State.ADVANCED;
-//            return true;
+            offset = buffer.position();
+            try
+            {
+                if (!EntrySerializer.tryRead(holder, keySupport, buffer, in, fsyncedLimit, descriptor.userVersion))
+                    return eof();
+            }
+            catch (IOException e)
+            {
+                throw new JournalReadError(descriptor, file, e);
+            }
+
+            state = State.ADVANCED;
+            return true;
         }
 
         private void reset()
