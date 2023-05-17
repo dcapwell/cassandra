@@ -41,6 +41,7 @@ import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -100,6 +101,7 @@ import org.apache.cassandra.security.SSLFactory;
 import org.apache.cassandra.service.CacheService.CacheType;
 import org.apache.cassandra.service.paxos.Paxos;
 import org.apache.cassandra.utils.FBUtilities;
+import org.yaml.snakeyaml.introspector.Property;
 
 import static org.apache.cassandra.config.CassandraRelevantProperties.ALLOCATE_TOKENS_FOR_KEYSPACE;
 import static org.apache.cassandra.config.CassandraRelevantProperties.ALLOW_UNLIMITED_CONCURRENT_VALIDATIONS;
@@ -147,6 +149,20 @@ public class DatabaseDescriptor
      * when we send them over the wire, which works out to about 1700 tokens.
      */
     private static final int MAX_NUM_TOKENS = 1536;
+
+    private static final Map<String, Property> PROPS = new ConcurrentHashMap<>(new DefaultLoader().flatten(Config.class));
+
+    public static <A, B> boolean addListener(String name, ConfigListener<A, B> listener)
+    {
+        ListenableProperty<A, B> listenable = (ListenableProperty<A, B>) PROPS.compute(name, (ignore, existing) -> {
+            if (existing == null)
+                throw new IllegalArgumentException("Unknown property: " + name);
+            if (existing instanceof ListenableProperty)
+                return existing;
+            return new ListenableProperty<>(existing);
+        });
+        return listenable.add(name, listener);
+    }
 
     private static Config conf;
 
@@ -735,11 +751,8 @@ public class DatabaseDescriptor
         if (conf.memtable_cleanup_threshold < 0.1f)
             logger.warn("memtable_cleanup_threshold is set very low [{}], which may cause performance degradation", conf.memtable_cleanup_threshold);
 
-        if (conf.concurrent_compactors == null)
-            conf.concurrent_compactors = Math.min(8, Math.max(2, Math.min(FBUtilities.getAvailableProcessors(), conf.data_file_directories.length)));
-
-        if (conf.concurrent_compactors <= 0)
-            throw new ConfigurationException("concurrent_compactors should be strictly greater than 0, but was " + conf.concurrent_compactors, false);
+        conf.concurrent_compactors = validateConcurrentCompactors(conf, "concurrent_compactors", conf.concurrent_compactors);
+        addListener("DD::concurrent_compactors", DatabaseDescriptor::validateConcurrentCompactors);
 
         applyConcurrentValidations(conf);
         applyRepairCommandPoolSize(conf);
@@ -951,6 +964,15 @@ public class DatabaseDescriptor
 
         if (conf.dump_heap_on_uncaught_exception && DatabaseDescriptor.getHeapDumpPath() == null)
             throw new ConfigurationException(String.format("Invalid configuration. Heap dump is enabled but cannot create heap dump output path: %s.", conf.heap_dump_path != null ? conf.heap_dump_path : "null"));
+    }
+
+    public static Integer validateConcurrentCompactors(Config conf, String name, Integer value)
+    {
+        if (value == null)
+            return Math.min(8, Math.max(2, Math.min(FBUtilities.getAvailableProcessors(), conf.data_file_directories.length)));
+        if (value <= 0)
+            throw new ConfigurationException(name + " should be strictly greater than 0, but was " + value, false);
+        return value;
     }
 
     public static DataStorageSpec.IntMebibytesBound validateRepairSessionSpace(Config config, String name, DataStorageSpec.IntMebibytesBound value)
