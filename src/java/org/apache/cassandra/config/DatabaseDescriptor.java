@@ -164,6 +164,35 @@ public class DatabaseDescriptor
         return listenable.add(name, listener);
     }
 
+    public static <A, B> void addAndApplyListener(String name, ConfigListener<A, B> listener)
+    {
+        addListener(name, listener);
+        setProperty(name, getProperty(name));
+    }
+
+    public static <A> A getProperty(String name)
+    {
+        Property prop = PROPS.get(name);
+        if (prop == null)
+            throw new IllegalArgumentException("Unknown property: " + name);
+        return (A) prop.get(conf);
+    }
+
+    public static <A> void setProperty(String name, A value)
+    {
+        Property prop = PROPS.get(name);
+        if (prop == null)
+            throw new IllegalArgumentException("Unknown property: " + name);
+        try
+        {
+            prop.set(conf, value);
+        }
+        catch (Exception e)
+        {
+            throw new RuntimeException(e);
+        }
+    }
+
     private static Config conf;
 
     /**
@@ -751,8 +780,7 @@ public class DatabaseDescriptor
         if (conf.memtable_cleanup_threshold < 0.1f)
             logger.warn("memtable_cleanup_threshold is set very low [{}], which may cause performance degradation", conf.memtable_cleanup_threshold);
 
-        conf.concurrent_compactors = validateConcurrentCompactors(conf, "concurrent_compactors", conf.concurrent_compactors);
-        addListener("DD::concurrent_compactors", DatabaseDescriptor::validateConcurrentCompactors);
+        addAndApplyListener("DD::concurrent_compactors", DatabaseDescriptor::validateConcurrentCompactors);
 
         applyConcurrentValidations(conf);
         applyRepairCommandPoolSize(conf);
