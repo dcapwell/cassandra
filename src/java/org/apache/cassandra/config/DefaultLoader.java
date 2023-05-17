@@ -24,10 +24,15 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
+import com.google.common.base.Strings;
+
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import org.apache.cassandra.utils.FBUtilities;
 import org.yaml.snakeyaml.error.YAMLException;
 import org.yaml.snakeyaml.introspector.FieldProperty;
 import org.yaml.snakeyaml.introspector.MethodProperty;
@@ -79,7 +84,74 @@ public class DefaultLoader implements Loader
         {
             throw new RuntimeException(e);
         }
+        Map<String, ListenableProperty<?, ?>> listenable = new HashMap<>();
+        for (Map.Entry<String, Property> e : properties.entrySet())
+        {
+            Property delegate = e.getValue();
+            ValidateList vl = delegate.getAnnotation(ValidateList.class);
+            if (vl != null && vl.value().length > 0)
+            {
+                listenable.put(e.getKey(), addValidations(delegate, vl.value()));
+            }
+            else
+            {
+                Validate v = delegate.getAnnotation(Validate.class);
+                if (v != null)
+                    listenable.put(e.getKey(), addValidations(delegate, new Validate[] {v}));
+            }
+        }
+        if (!listenable.isEmpty())
+            properties.putAll(listenable); // override
         return properties;
+    }
+
+    private static ListenableProperty<?, ?> addValidations(Property delegate, Validate[] values)
+    {
+        ListenableProperty<?, ?> prop = new ListenableProperty<>(delegate);
+        for (Validate v : values)
+            add(prop, v);
+        return prop;
+    }
+
+    private static void add(ListenableProperty<?, ?> prop, Validate validate)
+    {
+        String klassName = validate.klass();
+        if (Strings.isNullOrEmpty(validate.method()))
+        {
+            prop.add(klassName, FBUtilities.construct(klassName, "ConfigListener"));
+        }
+        else
+        {
+            Class<?> klass = FBUtilities.classForName(klassName, "ConfigListener");
+            List<Method> matches = new ArrayList<>();
+            for (Method method : klass.getDeclaredMethods())
+            {
+                if (method.getName().equals(validate.method()) && Modifier.isStatic(method.getModifiers()) && Modifier.isPublic(method.getModifiers()))
+                    matches.add(method);
+            }
+            switch (matches.size())
+            {
+                case 0:
+                    throw new IllegalArgumentException(String.format("Validate for %s asked for class %s and method %s, but could not find method", prop, klass, validate.method()));
+                case 1:
+                    add(prop, matches.get(0));
+                    break;
+                default:
+                    throw new IllegalArgumentException(String.format("Validate for %s asked for class %s and method %s, but found %d matches; need to limit to 1", prop, klass, validate.method(), matches.size()));
+            }
+        }
+    }
+
+    private static boolean add(ListenableProperty<?, ?> prop, Method method)
+    {
+        String name = method.getDeclaringClass().getCanonicalName() + "#" + method.getName();
+        switch (method.getParameterCount())
+        {
+            case 3:
+                return prop.add(name, new AllArgsListener<>(method));
+            default:
+                throw new IllegalArgumentException("Listenable with argument count " + method.getParameterCount() + " not supported yet");
+        }
     }
 
     /**
@@ -113,6 +185,34 @@ public class DefaultLoader implements Loader
             catch (InvocationTargetException e)
             {
                 throw new YAMLException("Failed calling getter for property '" + getName() + "' on class " + object.getClass().getName(), e.getCause());
+            }
+        }
+    }
+
+    private static class AllArgsListener<A, B> implements ConfigListener<A, B>
+    {
+        private final Method method;
+
+        public AllArgsListener(Method method)
+        {
+            this.method = method;
+        }
+
+        @Override
+        public B visit(A object, String name, B value)
+        {
+            try
+            {
+                Object result = method.invoke(null, object, name, value);
+                return method.getReturnType() == Void.TYPE ? value : (B) result;
+            }
+            catch (IllegalAccessException e)
+            {
+                throw new AssertionError("Unable to access public static method", e);
+            }
+            catch (InvocationTargetException e)
+            {
+                throw new IllegalArgumentException(e.getTargetException());
             }
         }
     }

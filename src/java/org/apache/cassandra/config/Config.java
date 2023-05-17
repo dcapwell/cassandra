@@ -1228,4 +1228,20 @@ public class Config
     public String heap_dump_path = "heapdump";
 
     public double severity_during_decommission = 0;
+
+    @Validate(klass = "org.apache.cassandra.config.Config", method = "nonNull")
+    @Validate(klass = "org.apache.cassandra.config.Config", method = "validateDeleteme")
+    public Long delete_me = 42L;
+
+    public static void nonNull(Config c, String name, Object value)
+    {
+        if (value == null)
+            throw new IllegalArgumentException("Config " + name + " may not be null");
+    }
+
+    public static void validateDeleteme(Config c, String name, Long value)
+    {
+        if (value != 42)
+            throw new IllegalArgumentException("Config " + name + " must only be 42; given " + value);
+    }
 }

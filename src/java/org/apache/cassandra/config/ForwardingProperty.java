@@ -32,6 +32,11 @@ public class ForwardingProperty extends Property
 {
     private final Property delegate;
 
+    public ForwardingProperty(Property property)
+    {
+        this(property.getName(), property);
+    }
+
     public ForwardingProperty(String name, Property property)
     {
         this(name, property.getType(), property);

@@ -33,7 +33,9 @@ import org.junit.Test;
 
 import org.apache.cassandra.distributed.shared.WithProperties;
 import org.apache.cassandra.io.util.File;
+import org.assertj.core.api.Assertions;
 import org.yaml.snakeyaml.error.YAMLException;
+import org.yaml.snakeyaml.introspector.Property;
 
 import static org.apache.cassandra.config.CassandraRelevantProperties.CONFIG_ALLOW_SYSTEM_PROPERTIES;
 import static org.apache.cassandra.config.DataStorageSpec.DataStorageUnit.KIBIBYTES;
@@ -355,6 +357,26 @@ public class YamlConfigurationLoaderTest
         // NEGATIVE_MEBIBYTES_DATA_STORAGE_INT
         assertThat(from("sstable_preemptive_open_interval_in_mb", "1").sstable_preemptive_open_interval.toMebibytes()).isEqualTo(1);
         assertThat(from("sstable_preemptive_open_interval_in_mb", -2).sstable_preemptive_open_interval).isNull();
+    }
+
+    @Test
+    public void deleteme()
+    {
+        Assertions.assertThatThrownBy(() -> from("delete_me", 43))
+        .hasMessageContaining("Config delete_me must only be 42; given 43");
+
+        Config valid = from("delete_me", 42);
+        Map<String, Property> props = new DefaultLoader().getProperties(Config.class);
+        ((ListenableProperty<Object, Object>) props.get("delete_me")).add("block everything", new ConfigListener<Object, Object>()
+        {
+            @Override
+            public Object visit(Object object, String name, Object value)
+            {
+                throw new IllegalArgumentException("Never touch this!");
+            }
+        });
+        Assertions.assertThatThrownBy(() -> props.get("delete_me").set(valid, 42L))
+        .hasMessage("Never touch this!");
     }
 
     private static Config from(Object... values)
