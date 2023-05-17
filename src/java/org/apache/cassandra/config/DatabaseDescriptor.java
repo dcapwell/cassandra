@@ -576,14 +576,6 @@ public class DatabaseDescriptor
             conf.repair_session_max_tree_depth = 20;
         }
 
-        if (conf.repair_session_space == null)
-            conf.repair_session_space = new DataStorageSpec.IntMebibytesBound(Math.max(1, (int) (Runtime.getRuntime().maxMemory() / (16 * 1048576))));
-
-        if (conf.repair_session_space.toMebibytes() < 1)
-            throw new ConfigurationException("repair_session_space must be > 0, but was " + conf.repair_session_space);
-        else if (conf.repair_session_space.toMebibytes() > (int) (Runtime.getRuntime().maxMemory() / (4 * 1048576)))
-            logger.warn("A repair_session_space of " + conf.repair_session_space+ " mebibytes is likely to cause heap pressure");
-
         checkForLowestAcceptedTimeouts(conf);
 
         long valueInBytes = conf.native_transport_max_frame_size.toBytes();
@@ -959,6 +951,18 @@ public class DatabaseDescriptor
 
         if (conf.dump_heap_on_uncaught_exception && DatabaseDescriptor.getHeapDumpPath() == null)
             throw new ConfigurationException(String.format("Invalid configuration. Heap dump is enabled but cannot create heap dump output path: %s.", conf.heap_dump_path != null ? conf.heap_dump_path : "null"));
+    }
+
+    public static DataStorageSpec.IntMebibytesBound validateRepairSessionSpace(Config config, String name, DataStorageSpec.IntMebibytesBound value)
+    {
+        if (value == null)
+            return new DataStorageSpec.IntMebibytesBound(Math.max(1, (int) (Runtime.getRuntime().maxMemory() / (16 * 1048576))));
+
+        if (value.toMebibytes() < 1)
+            throw new ConfigurationException("repair_session_space must be > 0, but was " + value);
+        else if (value.toMebibytes() > (int) (Runtime.getRuntime().maxMemory() / (4 * 1048576)))
+            logger.warn("A repair_session_space of " + value+ " mebibytes is likely to cause heap pressure");
+        return value;
     }
 
     @VisibleForTesting

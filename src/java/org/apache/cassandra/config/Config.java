@@ -205,7 +205,8 @@ public class Config
     @Deprecated
     public volatile Integer repair_session_max_tree_depth = null;
     @Replaces(oldName = "repair_session_space_in_mb", converter = Converters.MEBIBYTES_DATA_STORAGE_INT, deprecated = true)
-    public volatile DataStorageSpec.IntMebibytesBound repair_session_space = null;
+    @Validate(klass = "org.apache.cassandra.config.DatabaseDescriptor", method = "validateRepairSessionSpace")
+    public volatile DataStorageSpec.IntMebibytesBound repair_session_space = new DataStorageSpec.IntMebibytesBound(Math.max(1, (int) (Runtime.getRuntime().maxMemory() / (16 * 1048576))));
 
     public volatile boolean use_offheap_merkle_trees = true;
 
