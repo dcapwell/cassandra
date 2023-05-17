@@ -166,11 +166,21 @@ public class DatabaseDescriptor
 
     public static <A, B> void addAndApplyListener(String name, ConfigListener<A, B> listener)
     {
+        addAndApplyListener(conf, name, listener);
+    }
+
+    public static <A, B> void addAndApplyListener(Config conf, String name, ConfigListener<A, B> listener)
+    {
         addListener(name, listener);
-        setProperty(name, getProperty(name));
+        setProperty(conf, name, getProperty(conf, name));
     }
 
     public static <A> A getProperty(String name)
+    {
+        return getProperty(conf, name);
+    }
+
+    public static <A> A getProperty(Config conf, String name)
     {
         Property prop = PROPS.get(name);
         if (prop == null)
@@ -179,6 +189,11 @@ public class DatabaseDescriptor
     }
 
     public static <A> void setProperty(String name, A value)
+    {
+        setProperty(conf, name, value);
+    }
+
+    public static <A> void setProperty(Config conf, String name, A value)
     {
         Property prop = PROPS.get(name);
         if (prop == null)
@@ -780,7 +795,7 @@ public class DatabaseDescriptor
         if (conf.memtable_cleanup_threshold < 0.1f)
             logger.warn("memtable_cleanup_threshold is set very low [{}], which may cause performance degradation", conf.memtable_cleanup_threshold);
 
-        addAndApplyListener("DD::concurrent_compactors", DatabaseDescriptor::validateConcurrentCompactors);
+        addAndApplyListener(conf, "DD::concurrent_compactors", DatabaseDescriptor::validateConcurrentCompactors);
 
         applyConcurrentValidations(conf);
         applyRepairCommandPoolSize(conf);
