@@ -18,7 +18,23 @@
 
 package org.apache.cassandra.config;
 
+import java.util.function.Consumer;
+import java.util.function.Function;
+
 public interface ConfigListener<A, B>
 {
     B visit(A object, String name, B value);
+
+    static <A, B> ConfigListener<A, B> valueOnly(Consumer<? super B> fn)
+    {
+        return (o, n, v) -> {
+            fn.accept(v);
+            return v;
+        };
+    }
+
+    static <A, B> ConfigListener<A, B> value(Function<? super B, ? extends B> fn)
+    {
+        return (o, n, v) -> fn.apply(v);
+    }
 }
