@@ -37,12 +37,16 @@ import com.google.common.collect.Iterators;
 import com.google.common.collect.PeekingIterator;
 import org.apache.commons.lang3.ObjectUtils;
 
+import accord.primitives.Ranges;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.dht.Token.TokenFactory;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.service.accord.TokenRange;
+import org.apache.cassandra.service.accord.api.AccordRoutingKey;
+import org.apache.cassandra.service.accord.api.AccordRoutingKey.TokenKey;
 import org.apache.cassandra.tcm.ClusterMetadata;
 import org.apache.cassandra.tcm.serialization.MetadataSerializer;
 import org.apache.cassandra.tcm.serialization.Version;
@@ -940,6 +944,24 @@ public class Range<T extends RingPosition<T>> extends AbstractBounds<T> implemen
     public static <T extends RingPosition<T>> boolean equals(Collection<Range<T>> a, Collection<Range<T>> b)
     {
         return normalize(a).equals(normalize(b));
+    }
+
+    public static accord.primitives.Ranges toAccord(String ks, Collection<Range<Token>> ranges)
+    {
+        List<Range<Token>> normalizedRanges = Range.normalize(ranges);
+        TokenRange[] tokenRanges = new TokenRange[normalizedRanges.size()];
+        for (int i = 0; i < normalizedRanges.size(); i++)
+        {
+            Range<Token> tokenRange = normalizedRanges.get(i);
+            AccordRoutingKey left = new TokenKey(ks, tokenRange.left);
+            AccordRoutingKey right = new TokenKey(ks, tokenRange.right);
+            if (tokenRange.left.isMinimum())
+                left = AccordRoutingKey.SentinelKey.min(ks);
+            if (tokenRange.right.isMinimum())
+                right = AccordRoutingKey.SentinelKey.max(ks);
+            tokenRanges[i] = new TokenRange(left, right);
+        }
+        return Ranges.of(tokenRanges);
     }
 
     // Helper to convert a range string to POJO so you can copy toString from a debugger
