@@ -95,6 +95,7 @@ import org.apache.cassandra.locator.IEndpointSnitch;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.LocalStrategy;
 import org.apache.cassandra.locator.RangesAtEndpoint;
+import org.apache.cassandra.locator.Replica;
 import org.apache.cassandra.net.ConnectionType;
 import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.Message;
@@ -110,6 +111,7 @@ import org.apache.cassandra.repair.state.SessionState;
 import org.apache.cassandra.repair.state.ValidationState;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.KeyspaceParams;
+import org.apache.cassandra.schema.ReplicationParams;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.SystemDistributedKeyspace;
 import org.apache.cassandra.schema.TableId;
@@ -117,6 +119,8 @@ import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.Tables;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.service.accord.AccordConfigurationService;
+import org.apache.cassandra.service.accord.AccordService;
 import org.apache.cassandra.streaming.StreamEventHandler;
 import org.apache.cassandra.streaming.StreamReceiveException;
 import org.apache.cassandra.streaming.StreamSession;
@@ -124,11 +128,20 @@ import org.apache.cassandra.streaming.StreamState;
 import org.apache.cassandra.streaming.StreamingChannel;
 import org.apache.cassandra.streaming.StreamingDataInputPlus;
 import org.apache.cassandra.tcm.ClusterMetadata;
+import org.apache.cassandra.tcm.ClusterMetadataService;
+import org.apache.cassandra.tcm.Epoch;
+import org.apache.cassandra.tcm.listeners.ChangeListener;
+import org.apache.cassandra.tcm.membership.Directory;
+import org.apache.cassandra.tcm.membership.NodeAddresses;
+import org.apache.cassandra.tcm.membership.NodeId;
+import org.apache.cassandra.tcm.ownership.DataPlacement;
+import org.apache.cassandra.tcm.ownership.DataPlacements;
 import org.apache.cassandra.tools.nodetool.Repair;
 import org.apache.cassandra.utils.AbstractTypeGenerators;
 import org.apache.cassandra.utils.CassandraGenerators;
 import org.apache.cassandra.utils.Clock;
 import org.apache.cassandra.utils.Closeable;
+import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.FailingBiConsumer;
 import org.apache.cassandra.utils.Generators;
 import org.apache.cassandra.utils.MBeanWrapper;
@@ -263,8 +276,12 @@ public abstract class FuzzTestBase extends CQLTester.InMemory
         // so don't want to deal with unlucky histories...
         DatabaseDescriptor.setRepairRpcTimeout(TimeUnit.DAYS.toMillis(1));
 
+        // make sure accord is enabled as accord has custom repair steps
+        DatabaseDescriptor.setAccordTransactionsEnabled(true);
 
         InMemory.setUpClass();
+
+        MessagingService.instance().listen();
     }
 
     public static void setupSchema()
@@ -550,6 +567,11 @@ public abstract class FuzzTestBase extends CQLTester.InMemory
         }
         if (rs.nextBoolean()) args.add("--optimise-streams");
         RepairOption options = RepairOption.parse(Repair.parseOptionMap(() -> "test", args), DatabaseDescriptor.getPartitioner());
+        if (type == RepairType.FULL && previewType == PreviewType.NONE)
+        {
+            if (rs.nextBoolean())
+                options = options.withAccordRepair(true);
+        }
         if (options.getRanges().isEmpty())
         {
             if (options.isPrimaryRange())
@@ -696,7 +718,68 @@ public abstract class FuzzTestBase extends CQLTester.InMemory
                 ClusterMetadataTestHelper.register(inst.broadcastAddressAndPort());
                 ClusterMetadataTestHelper.join(inst.broadcastAddressAndPort(), inst.tokens());
             }
+            List<InetAddressAndPort> addresses = new ArrayList<>(nodes.keySet());
+            addresses.sort(Comparator.naturalOrder());
+            NodeId tcmid = ClusterMetadata.current().directory.peerId(addresses.get(rs.nextInt(0, addresses.size())));
+            ServerTestUtils.recreateAccord(tcmid);
+            interceptTCMNotifications(tcmid);
+
             setupSchema();
+        }
+
+        private void interceptTCMNotifications(NodeId tcmid)
+        {
+            AccordService as = (AccordService) AccordService.instance();
+            AccordConfigurationService config = as.configurationService();
+            ClusterMetadataService.instance().log().removeListener(config);
+            ClusterMetadataService.instance().log().addListener(new ChangeListener()
+            {
+                @Override
+                public void notifyPostCommit(ClusterMetadata prev, ClusterMetadata next, boolean fromSnapshot)
+                {
+                    config.notifyPostCommit(sanitize(prev, tcmid), sanitize(next, tcmid), fromSnapshot);
+                }
+            });
+        }
+
+        private ClusterMetadata sanitize(ClusterMetadata metadata, NodeId tcmid)
+        {
+            if (metadata.directory.isEmpty())
+                return metadata;
+            return metadata.withDirectory(sanitize(metadata.directory, tcmid))
+                           .withPlacements(sanitize(metadata.placements, FBUtilities.getBroadcastAddressAndPort()));
+        }
+
+        private Directory sanitize(Directory directory, NodeId tcmid)
+        {
+            if (directory.getNodeAddresses(tcmid) == null)
+                throw new AssertionError("Expected node " + tcmid + " but not found in " + directory);
+            for (NodeId peer : directory.peerIds())
+            {
+                if (peer.equals(tcmid))
+                    continue;
+                directory = directory.without(peer);
+            }
+            directory = directory.withNodeAddresses(tcmid, NodeAddresses.current());
+            return directory;
+        }
+
+        private DataPlacements sanitize(DataPlacements placements, InetAddressAndPort endpoint)
+        {
+            DataPlacements.Builder builder = DataPlacements.builder(placements.size());
+            for (Map.Entry<ReplicationParams, DataPlacement> e : placements)
+                builder.with(e.getKey(), sanitize(placements.lastModified(), e.getValue(), endpoint));
+            return builder.build();
+        }
+
+        private DataPlacement sanitize(Epoch epoch, DataPlacement value, InetAddressAndPort endpoint)
+        {
+            DataPlacement.Builder builder = DataPlacement.builder();
+            for (Range<Token> e : value.writes.ranges())
+                builder.withWriteReplica(epoch, new Replica(endpoint, e, true));
+            for (Range<Token> e : value.reads.ranges())
+                builder.withReadReplica(epoch, new Replica(endpoint, e, true));
+            return builder.build();
         }
 
         public Closeable addListener(MessageListener listener)
@@ -1125,6 +1208,8 @@ public abstract class FuzzTestBase extends CQLTester.InMemory
                             failures.add(new AssertionError(event.getMessage()));
                     });
                 }
+                if (repair.state.options.accordRepair())
+                    AccordService.instance().ensureKeyspaceIsAccordManaged(repair.state.keyspace);
                 return repair;
             }
 
@@ -1260,7 +1345,10 @@ public abstract class FuzzTestBase extends CQLTester.InMemory
                         next = it.next();
                     }
                     if (FuzzTestBase.class.getName().equals(next.getClassName())) return Access.MAIN_THREAD_ONLY;
-                    if (next.getClassName().startsWith("org.apache.cassandra.db.") ||
+                    if (next.getClassName().startsWith("org.apache.cassandra.accord.") ||
+                        next.getClassName().startsWith("org.apache.cassandra.journal.") ||
+                        next.getClassName().startsWith("org.apache.cassandra.service.accord.") ||
+                        next.getClassName().startsWith("org.apache.cassandra.db.") ||
                         next.getClassName().startsWith("org.apache.cassandra.gms.") ||
                         next.getClassName().startsWith("org.apache.cassandra.cql3.") ||
                         next.getClassName().startsWith("org.apache.cassandra.metrics.") ||

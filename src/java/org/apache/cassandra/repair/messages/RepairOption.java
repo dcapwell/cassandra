@@ -339,6 +339,11 @@ public class RepairOption
         this.accordRepair = accordRepair;
     }
 
+    public RepairOption withAccordRepair(boolean accordRepair)
+    {
+        return new RepairOption(parallelism, primaryRange, incremental, trace, jobThreads, ranges, pullRepair, forceRepair, previewKind, optimiseStreams, ignoreUnreplicatedKeyspaces, repairPaxos, paxosOnly, accordRepair);
+    }
+
     public RepairParallelism getParallelism()
     {
         return parallelism;

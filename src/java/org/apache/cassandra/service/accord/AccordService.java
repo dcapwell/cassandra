@@ -213,7 +213,13 @@ public class AccordService implements IAccordService, Shutdownable
 
     private static class Handle
     {
-        public static final AccordService instance = new AccordService();
+        private static volatile AccordService instance = new AccordService();
+    }
+
+    @VisibleForTesting
+    public static void unsafeSetNewAccordService()
+    {
+        Handle.instance = new AccordService();
     }
 
     public static boolean isSetup()
