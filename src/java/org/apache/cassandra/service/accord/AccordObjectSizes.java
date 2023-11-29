@@ -33,6 +33,7 @@ import accord.local.Command.WaitingOn;
 import accord.local.CommonAttributes;
 import accord.local.Node;
 import accord.local.SaveStatus;
+import accord.local.Status;
 import accord.primitives.AbstractKeys;
 import accord.primitives.AbstractRanges;
 import accord.primitives.Ballot;
@@ -271,16 +272,29 @@ public class AccordObjectSizes
     {
         private final static TokenKey EMPTY_KEY = new TokenKey("doesnotexist", null);
         private final static TxnId EMPTY_TXNID = new TxnId(42, 42, Kind.Read, Domain.Key, new Node.Id(42));
-        private final static CommonAttributes.Mutable EMPTY_ATTRS = new CommonAttributes.Mutable(EMPTY_TXNID)
-                                                                        .partialDeps(PartialDeps.NONE)
-                                                                        .route(new FullKeyRoute(EMPTY_KEY, true, new RoutingKey[] {EMPTY_KEY} ));
 
-        final static long NOT_DEFINED = measure(Command.SerializerSupport.notDefined(EMPTY_ATTRS, Ballot.ZERO));
-        final static long PREACCEPTED = measure(Command.SerializerSupport.preaccepted(EMPTY_ATTRS, EMPTY_TXNID, null));;
-        final static long ACCEPTED = measure(Command.SerializerSupport.accepted(EMPTY_ATTRS, SaveStatus.Accepted, EMPTY_TXNID, Ballot.ZERO, Ballot.ZERO));
-        final static long COMMITTED = measure(Command.SerializerSupport.committed(EMPTY_ATTRS, SaveStatus.Committed, EMPTY_TXNID, Ballot.ZERO, Ballot.ZERO, WaitingOn.EMPTY));
-        final static long EXECUTED = measure(Command.SerializerSupport.executed(EMPTY_ATTRS, SaveStatus.Applied, EMPTY_TXNID, Ballot.ZERO, Ballot.ZERO, WaitingOn.EMPTY, null, null));
-        final static long TRUNCATED = measure(Command.SerializerSupport.truncatedApply(EMPTY_ATTRS, SaveStatus.TruncatedApply,  EMPTY_TXNID, null, null));
+        private static CommonAttributes attrs(boolean hasDeps, boolean hasTxn)
+        {
+            CommonAttributes.Mutable attrs = new CommonAttributes.Mutable(EMPTY_TXNID).route(new FullKeyRoute(EMPTY_KEY, true, new RoutingKey[]{ EMPTY_KEY }));
+            attrs.durability(Status.Durability.NotDurable);
+            if (hasDeps)
+                attrs.partialDeps(PartialDeps.NONE);
+
+            if (hasTxn)
+                attrs.partialTxn(new PartialTxn.InMemory(null, null, null, null, null, null));
+
+            return attrs;
+        }
+
+        private static final Writes EMPTY_WRITES = new Writes(EMPTY_TXNID, EMPTY_TXNID, Keys.EMPTY, (key, safeStore, executeAt, store, txn) -> null);
+        private static final Result EMPTY_RESULT = new Result() {};
+
+        final static long NOT_DEFINED = measure(Command.SerializerSupport.notDefined(attrs(false, false), Ballot.ZERO));
+        final static long PREACCEPTED = measure(Command.SerializerSupport.preaccepted(attrs(false, true), EMPTY_TXNID, null));;
+        final static long ACCEPTED = measure(Command.SerializerSupport.accepted(attrs(true, false), SaveStatus.Accepted, EMPTY_TXNID, Ballot.ZERO, Ballot.ZERO));
+        final static long COMMITTED = measure(Command.SerializerSupport.committed(attrs(true, true), SaveStatus.Committed, EMPTY_TXNID, Ballot.ZERO, Ballot.ZERO, WaitingOn.EMPTY));
+        final static long EXECUTED = measure(Command.SerializerSupport.executed(attrs(true, true), SaveStatus.Applied, EMPTY_TXNID, Ballot.ZERO, Ballot.ZERO, WaitingOn.EMPTY, EMPTY_WRITES, EMPTY_RESULT));
+        final static long TRUNCATED = measure(Command.SerializerSupport.truncatedApply(attrs(false, false), SaveStatus.TruncatedApply,  EMPTY_TXNID, null, null));
         final static long INVALIDATED = measure(Command.SerializerSupport.invalidated(EMPTY_TXNID, null));
 
         private static long emptySize(Command command)
