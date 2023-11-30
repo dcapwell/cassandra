@@ -53,6 +53,8 @@ public class AccordRepairJob extends AbstractRepairJob
 
     private Epoch minEpoch = ClusterMetadata.current().epoch;
 
+    private volatile Throwable shouldAbort = null;
+
     public AccordRepairJob(RepairSession repairSession, String cfname)
     {
         super(repairSession, cfname);
@@ -83,10 +85,10 @@ public class AccordRepairJob extends AbstractRepairJob
     @Override
     void abort(@Nullable Throwable reason)
     {
-        throw new UnsupportedOperationException("Have not implemented this yet, and the job runs synchronously so it isn't abortable");
+        shouldAbort = reason == null ? new RuntimeException("Abort") : reason;
     }
 
-    private void repairRange(TokenRange range)
+    private void repairRange(TokenRange range) throws Throwable
     {
         RoutingKey remainingStart = range.start();
         BigInteger rangeSize = splitter.sizeOf(range);
@@ -99,6 +101,8 @@ public class AccordRepairJob extends AbstractRepairJob
         int iteration = 0;
         while (true)
         {
+            if (shouldAbort != null)
+                throw shouldAbort;
             iteration++;
             if (iteration % 100 == 0)
                 rangeStep = rangeStep.multiply(TWO);
