@@ -341,7 +341,12 @@ public class RepairOption
 
     public RepairOption withAccordRepair(boolean accordRepair)
     {
-        return new RepairOption(parallelism, primaryRange, incremental, trace, jobThreads, ranges, pullRepair, forceRepair, previewKind, optimiseStreams, ignoreUnreplicatedKeyspaces, repairPaxos, paxosOnly, accordRepair);
+        RepairOption repairOption = new RepairOption(parallelism, primaryRange, incremental, trace, jobThreads, ranges, pullRepair, forceRepair, previewKind, optimiseStreams, ignoreUnreplicatedKeyspaces, repairPaxos, paxosOnly, accordRepair);
+        repairOption.columnFamilies.addAll(columnFamilies);
+        repairOption.dataCenters.addAll(dataCenters);
+        repairOption.hosts.addAll(hosts);
+        repairOption.ranges.addAll(ranges);
+        return repairOption;
     }
 
     public RepairParallelism getParallelism()

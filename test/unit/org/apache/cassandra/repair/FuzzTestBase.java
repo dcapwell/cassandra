@@ -388,14 +388,26 @@ public abstract class FuzzTestBase extends CQLTester.InMemory
             for (JobState job : session.getJobs())
             {
                 EnumSet<JobState.State> expected = EnumSet.allOf(JobState.State.class);
-                if (!shouldSnapshot)
+                if (repair.state.options.accordRepair())
                 {
+                    // accord doesn't do snapshot, validation, or streaming
                     expected.remove(JobState.State.SNAPSHOT_START);
                     expected.remove(JobState.State.SNAPSHOT_COMPLETE);
-                }
-                if (!shouldSync)
-                {
+                    expected.remove(JobState.State.VALIDATION_START);
+                    expected.remove(JobState.State.VALIDATION_COMPLETE);
                     expected.remove(JobState.State.STREAM_START);
+                }
+                else
+                {
+                    if (!shouldSnapshot)
+                    {
+                        expected.remove(JobState.State.SNAPSHOT_START);
+                        expected.remove(JobState.State.SNAPSHOT_COMPLETE);
+                    }
+                    if (!shouldSync)
+                    {
+                        expected.remove(JobState.State.STREAM_START);
+                    }
                 }
                 Set<JobState.State> actual = job.getStateTimesMillis().keySet();
                 Assertions.assertThat(actual).isEqualTo(expected);
@@ -520,11 +532,36 @@ public abstract class FuzzTestBase extends CQLTester.InMemory
 
     private static RepairOption repairOption(RandomSource rs, Cluster.Node coordinator, String ks, Gen<List<String>> tablesGen, Gen<RepairType> repairTypeGen, Gen<PreviewType> previewTypeGen, Gen<RepairParallelism> repairParallelismGen)
     {
+        RepairType type = repairTypeGen.next(rs);
+        PreviewType previewType = previewTypeGen.next(rs);
+        boolean accordRepair = type == RepairType.FULL && previewType == PreviewType.NONE ? rs.nextBoolean() : false;
+        List<String> tables = tablesGen.next(rs);
+        if (accordRepair)
+        {
+            // TODO (now): Insert JIRA here describing the issue...
+            // Accord jobs are more costly than regular jobs, so limit to a single table to make sure the tests
+            // complete within CI time constraints
+            tables = Collections.singletonList(tables.get(0)); // tables are non-empty
+        }
         List<String> args = new ArrayList<>();
         args.add(ks);
-        args.addAll(tablesGen.next(rs));
-        args.add("-pr");
-        RepairType type = repairTypeGen.next(rs);
+        args.addAll(tables);
+        if (accordRepair)
+        {
+            List<Range<Token>> ranges = new ArrayList<>(StorageService.instance.getReplicas(ks, coordinator.broadcastAddressAndPort()).ranges());
+            ranges.sort(Comparator.naturalOrder());
+            Range<Token> range = ranges.get(rs.nextInt(0, ranges.size()));
+            args.add("--start-token");
+            args.add(range.left.toString());
+            args.add("--end-token");
+            Murmur3Partitioner.LongToken left = (Murmur3Partitioner.LongToken) range.left;
+            Murmur3Partitioner.LongToken right = new Murmur3Partitioner.LongToken(left.token + 100);
+            args.add(right.toString());
+        }
+        else
+        {
+            args.add("-pr");
+        }
         switch (type)
         {
             case IR:
@@ -536,7 +573,6 @@ public abstract class FuzzTestBase extends CQLTester.InMemory
             default:
                 throw new AssertionError("Unsupported repair type: " + type);
         }
-        PreviewType previewType = previewTypeGen.next(rs);
         switch (previewType)
         {
             case NONE:
@@ -567,11 +603,8 @@ public abstract class FuzzTestBase extends CQLTester.InMemory
         }
         if (rs.nextBoolean()) args.add("--optimise-streams");
         RepairOption options = RepairOption.parse(Repair.parseOptionMap(() -> "test", args), DatabaseDescriptor.getPartitioner());
-        if (type == RepairType.FULL && previewType == PreviewType.NONE)
-        {
-            if (rs.nextBoolean())
-                options = options.withAccordRepair(true);
-        }
+        if (accordRepair)
+            options = options.withAccordRepair(true);
         if (options.getRanges().isEmpty())
         {
             if (options.isPrimaryRange())
@@ -746,8 +779,9 @@ public abstract class FuzzTestBase extends CQLTester.InMemory
         {
             if (metadata.directory.isEmpty())
                 return metadata;
-            return metadata.withDirectory(sanitize(metadata.directory, tcmid))
-                           .withPlacements(sanitize(metadata.placements, FBUtilities.getBroadcastAddressAndPort()));
+            ClusterMetadata sanitized = metadata.withDirectory(sanitize(metadata.directory, tcmid))
+                                                      .withPlacements(sanitize(metadata.placements, FBUtilities.getBroadcastAddressAndPort()));
+            return sanitized;
         }
 
         private Directory sanitize(Directory directory, NodeId tcmid)

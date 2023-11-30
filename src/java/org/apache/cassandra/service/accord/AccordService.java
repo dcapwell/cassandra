@@ -209,22 +209,17 @@ public class AccordService implements IAccordService, Shutdownable
         public void ensureKeyspaceIsAccordManaged(String keyspace) {}
     };
 
-    private static volatile Node.Id localId = null;
-
-    private static class Handle
-    {
-        private static volatile AccordService instance = new AccordService();
-    }
+    private static volatile IAccordService instance = null;
 
     @VisibleForTesting
     public static void unsafeSetNewAccordService()
     {
-        Handle.instance = new AccordService();
+        instance = null;
     }
 
     public static boolean isSetup()
     {
-        return localId != null;
+        return instance != null;
     }
 
     public static IVerbHandler<? extends Request> verbHandlerOrNoop()
@@ -233,22 +228,33 @@ public class AccordService implements IAccordService, Shutdownable
         return instance().verbHandler();
     }
 
-    public static void startup(NodeId tcmId)
+    public synchronized static void startup(NodeId tcmId)
     {
-        localId = AccordTopologyUtils.tcmIdToAccord(tcmId);
-        instance().startup();
+        if (!DatabaseDescriptor.getAccordTransactionsEnabled())
+        {
+            instance = NOOP_SERVICE;
+            return;
+        }
+        AccordService as = new AccordService(AccordTopologyUtils.tcmIdToAccord(tcmId));
+        as.startup();
+        instance = as;
     }
 
     public static void shutdownServiceAndWait(long timeout, TimeUnit unit) throws InterruptedException, TimeoutException
     {
-        if (localId == null)
+        IAccordService i = instance;
+        if (i == null)
             return;
-        instance().shutdownAndWait(timeout, unit);
+        i.shutdownAndWait(timeout, unit);
     }
 
     public static IAccordService instance()
     {
-        return DatabaseDescriptor.getAccordTransactionsEnabled() ? Handle.instance : NOOP_SERVICE;
+        if (!DatabaseDescriptor.getAccordTransactionsEnabled())
+            return NOOP_SERVICE;
+        IAccordService i = instance;
+        Invariants.checkState(i != null, "AccordService was not started");
+        return i;
     }
 
     public static long uniqueNow()
@@ -263,9 +269,8 @@ public class AccordService implements IAccordService, Shutdownable
         return timeUnit.convert(Clock.Global.currentTimeMillis(), TimeUnit.MILLISECONDS);
     }
 
-    private AccordService()
+    private AccordService(Id localId)
     {
-        Invariants.checkState(localId != null, "static localId must be set before instantiating AccordService");
         logger.info("Starting accord with nodeId {}", localId);
         AccordAgent agent = new AccordAgent();
         this.configService = new AccordConfigurationService(localId);
