@@ -21,6 +21,9 @@ package org.apache.cassandra.repair;
 import java.math.BigInteger;
 import javax.annotation.Nullable;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import accord.api.BarrierType;
 import accord.api.RoutingKey;
 import accord.primitives.Ranges;
@@ -43,6 +46,8 @@ import static java.util.Collections.emptyList;
  */
 public class AccordRepairJob extends AbstractRepairJob
 {
+    private static final Logger logger = LoggerFactory.getLogger(AccordRepairJob.class);
+
     public static final BigInteger TWO = BigInteger.valueOf(2);
 
     private final Ranges ranges;
@@ -93,7 +98,10 @@ public class AccordRepairJob extends AbstractRepairJob
         RoutingKey remainingStart = range.start();
         BigInteger rangeSize = splitter.sizeOf(range);
         if (rangeStep == null)
-            rangeStep = BigInteger.ONE.max(splitter.divide(rangeSize, 1000));
+        {
+            BigInteger divide = splitter.divide(rangeSize, 1000);
+            rangeStep = divide.equals(BigInteger.ZERO) ? rangeSize : BigInteger.ONE.max(divide);
+        }
 
         BigInteger offset = BigInteger.ZERO;
 
@@ -119,7 +127,10 @@ public class AccordRepairJob extends AbstractRepairJob
                 if (splitter.compare(offset, rangeSize) >= 0)
                 {
                     if (remainingStart.equals(range.end()))
+                    {
+                        logger.info("Completed barriers for {} in {} iterations", range, iteration - 1);
                         return;
+                    }
 
                     // Final repair is whatever remains
                     toRepair = range.newRange(remainingStart, range.end());
