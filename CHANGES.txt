@@ -10,6 +10,7 @@ Merged from 5.0:
 Merged from 4.1:
  * Fix StackOverflowError on ALTER after many previous schema changes (CASSANDRA-19166)
 Merged from 4.0:
+ * IR may leak SSTables with pending repair when coming from streaming (CASSANDRA-19182)
 Merged from 3.11:
 Merged from 3.0:
 
