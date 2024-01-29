@@ -161,6 +161,12 @@ public class AccordInteropRead extends AbstractExecute
     }
 
     @Override
+    public ReadType kind()
+    {
+        return ReadType.readTxnData;
+    }
+
+    @Override
     protected AsyncChain<Data> execute(SafeCommandStore safeStore, Timestamp executeAt, PartialTxn txn, Ranges unavailable)
     {
         // TODO (required): subtract unavailable ranges, either from read or from response (or on coordinator)

@@ -27,8 +27,12 @@ import accord.messages.ReadData.CommitOrReadNack;
 import accord.messages.ReadData.ReadOk;
 import accord.messages.ReadData.ReadReply;
 import accord.messages.ReadData.ReadType;
+import accord.messages.ReadEphemeralTxnData;
 import accord.messages.ReadTxnData;
 import accord.messages.WaitUntilApplied;
+import accord.primitives.FullRoute;
+import accord.primitives.PartialDeps;
+import accord.primitives.PartialTxn;
 import accord.primitives.Participants;
 import accord.primitives.Ranges;
 import accord.primitives.Timestamp;
@@ -129,7 +133,7 @@ public class ReadDataSerializers
             Participants<?> readScope = KeySerializers.participants.deserialize(in, version);
             long waitForEpoch = in.readUnsignedVInt();
             long executeAtEpoch = in.readUnsignedVInt() + waitForEpoch;
-            return ReadTxnData.SerializerSupport.create(txnId, readScope, executeAtEpoch, waitForEpoch);
+            return ReadTxnData.SerializerSupport.create(txnId, readScope, waitForEpoch, executeAtEpoch);
         }
 
         @Override
@@ -139,6 +143,46 @@ public class ReadDataSerializers
                    + KeySerializers.participants.serializedSize(read.readScope, version)
                    + TypeSizes.sizeofUnsignedVInt(read.waitForEpoch())
                    + TypeSizes.sizeofUnsignedVInt(read.executeAtEpoch - read.waitForEpoch());
+        }
+    };
+
+    private static final ReadDataSerializer<ReadEphemeralTxnData> readEphemeralTxnData = new ReadDataSerializer<ReadEphemeralTxnData>()
+    {
+        @Override
+        public void serialize(ReadEphemeralTxnData read, DataOutputPlus out, int version) throws IOException
+        {
+            CommandSerializers.txnId.serialize(read.txnId, out, version);
+            KeySerializers.participants.serialize(read.readScope, out, version);
+            out.writeUnsignedVInt(read.waitForEpoch());
+            out.writeUnsignedVInt(read.executeAtEpoch - read.waitForEpoch());
+            CommandSerializers.partialTxn.serialize(read.partialTxn, out, version);
+            DepsSerializer.partialDeps.serialize(read.partialDeps, out, version);
+            KeySerializers.fullRoute.serialize(read.route, out, version);
+        }
+
+        @Override
+        public ReadEphemeralTxnData deserialize(DataInputPlus in, int version) throws IOException
+        {
+            TxnId txnId = CommandSerializers.txnId.deserialize(in, version);
+            Participants<?> readScope = KeySerializers.participants.deserialize(in, version);
+            long waitForEpoch = in.readUnsignedVInt();
+            long executeAtEpoch = in.readUnsignedVInt() + waitForEpoch;
+            PartialTxn partialTxn = CommandSerializers.partialTxn.deserialize(in, version);
+            PartialDeps partialDeps = DepsSerializer.partialDeps.deserialize(in, version);
+            FullRoute<?> route = KeySerializers.fullRoute.deserialize(in, version);
+            return ReadEphemeralTxnData.SerializerSupport.create(txnId, readScope, waitForEpoch, executeAtEpoch, partialTxn, partialDeps, route);
+        }
+
+        @Override
+        public long serializedSize(ReadEphemeralTxnData read, int version)
+        {
+            return CommandSerializers.txnId.serializedSize(read.txnId, version)
+                   + KeySerializers.participants.serializedSize(read.readScope, version)
+                   + TypeSizes.sizeofUnsignedVInt(read.waitForEpoch())
+                   + TypeSizes.sizeofUnsignedVInt(read.executeAtEpoch - read.waitForEpoch())
+                   + CommandSerializers.partialTxn.serializedSize(read.partialTxn, version)
+                   + DepsSerializer.partialDeps.serializedSize(read.partialDeps, version)
+                   + KeySerializers.fullRoute.serializedSize(read.route, version);
         }
     };
 
@@ -160,6 +204,8 @@ public class ReadDataSerializers
         {
             case readTxnData:
                 return readTxnData;
+            case readEphemeralTxnData:
+                return readEphemeralTxnData;
             case applyThenWaitUntilApplied:
                 return applyThenWaitUntilApplied;
             case waitUntilApplied:
