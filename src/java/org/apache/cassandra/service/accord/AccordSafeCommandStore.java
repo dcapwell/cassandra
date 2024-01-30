@@ -18,12 +18,10 @@
 
 package org.apache.cassandra.service.accord;
 
-import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
+import java.util.TreeMap;
 import java.util.function.BiFunction;
-
 import javax.annotation.Nullable;
 
 import accord.api.Agent;
@@ -34,12 +32,14 @@ import accord.impl.AbstractSafeCommandStore;
 import accord.impl.CommandsForKey;
 import accord.impl.CommandsForKeys;
 import accord.impl.CommandsSummary;
-import accord.local.Command;
 import accord.local.CommandStores.RangesForEpoch;
 import accord.local.NodeTimeService;
 import accord.local.PreLoadContext;
+import accord.local.RedundantBefore;
 import accord.primitives.AbstractKeys;
+import accord.primitives.AbstractRanges;
 import accord.primitives.Deps;
+import accord.primitives.Range;
 import accord.primitives.Ranges;
 import accord.primitives.RoutableKey;
 import accord.primitives.Routables;
@@ -48,27 +48,27 @@ import accord.primitives.Timestamp;
 import accord.primitives.Txn;
 import accord.primitives.TxnId;
 
-import static accord.primitives.Routable.Domain.Range;
-
 public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeCommand, AccordSafeTimestampsForKey, AccordSafeCommandsForKey>
 {
     private final Map<TxnId, AccordSafeCommand> commands;
     private final NavigableMap<RoutableKey, AccordSafeCommandsForKey> commandsForKeys;
     private final NavigableMap<RoutableKey, AccordSafeTimestampsForKey> timestampsForKeys;
+    private final NavigableMap<Range, AccordSafeCommandsForRange> commandsForRanges;
     private final AccordCommandStore commandStore;
     private final RangesForEpoch ranges;
-    CommandsForRanges.Updater rangeUpdates = null;
 
     public AccordSafeCommandStore(PreLoadContext context,
                                   Map<TxnId, AccordSafeCommand> commands,
                                   NavigableMap<RoutableKey, AccordSafeTimestampsForKey> timestampsForKey,
                                   NavigableMap<RoutableKey, AccordSafeCommandsForKey> commandsForKey,
+                                  NavigableMap<accord.primitives.Range, AccordSafeCommandsForRange> commandsForRanges,
                                   AccordCommandStore commandStore)
     {
         super(context);
         this.commands = commands;
         this.timestampsForKeys = timestampsForKey;
         this.commandsForKeys = commandsForKey;
+        this.commandsForRanges = commandsForRanges;
         this.commandStore = commandStore;
         this.ranges = commandStore.updateRangesForEpoch();
     }
@@ -187,25 +187,79 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
                 CommandsForKeys.registerNotWitnessed(this, key, txnId);
             });
         });
-        CommandsForRanges commandsForRanges = commandStore.commandsForRanges();
-        deps.rangeDeps.forEachUniqueTxnId(allRanges, txnId -> {
-            if (commandsForRanges.containsLocally(txnId))
-                return;
+        for (int i = 0; i < deps.rangeDeps.rangeCount(); i++)
+        {
+            var range = deps.rangeDeps.range(i);
+            if (!allRanges.intersects(range))
+                continue;
+            deps.rangeDeps.forEach(range, txnId -> {
+                // TODO (desired, efficiency): this can be made more efficient by batching by epoch
+                if (ranges.coordinates(txnId).intersects(range))
+                    return; // already coordinates, no need to replicate
+                if (!ranges.allBefore(txnId.epoch()).intersects(range))
+                    return;
 
-            Ranges ranges = deps.rangeDeps.ranges(txnId);
-            if (this.ranges.coordinates(txnId).intersects(ranges))
-                return; // already coordinates, no need to replicate
-            if (!this.ranges.allBefore(txnId.epoch()).intersects(ranges))
-                return;
-
-            updateRanges().mergeRemote(txnId, ranges.slice(allRanges), Ranges::with);
-        });
+                commandStore.diskCommandsForRanges().mergeHistoricalTransaction(txnId, Ranges.single(range).slice(allRanges), Ranges::with);
+            });
+        }
     }
 
     private <O> O mapReduce(Routables<?> keysOrRanges, Ranges slice, BiFunction<CommandsSummary, O, O> map, O accumulate)
     {
-        accumulate = commandStore.mapReduceForRange(keysOrRanges, slice, map, accumulate);
+        accumulate = mapReduceForRange(keysOrRanges, slice, map, accumulate);
         return mapReduceForKey(keysOrRanges, slice, map, accumulate);
+    }
+
+    private <O> O mapReduceForRange(Routables<?> keysOrRanges, Ranges slice, BiFunction<CommandsSummary, O, O> map, O accumulate)
+    {
+        switch (keysOrRanges.domain())
+        {
+            case Key:
+            {
+                AbstractKeys<Key> keys = (AbstractKeys<Key>) keysOrRanges.slice(slice, Routables.Slice.Minimal);
+                for (Range range : commandsForRanges.keySet())
+                {
+                    if (!range.intersects(keys))
+                        continue;
+                    CommandsForRange cfr = commandsForRange(range).current();
+                    accumulate = map.apply(cfr, accumulate);
+                }
+            }
+            break;
+            case Range:
+            {
+                AbstractRanges ranges = (AbstractRanges) keysOrRanges;
+                for (Range range : ranges)
+                {
+                    if (!slice.intersects(range))
+                        continue;
+                    AccordSafeCommandsForRange safeCommandsForRange = commandsForRange(range);
+                    CommandsForRange cfr = safeCommandsForRange.current();
+                    accumulate = map.apply(cfr, accumulate);
+                }
+            }
+            break;
+            default:
+                throw new AssertionError("Unknown domain: " + keysOrRanges.domain());
+        }
+        return accumulate;
+    }
+
+    private AccordSafeCommandsForRange commandsForRange(Range range)
+    {
+        AccordSafeCommandsForRange cfr = commandsForRanges.get(range);
+        if (cfr == null)
+            return null;
+        if (!cfr.isEmpty())
+        {
+            RedundantBefore redundantBefore = commandStore().redundantBefore();
+            redundantBefore.foldl(Ranges.single(range), (entry, ignore) -> {
+                if (entry != null && cfr.current().hasRedundant(entry.shardRedundantBefore()))
+                    cfr.set(cfr.current().withoutRedundant(entry.shardRedundantBefore()));
+                return null;
+            }, null, ignore -> false);
+        }
+        return cfr;
     }
 
     private <O> O mapReduceForKey(Routables<?> keysOrRanges, Ranges slice, BiFunction<CommandsSummary, O, O> map, O accumulate)
@@ -233,7 +287,7 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
                 Routables<?> sliced = keysOrRanges.slice(slice, Routables.Slice.Minimal);
                 if (!context.keys().slice(slice, Routables.Slice.Minimal).containsAll(sliced))
                     throw new AssertionError("Range(s) detected not present in the PreLoadContext: expected " + context.keys() + " but given " + keysOrRanges);
-                for (RoutableKey key : timestampsForKeys.keySet())
+                for (RoutableKey key : commandsForKeys.keySet())
                 {
                     //TODO (duplicate code): this is a repeat of Key... only change is checking contains in range
                     if (!sliced.contains(key)) continue;
@@ -263,35 +317,6 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     }
 
     @Override
-    protected void update(Command prev, Command updated, @Nullable Seekables<?, ?> keysOrRanges)
-    {
-        super.update(prev, updated, keysOrRanges);
-
-        if (updated.txnId().domain() == Range && CommandsForKey.needsUpdate(prev, updated))
-        {
-            if (keysOrRanges == null)
-            {
-                if (updated.known().isDefinitionKnown()) keysOrRanges = updated.partialTxn().keys();
-                else if (prev.known().isDefinitionKnown()) keysOrRanges = prev.partialTxn().keys();
-                else return;
-            }
-            List<TxnId> waitingOn;
-
-            if (updated.partialDeps() == null) waitingOn = Collections.emptyList();
-            // TODO (required): this is faulty: we cannot simply save the raw transaction ids, as they may be for other ranges
-            else waitingOn = updated.partialDeps().txnIds();
-            updateRanges().put(updated.txnId(), (Ranges)keysOrRanges, updated.saveStatus(), updated.executeAt(), waitingOn);
-        }
-    }
-
-    protected CommandsForRanges.Updater updateRanges()
-    {
-        if (rangeUpdates == null)
-            rangeUpdates = commandStore.updateRanges();
-        return rangeUpdates;
-    }
-
-    @Override
     protected void invalidateSafeState()
     {
         commands.values().forEach(AccordSafeCommand::invalidate);
@@ -301,14 +326,14 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
 
     public void postExecute(Map<TxnId, AccordSafeCommand> commands,
                             Map<RoutableKey, AccordSafeTimestampsForKey> timestampsForKey,
-                            Map<RoutableKey, AccordSafeCommandsForKey> commandsForKeys
+                            Map<RoutableKey, AccordSafeCommandsForKey> commandsForKeys,
+                            TreeMap<Range, AccordSafeCommandsForRange> commandsForRanges
                             )
     {
         postExecute();
         commands.values().forEach(AccordSafeState::postExecute);
         timestampsForKey.values().forEach(AccordSafeState::postExecute);
         commandsForKeys.values().forEach(AccordSafeState::postExecute);
-        if (rangeUpdates != null)
-            rangeUpdates.apply();
+        commandsForRanges.values().forEach(AccordSafeState::postExecute);
     }
 }

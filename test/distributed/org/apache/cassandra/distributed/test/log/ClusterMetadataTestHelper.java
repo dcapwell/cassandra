@@ -254,7 +254,6 @@ public class ClusterMetadataTestHelper
         }
     }
 
-
     private static Set<InetAddressAndPort> leaving(ClusterMetadata metadata)
     {
         return  metadata.directory.states.entrySet().stream()

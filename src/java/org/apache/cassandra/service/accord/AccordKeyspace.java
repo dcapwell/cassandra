@@ -37,6 +37,7 @@ import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
@@ -121,11 +122,14 @@ import org.apache.cassandra.dht.ByteOrderedPartitioner;
 import org.apache.cassandra.dht.LocalPartitioner;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.index.sai.accord.range.RangeIndex;
 import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.LocalVersionedSerializer;
 import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.schema.ColumnMetadata;
+import org.apache.cassandra.schema.IndexMetadata;
+import org.apache.cassandra.schema.Indexes;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.schema.Schema;
@@ -215,7 +219,7 @@ public class AccordKeyspace
     }
 
     // TODO: store timestamps as blobs (confirm there are no negative numbers, or offset)
-    private static final TableMetadata Commands =
+    public static final TableMetadata Commands =
         parse(COMMANDS,
               "accord commands",
               "CREATE TABLE %s ("
@@ -233,10 +237,14 @@ public class AccordKeyspace
               + "PRIMARY KEY((store_id, domain, txn_id))"
               + ')')
         .partitioner(new LocalPartitioner(CompositeType.getInstance(Int32Type.instance, Int32Type.instance, TIMESTAMP_TYPE)))
+        .indexes(Indexes.builder()
+//                        .add(IndexMetadata.fromSchemaMetadata("route", IndexMetadata.Kind.CUSTOM, ImmutableMap.of("class_name", RoutingKeyIndex.class.getCanonicalName(), "target", "route")))
+                        .add(IndexMetadata.fromSchemaMetadata("route", IndexMetadata.Kind.CUSTOM, ImmutableMap.of("class_name", RangeIndex.class.getCanonicalName(), "target", "route")))
+                        .build())
         .build();
 
     // TODO: naming is not very clearly distinct from the base serializers
-    private static class LocalVersionedSerializers
+    public static class LocalVersionedSerializers
     {
         static final LocalVersionedSerializer<Route<?>> route = localSerializer(KeySerializers.route);
         static final LocalVersionedSerializer<Command.DurableAndIdempotentListener> listeners = localSerializer(ListenerSerializers.listener);
@@ -265,8 +273,8 @@ public class AccordKeyspace
     {
         static final ClusteringComparator keyComparator = Commands.partitionKeyAsClusteringComparator();
         static final CompositeType partitionKeyType = (CompositeType) Commands.partitionKeyType;
-        static final ColumnMetadata txn_id = getColumn(Commands, "txn_id");
-        static final ColumnMetadata store_id = getColumn(Commands, "store_id");
+        public static final ColumnMetadata txn_id = getColumn(Commands, "txn_id");
+        public static final ColumnMetadata store_id = getColumn(Commands, "store_id");
         public static final ColumnMetadata status = getColumn(Commands, "status");
         public static final ColumnMetadata route = getColumn(Commands, "route");
         public static final ColumnMetadata durability = getColumn(Commands, "durability");
@@ -861,7 +869,7 @@ public class AccordKeyspace
         return TupleType.buildValue(UUIDSerializer.instance.serialize(key.table().asUUID()), key.partitionKey().getKey());
     }
 
-    private static ByteBuffer serializeTimestamp(Timestamp timestamp)
+    public static ByteBuffer serializeTimestamp(Timestamp timestamp)
     {
         return TupleType.buildValue(bytes(timestamp.msb), bytes(timestamp.lsb), bytes(timestamp.node.id));
     }
@@ -1212,9 +1220,14 @@ public class AccordKeyspace
         return Status.Durability.values()[row.getInt("durability", 0)];
     }
 
-    private static Route<?> deserializeRouteOrNull(ByteBuffer bytes) throws IOException
+    public static Route<?> deserializeRouteOrNull(ByteBuffer bytes) throws IOException
     {
         return bytes != null && !ByteBufferAccessor.instance.isEmpty(bytes) ? deserialize(bytes, LocalVersionedSerializers.route) : null;
+    }
+
+    public static ByteBuffer serializeRoute(Route<?> route) throws IOException
+    {
+        return serialize(route, LocalVersionedSerializers.route);
     }
 
     private static Route<?> deserializeRouteOrNull(UntypedResultSet.Row row) throws IOException

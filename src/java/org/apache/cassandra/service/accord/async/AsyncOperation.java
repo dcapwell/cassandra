@@ -17,7 +17,6 @@
  */
 package org.apache.cassandra.service.accord.async;
 
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.TreeMap;
 import java.util.function.BiConsumer;
@@ -33,6 +32,7 @@ import org.slf4j.MDC;
 import accord.local.CommandStore;
 import accord.local.PreLoadContext;
 import accord.local.SafeCommandStore;
+import accord.primitives.Range;
 import accord.primitives.RoutableKey;
 import accord.primitives.Seekables;
 import accord.primitives.TxnId;
@@ -42,6 +42,7 @@ import org.apache.cassandra.service.accord.AccordCommandStore;
 import org.apache.cassandra.service.accord.AccordSafeCommand;
 import org.apache.cassandra.service.accord.AccordSafeCommandsForKey;
 import org.apache.cassandra.service.accord.AccordSafeCommandStore;
+import org.apache.cassandra.service.accord.AccordSafeCommandsForRange;
 import org.apache.cassandra.service.accord.AccordSafeState;
 import org.apache.cassandra.service.accord.AccordSafeTimestampsForKey;
 
@@ -69,6 +70,7 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
         final HashMap<TxnId, AccordSafeCommand> commands = new HashMap<>();
         final TreeMap<RoutableKey, AccordSafeTimestampsForKey> timestampsForKey = new TreeMap<>();
         final TreeMap<RoutableKey, AccordSafeCommandsForKey> commandsForKey = new TreeMap<>();
+        final TreeMap<Range, AccordSafeCommandsForRange> commandsForRanges = new TreeMap<>(Range::compare);
 
         void releaseResources(AccordCommandStore commandStore)
         {
@@ -186,19 +188,9 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
     }
 
     @SuppressWarnings("unchecked")
-    Iterable<RoutableKey> keys()
+    Seekables<?, ?> keys()
     {
-        Seekables<?, ?> keys = preLoadContext.keys();
-        switch (keys.domain())
-        {
-            default:
-                throw new IllegalStateException("Unhandled domain " + keys.domain());
-            case Key:
-                return (Iterable<RoutableKey>) keys;
-            case Range:
-                // TODO (expected): handle ranges
-                return Collections.emptyList();
-        }
+        return preLoadContext.keys();
     }
 
     private void fail(Throwable throwable)
@@ -240,6 +232,7 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
 
     protected void runInternal()
     {
+        AsyncDebug.check(primaryTxnId());
         Boolean canRun = null;
         switch (state)
         {
@@ -254,11 +247,11 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
                     return;
                 state(PREPARING);
             case PREPARING:
-                safeStore = commandStore.beginOperation(preLoadContext, context.commands, context.timestampsForKey, context.commandsForKey);
+                safeStore = commandStore.beginOperation(preLoadContext, context.commands, context.timestampsForKey, context.commandsForKey, context.commandsForRanges);
                 state(RUNNING);
             case RUNNING:
                 result = apply(safeStore);
-                safeStore.postExecute(context.commands, context.timestampsForKey, context.commandsForKey);
+                safeStore.postExecute(context.commands, context.timestampsForKey, context.commandsForKey, context.commandsForRanges);
                 context.releaseResources(commandStore);
                 commandStore.completeOperation(safeStore);
                 commandStore.executionOrder().unregister(this);
