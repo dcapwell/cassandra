@@ -59,19 +59,21 @@ public class SetDurableSerializers
         @Override
         public void serialize(SetGloballyDurable msg, DataOutputPlus out, int version) throws IOException
         {
+            CommandSerializers.txnId.serialize(msg.txnId, out, version);
             CommandStoreSerializers.durableBefore.serialize(msg.durableBefore, out, version);
         }
 
         @Override
         public SetGloballyDurable deserialize(DataInputPlus in, int version) throws IOException
         {
-            return new SetGloballyDurable(CommandStoreSerializers.durableBefore.deserialize(in, version));
+            return new SetGloballyDurable(CommandSerializers.txnId.deserialize(in, version), CommandStoreSerializers.durableBefore.deserialize(in, version));
         }
 
         @Override
         public long serializedSize(SetGloballyDurable msg, int version)
         {
-            return CommandStoreSerializers.durableBefore.serializedSize(msg.durableBefore, version);
+            return CommandSerializers.txnId.serializedSize(msg.txnId, version)
+                   + CommandStoreSerializers.durableBefore.serializedSize(msg.durableBefore, version);
         }
     };
 

@@ -30,8 +30,10 @@ import javax.annotation.concurrent.GuardedBy;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.primitives.Ints;
 
 import accord.coordinate.TopologyMismatch;
+import accord.impl.CoordinateDurabilityScheduling;
 import org.apache.cassandra.cql3.statements.RequestValidations;
 import org.apache.cassandra.tcm.ClusterMetadataService;
 import org.apache.cassandra.tcm.transformations.AddAccordTable;
@@ -109,6 +111,7 @@ import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
 import static accord.messages.SimpleReply.Ok;
 import static accord.utils.Invariants.checkState;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.apache.cassandra.config.DatabaseDescriptor.getPartitioner;
 import static org.apache.cassandra.metrics.ClientRequestsMetricsHolder.accordReadMetrics;
 import static org.apache.cassandra.metrics.ClientRequestsMetricsHolder.accordWriteMetrics;
@@ -132,6 +135,7 @@ public class AccordService implements IAccordService, Shutdownable
     private final AccordScheduler scheduler;
     private final AccordDataStore dataStore;
     private final AccordJournal journal;
+    private final CoordinateDurabilityScheduling durabilityScheduling;
     private final AccordVerbHandler<? extends Request> verbHandler;
     private final LocalConfig configuration;
     @GuardedBy("this")
@@ -311,6 +315,7 @@ public class AccordService implements IAccordService, Shutdownable
                              AccordInteropApply.FACTORY,
                              configuration);
         this.nodeShutdown = toShutdownable(node);
+        this.durabilityScheduling = new CoordinateDurabilityScheduling(node);
         this.verbHandler = new AccordVerbHandler<>(node, configService, journal);
     }
 
@@ -324,6 +329,11 @@ public class AccordService implements IAccordService, Shutdownable
         ClusterMetadataService.instance().log().addListener(configService);
         fastPathCoordinator.start();
         ClusterMetadataService.instance().log().addListener(fastPathCoordinator);
+        durabilityScheduling.setGlobalCycleTime(Ints.checkedCast(DatabaseDescriptor.getAccordGlobalDurabilityCycle(SECONDS)), SECONDS);
+        durabilityScheduling.setShardCycleTime(Ints.checkedCast(DatabaseDescriptor.getAccordShardDurabilityCycle(SECONDS)), SECONDS);
+        durabilityScheduling.setTxnIdLag(Ints.checkedCast(DatabaseDescriptor.getAccordScheduleDurabilityTxnIdLag(SECONDS)), TimeUnit.SECONDS);
+        durabilityScheduling.setFrequency(Ints.checkedCast(DatabaseDescriptor.getAccordScheduleDurabilityFrequency(SECONDS)), SECONDS);
+        durabilityScheduling.start();
         state = State.STARTED;
     }
 
