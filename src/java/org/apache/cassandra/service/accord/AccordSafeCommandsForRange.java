@@ -19,6 +19,7 @@
 package org.apache.cassandra.service.accord;
 
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.Objects;
 
 import accord.primitives.Range;
@@ -29,12 +30,12 @@ import org.apache.cassandra.utils.Pair;
 
 public class AccordSafeCommandsForRange implements AccordSafeState<Range, CommandsForRange>
 {
-    private final AsyncResult<Pair<DiskCommandsForRanges.Watcher, Map<TxnId, DiskCommandsForRanges.Summary>>> chain;
+    private final AsyncResult<Pair<DiskCommandsForRanges.Watcher, NavigableMap<TxnId, DiskCommandsForRanges.Summary>>> chain;
     private final Range range;
     private boolean invalidated;
     private CommandsForRange original, current;
 
-    public AccordSafeCommandsForRange(Range range, AsyncResult<Pair<DiskCommandsForRanges.Watcher, Map<TxnId, DiskCommandsForRanges.Summary>>> chain)
+    public AccordSafeCommandsForRange(Range range, AsyncResult<Pair<DiskCommandsForRanges.Watcher, NavigableMap<TxnId, DiskCommandsForRanges.Summary>>> chain)
     {
         this.range = range;
         this.chain = chain;
@@ -76,7 +77,7 @@ public class AccordSafeCommandsForRange implements AccordSafeState<Range, Comman
     public void preExecute()
     {
         checkNotInvalidated();
-        Pair<DiskCommandsForRanges.Watcher, Map<TxnId, DiskCommandsForRanges.Summary>> pair = AsyncChains.getUnchecked(chain);
+        Pair<DiskCommandsForRanges.Watcher, NavigableMap<TxnId, DiskCommandsForRanges.Summary>> pair = AsyncChains.getUnchecked(chain);
         pair.left.close();
         pair.left.get().entrySet().forEach(e -> pair.right.put(e.getKey(), e.getValue()));
         current = original = new CommandsForRange(range, pair.right);

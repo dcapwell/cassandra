@@ -25,7 +25,9 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.function.BiFunction;
 import javax.annotation.Nullable;
 
@@ -61,7 +63,7 @@ public class DiskCommandsForRanges
         this.store = store;
     }
 
-    public AsyncResult<Pair<Watcher, Map<TxnId, Summary>>> get(Range range)
+    public AsyncResult<Pair<Watcher, NavigableMap<TxnId, Summary>>> get(Range range)
     {
         var watcher = fromCache(range);
         var before = ImmutableMap.copyOf(watcher.get());
@@ -70,7 +72,7 @@ public class DiskCommandsForRanges
                .beginAsResult();
     }
 
-    private Map<TxnId, Summary> get(Range range, Map<TxnId, Summary> cacheHits)
+    private NavigableMap<TxnId, Summary> get(Range range, Map<TxnId, Summary> cacheHits)
     {
         Collection<TxnId> matches = intersects(range);
         return load(range, cacheHits, matches);
@@ -100,7 +102,7 @@ public class DiskCommandsForRanges
     {
         private final Ranges cacheRanges;
 
-        private Map<TxnId, Summary> summaries = null;
+        private NavigableMap<TxnId, Summary> summaries = null;
         private List<AccordCachingState<TxnId, Command>> needToDoubleCheck = null;
 
         public Watcher(Ranges cacheRanges)
@@ -108,9 +110,9 @@ public class DiskCommandsForRanges
             this.cacheRanges = cacheRanges;
         }
 
-        public Map<TxnId, Summary> get()
+        public NavigableMap<TxnId, Summary> get()
         {
-            return summaries == null ? Collections.emptyMap() : summaries;
+            return summaries == null ? Collections.emptyNavigableMap() : summaries;
         }
 
         @Override
@@ -138,7 +140,7 @@ public class DiskCommandsForRanges
             if (summary != null)
             {
                 if (summaries == null)
-                    summaries = new HashMap<>();
+                    summaries = new TreeMap<>();
                 summaries.put(summary.txnId, summary);
             }
         }
@@ -177,11 +179,13 @@ public class DiskCommandsForRanges
         return watcher;
     }
 
-    private Map<TxnId, Summary> load(Range range, Map<TxnId, Summary> cacheHits, Collection<TxnId> possibleTxns)
+    private NavigableMap<TxnId, Summary> load(Range range, Map<TxnId, Summary> cacheHits, Collection<TxnId> possibleTxns)
     {
+        //TODO (now): this logic is kinda duplicate of org.apache.cassandra.service.accord.CommandsForRange.mapReduce
+        // should figure out if this can be improved... also what is correct?
         Ranges ranges = Ranges.of(range);
         var durableBefore = store.durableBefore();
-        Map<TxnId, Summary> map = new HashMap<>();
+        NavigableMap<TxnId, Summary> map = new TreeMap<>();
         for (TxnId txnId : possibleTxns)
         {
             if (cacheHits.containsKey(txnId))

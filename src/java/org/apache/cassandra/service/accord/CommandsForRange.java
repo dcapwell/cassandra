@@ -21,6 +21,7 @@ package org.apache.cassandra.service.accord;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.TreeMap;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -46,9 +47,9 @@ import static accord.local.Status.Truncated;
 public class CommandsForRange implements CommandsSummary
 {
     private final Range range;
-    private final Map<TxnId, DiskCommandsForRanges.Summary> map;
+    private final NavigableMap<TxnId, DiskCommandsForRanges.Summary> map;
 
-    public CommandsForRange(Range range, Map<TxnId, DiskCommandsForRanges.Summary> map)
+    public CommandsForRange(Range range, NavigableMap<TxnId, DiskCommandsForRanges.Summary> map)
     {
         this.range = range;
         this.map = map;
