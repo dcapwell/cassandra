@@ -368,10 +368,8 @@ public class AccordCommandStoreFuzzTest extends CQLTester
                 Txn keyTxn = createTxn(wrapInTxn("INSERT INTO " + tbl + "(pk, value) VALUES (?, ?)"), Arrays.asList(key, 42));
 
                 List<TxnId> keyConflicts = new ArrayList<>(numSamples);
-//                List<TxnId> rangeConflicts = new ArrayList<>(numSamples);
                 Map<Range, List<TxnId>> rangeConflicts = new HashMap<>();
-//                boolean concurrent = rs.nextBoolean();
-                boolean concurrent = false;
+                boolean concurrent = rs.nextBoolean();
                 List<AsyncResult<?>> asyncs = !concurrent ? null : new ArrayList<>(numSamples);
                 for (int i = 0; i < numSamples; i++)
                 {
