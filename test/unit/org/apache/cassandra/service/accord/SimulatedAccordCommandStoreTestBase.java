@@ -18,24 +18,33 @@
 
 package org.apache.cassandra.service.accord;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
 
 import com.google.common.collect.Maps;
 import org.junit.Before;
 import org.junit.BeforeClass;
 
 import accord.api.Key;
+import accord.impl.SizeOfIntersectionSorter;
 import accord.local.Node;
+import accord.messages.BeginRecovery;
 import accord.messages.PreAccept;
+import accord.primitives.Ballot;
+import accord.primitives.Deps;
 import accord.primitives.FullRoute;
 import accord.primitives.Keys;
+import accord.primitives.LatestDeps;
 import accord.primitives.Range;
 import accord.primitives.Ranges;
 import accord.primitives.Txn;
 import accord.primitives.TxnId;
+import accord.topology.Topologies;
 import accord.utils.async.AsyncChains;
 import accord.utils.async.AsyncResult;
 import org.apache.cassandra.ServerTestUtils;
@@ -65,6 +74,11 @@ public abstract class SimulatedAccordCommandStoreTestBase extends CQLTester
         // The plan is to migrate away from SAI, so rather than hacking around timeout issues; just disable for now
         CassandraRelevantProperties.SAI_TEST_DISABLE_TIMEOUT.setBoolean(true);
     }
+
+    protected enum DepsMessages
+    {PreAccept, BeginRecovery}
+
+    private static EnumSet<DepsMessages> ALL_DEPS_MESSAGES = EnumSet.allOf(DepsMessages.class);
 
     protected static TableMetadata intTbl, reverseTokenTbl;
     protected static Node.Id nodeId;
@@ -134,26 +148,15 @@ public abstract class SimulatedAccordCommandStoreTestBase extends CQLTester
         return new AccordRoutingKey.TokenKey(id, new Murmur3Partitioner.LongToken(token));
     }
 
-    protected static <K> Map<K, List<TxnId>> keyConflicts(Map<K, List<TxnId>> conflicts, Map<K, Integer> keySizes)
-    {
-        Map<K, List<TxnId>> kc = Maps.newHashMapWithExpectedSize(conflicts.size());
-        for (Map.Entry<K, List<TxnId>> e : conflicts.entrySet())
-        {
-            if (!keySizes.containsKey(e.getKey()))
-                continue;
-            int size = keySizes.get(e.getKey());
-            if (size == 0)
-                continue;
-            kc.put(e.getKey(), e.getValue().subList(0, size));
-        }
-        return kc;
-    }
-
     protected static Map<Key, List<TxnId>> keyConflicts(List<TxnId> list, Keys keys)
     {
         Map<Key, List<TxnId>> kc = Maps.newHashMapWithExpectedSize(keys.size());
         for (Key key : keys)
+        {
+            if (list.isEmpty())
+                continue;
             kc.put(key, list);
+        }
         return kc;
     }
 
@@ -161,7 +164,11 @@ public abstract class SimulatedAccordCommandStoreTestBase extends CQLTester
     {
         Map<Range, List<TxnId>> kc = Maps.newHashMapWithExpectedSize(ranges.size());
         for (Range range : ranges)
+        {
+            if (list.isEmpty())
+                continue;
             kc.put(range, list);
+        }
         return kc;
     }
 
@@ -177,18 +184,29 @@ public abstract class SimulatedAccordCommandStoreTestBase extends CQLTester
                                            Map<Key, List<TxnId>> keyConflicts,
                                            Map<Range, List<TxnId>> rangeConflicts) throws ExecutionException, InterruptedException
     {
-        var pair = assertPreAcceptAsync(instance, txn, route, keyConflicts, rangeConflicts);
+        var pair = assertDepsMessageAsync(instance, txn, route, keyConflicts, rangeConflicts);
         instance.processAll();
         AsyncChains.getBlocking(pair.right);
 
         return pair.left;
     }
 
-    protected static Pair<TxnId, AsyncResult<?>> assertPreAcceptAsync(SimulatedAccordCommandStore instance,
-                                                                      Txn txn, FullRoute<?> route,
-                                                                      Map<Key, List<TxnId>> keyConflicts)
+    protected static Pair<TxnId, AsyncResult<?>> assertDepsMessageAsync(SimulatedAccordCommandStore instance,
+                                                                        Txn txn, FullRoute<?> route,
+                                                                        Map<Key, List<TxnId>> keyConflicts)
     {
-        return assertPreAcceptAsync(instance, txn, route, keyConflicts, Collections.emptyMap());
+        return assertDepsMessageAsync(instance, txn, route, keyConflicts, Collections.emptyMap());
+    }
+
+    protected static Pair<TxnId, AsyncResult<?>> assertDepsMessageAsync(SimulatedAccordCommandStore instance,
+                                                                        Txn txn, FullRoute<?> route,
+                                                                        Map<Key, List<TxnId>> keyConflicts,
+                                                                        Map<Range, List<TxnId>> rangeConflicts)
+    {
+//        if (false)
+//            return assertPreAcceptAsync(instance, txn, route, keyConflicts, rangeConflicts);
+//        return assertBeginRecoveryAsync(instance, txn, route, keyConflicts, rangeConflicts);
+        return assertBeginRecoveryAfterPreAcceptAsync(instance, txn, route, keyConflicts, rangeConflicts);
     }
 
     protected static Pair<TxnId, AsyncResult<?>> assertPreAcceptAsync(SimulatedAccordCommandStore instance,
@@ -196,40 +214,97 @@ public abstract class SimulatedAccordCommandStoreTestBase extends CQLTester
                                                                       Map<Key, List<TxnId>> keyConflicts,
                                                                       Map<Range, List<TxnId>> rangeConflicts)
     {
-        Map<Key, Integer> keySizes = Maps.newHashMapWithExpectedSize(keyConflicts.size());
-        for (Map.Entry<Key, List<TxnId>> e : keyConflicts.entrySet())
-            keySizes.put(e.getKey(), e.getValue().size());
-        Map<Range, Integer> rangeSizes = Maps.newHashMapWithExpectedSize(rangeConflicts.size());
-        for (Map.Entry<Range, List<TxnId>> e : rangeConflicts.entrySet())
-            rangeSizes.put(e.getKey(), e.getValue().size());
+        Map<Key, List<TxnId>> cloneKeyConflicts = keyConflicts.entrySet().stream()
+                                                              .filter(e -> !e.getValue().isEmpty())
+                                                              .collect(Collectors.toMap(e -> e.getKey(), e -> new ArrayList(e.getValue())));
+        Map<Range, List<TxnId>> cloneRangeConflicts = rangeConflicts.entrySet().stream()
+                                                                    .filter(e -> !e.getValue().isEmpty())
+                                                                    .collect(Collectors.toMap(e -> e.getKey(), e -> new ArrayList(e.getValue())));
         var pair = instance.enqueuePreAccept(txn, route);
         return Pair.create(pair.left, pair.right.map(success -> {
-            assertDeps(keyConflicts(keyConflicts, keySizes), keyConflicts(rangeConflicts, rangeSizes), success);
+            assertDeps(success.txnId, success.deps, cloneKeyConflicts, cloneRangeConflicts);
             return null;
         }).beginAsResult());
     }
 
-    protected static void assertDeps(Map<Key, List<TxnId>> keyConflicts,
-                                     Map<Range, List<TxnId>> rangeConflicts,
-                                     PreAccept.PreAcceptOk success)
+    protected static Pair<TxnId, AsyncResult<?>> assertBeginRecoveryAsync(SimulatedAccordCommandStore instance,
+                                                                          Txn txn, FullRoute<?> route,
+                                                                          Map<Key, List<TxnId>> keyConflicts,
+                                                                          Map<Range, List<TxnId>> rangeConflicts)
+    {
+        Map<Key, List<TxnId>> cloneKeyConflicts = keyConflicts.entrySet().stream()
+                                                              .filter(e -> !e.getValue().isEmpty())
+                                                              .collect(Collectors.toMap(e -> e.getKey(), e -> new ArrayList(e.getValue())));
+        Map<Range, List<TxnId>> cloneRangeConflicts = rangeConflicts.entrySet().stream()
+                                                                    .filter(e -> !e.getValue().isEmpty())
+                                                                    .collect(Collectors.toMap(e -> e.getKey(), e -> new ArrayList(e.getValue())));
+        var pair = instance.enqueueBeginRecovery(txn, route);
+        return Pair.create(pair.left, pair.right.map(success -> {
+            Deps proposeDeps = LatestDeps.mergeProposal(Collections.singletonList(success), ok -> ok.deps);
+            assertDeps(success.txnId, proposeDeps, cloneKeyConflicts, cloneRangeConflicts);
+            return null;
+        }).beginAsResult());
+    }
+
+    protected static Pair<TxnId, AsyncResult<?>> assertBeginRecoveryAfterPreAcceptAsync(SimulatedAccordCommandStore instance,
+                                                                                        Txn txn, FullRoute<?> route,
+                                                                                        Map<Key, List<TxnId>> keyConflicts,
+                                                                                        Map<Range, List<TxnId>> rangeConflicts)
+    {
+        Map<Key, List<TxnId>> cloneKeyConflicts = keyConflicts.entrySet().stream()
+                                                              .filter(e -> !e.getValue().isEmpty())
+                                                              .collect(Collectors.toMap(e -> e.getKey(), e -> new ArrayList(e.getValue())));
+        Map<Range, List<TxnId>> cloneRangeConflicts = rangeConflicts.entrySet().stream()
+                                                                    .filter(e -> !e.getValue().isEmpty())
+                                                                    .collect(Collectors.toMap(e -> e.getKey(), e -> new ArrayList(e.getValue())));
+
+        TxnId txnId = instance.nextTxnId(txn.kind(), txn.keys().domain());
+        PreAccept preAccept = new PreAccept(nodeId, new Topologies.Single(SizeOfIntersectionSorter.SUPPLIER, instance.topology), txnId, txn, route);
+
+        var preAcceptAsync = instance.processAsync(preAccept, safe -> {
+            var reply = preAccept.apply(safe);
+            Assertions.assertThat(reply.isOk()).isTrue();
+            PreAccept.PreAcceptOk success = (PreAccept.PreAcceptOk) reply;
+            assertDeps(success.txnId, success.deps, cloneKeyConflicts, cloneRangeConflicts);
+            return success;
+        });
+        var delay = preAcceptAsync.flatMap(ignore -> AsyncChains.ofCallable(instance.unorderedScheduled, () -> {
+            Ballot ballot = Ballot.fromValues(instance.timeService.epoch(), instance.timeService.now(), nodeId);
+            return new BeginRecovery(nodeId, new Topologies.Single(SizeOfIntersectionSorter.SUPPLIER, instance.topology), txnId, txn, route, ballot);
+        }));
+        var recoverAsync = delay.flatMap(br -> instance.processAsync(br, safe -> {
+            var reply = br.apply(safe);
+            Assertions.assertThat(reply.isOk()).isTrue();
+            BeginRecovery.RecoverOk success = (BeginRecovery.RecoverOk) reply;
+            Deps proposeDeps = LatestDeps.mergeProposal(Collections.singletonList(success), ok -> ok.deps);
+            assertDeps(success.txnId, proposeDeps, cloneKeyConflicts, cloneRangeConflicts);
+            return success;
+        }));
+
+        return Pair.create(txnId, recoverAsync.beginAsResult());
+    }
+
+    protected static void assertDeps(TxnId txnId, Deps deps,
+                                     Map<Key, List<TxnId>> keyConflicts,
+                                     Map<Range, List<TxnId>> rangeConflicts)
     {
         if (rangeConflicts.isEmpty())
         {
-            Assertions.assertThat(success.deps.rangeDeps.isEmpty()).describedAs("Txn %s rangeDeps was not empty", success.txnId).isTrue();
+            Assertions.assertThat(deps.rangeDeps.isEmpty()).describedAs("Txn %s rangeDeps was not empty; %s", txnId, deps.rangeDeps).isTrue();
         }
         else
         {
-            Assertions.assertThat(success.deps.rangeDeps.rangeCount()).describedAs("Txn %s Expected ranges size", success.txnId).isEqualTo(rangeConflicts.size());
+            Assertions.assertThat(deps.rangeDeps.rangeCount()).describedAs("Txn %s Expected ranges size", txnId).isEqualTo(rangeConflicts.size());
             AssertionError errors = null;
             for (int i = 0; i < rangeConflicts.size(); i++)
             {
                 try
                 {
-                    var range = success.deps.rangeDeps.range(i);
-                    Assertions.assertThat(rangeConflicts).describedAs("Txn %s had an unexpected range", success.txnId).containsKey(range);
-                    var conflict = success.deps.rangeDeps.txnIdsForRangeIndex(i);
+                    var range = deps.rangeDeps.range(i);
+                    Assertions.assertThat(rangeConflicts).describedAs("Txn %s had an unexpected range", txnId).containsKey(range);
+                    var conflict = deps.rangeDeps.txnIdsForRangeIndex(i);
                     List<TxnId> expectedConflict = rangeConflicts.get(range);
-                    Assertions.assertThat(conflict).describedAs("Txn %s Expected range %s to have different conflicting txns", success.txnId, range).isEqualTo(expectedConflict);
+                    Assertions.assertThat(conflict).describedAs("Txn %s Expected range %s to have different conflicting txns", txnId, range).isEqualTo(expectedConflict);
                 }
                 catch (AssertionError e)
                 {
@@ -244,13 +319,13 @@ public abstract class SimulatedAccordCommandStoreTestBase extends CQLTester
         }
         if (keyConflicts.isEmpty())
         {
-            Assertions.assertThat(success.deps.keyDeps.isEmpty()).describedAs("Txn %s keyDeps was not empty", success.txnId).isTrue();
+            Assertions.assertThat(deps.keyDeps.isEmpty()).describedAs("Txn %s keyDeps was not empty", txnId).isTrue();
         }
         else
         {
-            Assertions.assertThat(success.deps.keyDeps.keys()).describedAs("Txn %s Keys", success.txnId).isEqualTo(Keys.of(keyConflicts.keySet()));
+            Assertions.assertThat(deps.keyDeps.keys()).describedAs("Txn %s Keys", txnId).isEqualTo(Keys.of(keyConflicts.keySet()));
             for (var key : keyConflicts.keySet())
-                Assertions.assertThat(success.deps.keyDeps.txnIds(key)).describedAs("Txn %s for key %s", success.txnId, key).isEqualTo(keyConflicts.get(key));
+                Assertions.assertThat(deps.keyDeps.txnIds(key)).describedAs("Txn %s for key %s", txnId, key).isEqualTo(keyConflicts.get(key));
         }
     }
 

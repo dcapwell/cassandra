@@ -46,7 +46,7 @@ import org.apache.cassandra.service.accord.api.PartitionKey;
 import static accord.utils.Property.qt;
 import static org.apache.cassandra.service.accord.AccordTestUtils.createTxn;
 
-public class PreAcceptSimulatedAccordCommandStoreTest extends SimulatedAccordCommandStoreTestBase
+public class SimulatedAccordCommandStoreTest extends SimulatedAccordCommandStoreTestBase
 {
     @Test
     public void keyConflicts()
@@ -71,7 +71,7 @@ public class PreAcceptSimulatedAccordCommandStoreTest extends SimulatedAccordCom
                     instance.maybeCacheEvict(keys, Ranges.EMPTY);
                     if (concurrent)
                     {
-                        var pair = assertPreAcceptAsync(instance, txn, route, keyConflicts(conflicts, keys));
+                        var pair = assertDepsMessageAsync(instance, txn, route, keyConflicts(conflicts, keys));
                         conflicts.add(pair.left);
                         asyncs.add(pair.right);
                     }
@@ -138,13 +138,13 @@ public class PreAcceptSimulatedAccordCommandStoreTest extends SimulatedAccordCom
                         asyncIds.add(p.left);
                     }
 
-                    var k = assertPreAcceptAsync(instance, keyTxn, keyRoute, Map.of(key, keyConflicts, outOfRangeKey, outOfRangeKeyConflicts), Collections.emptyMap());
+                    var k = assertDepsMessageAsync(instance, keyTxn, keyRoute, Map.of(key, keyConflicts, outOfRangeKey, outOfRangeKeyConflicts), Collections.emptyMap());
                     keyConflicts.add(k.left);
                     outOfRangeKeyConflicts.add(k.left);
                     asyncs.add(k.right);
                     asyncIds.add(k.left);
 
-                    var r = assertPreAcceptAsync(instance, rangeTxn, rangeRoute, Map.of(key, keyConflicts), rangeConflicts(rangeConflicts, partialRange));
+                    var r = assertDepsMessageAsync(instance, rangeTxn, rangeRoute, Map.of(key, keyConflicts), rangeConflicts(rangeConflicts, partialRange));
                     rangeConflicts.add(r.left);
                     asyncs.add(r.right);
                     asyncIds.add(r.left);
@@ -185,11 +185,11 @@ public class PreAcceptSimulatedAccordCommandStoreTest extends SimulatedAccordCom
 
                     if (concurrent)
                     {
-                        var k = assertPreAcceptAsync(instance, keyTxn, keyRoute, Map.of(key, keyConflicts.computeIfAbsent(key, ignore -> new ArrayList<>())), Collections.emptyMap());
+                        var k = assertDepsMessageAsync(instance, keyTxn, keyRoute, Map.of(key, keyConflicts.computeIfAbsent(key, ignore -> new ArrayList<>())), Collections.emptyMap());
                         keyConflicts.get(key).add(k.left);
                         asyncs.add(k.right);
 
-                        var r = assertPreAcceptAsync(instance, rangeTxn, rangeRoute, keyConflicts, rangeConflicts(rangeConflicts, wholeRange));
+                        var r = assertDepsMessageAsync(instance, rangeTxn, rangeRoute, keyConflicts, rangeConflicts(rangeConflicts, wholeRange));
                         rangeConflicts.add(r.left);
                         asyncs.add(r.right);
                     }
@@ -242,10 +242,10 @@ public class PreAcceptSimulatedAccordCommandStoreTest extends SimulatedAccordCom
                     instance.maybeCacheEvict(keys, ranges);
                     if (concurrent)
                     {
-                        var k = assertPreAcceptAsync(instance, keyTxn, keyRoute, keyConflicts(keyConflicts, keys));
+                        var k = assertDepsMessageAsync(instance, keyTxn, keyRoute, keyConflicts(keyConflicts, keys));
                         keyConflicts.add(k.left);
                         asyncs.add(k.right);
-                        var r = assertPreAcceptAsync(instance, rangeTxn, rangeRoute, keyConflicts(keyConflicts, keys), rangeConflicts(rangeConflicts, ranges));
+                        var r = assertDepsMessageAsync(instance, rangeTxn, rangeRoute, keyConflicts(keyConflicts, keys), rangeConflicts(rangeConflicts, ranges));
                         rangeConflicts.add(r.left);
                         asyncs.add(r.right);
                     }
@@ -270,7 +270,7 @@ public class PreAcceptSimulatedAccordCommandStoreTest extends SimulatedAccordCom
         var tbl = reverseTokenTbl;
         int numSamples = 100;
 
-        qt().withExamples(10).check(rs -> {
+        qt().withSeed(4760793912722218623L).withExamples(10).check(rs -> {
             clearSystemTables();
             try (var instance = new SimulatedAccordCommandStore(rs))
             {
@@ -295,11 +295,11 @@ public class PreAcceptSimulatedAccordCommandStoreTest extends SimulatedAccordCom
                         instance.maybeCacheEvict(keys, partialRange);
                         if (concurrent)
                         {
-                            var pair = assertPreAcceptAsync(instance, keyTxn, keyRoute, keyConflicts(keyConflicts, keys));
+                            var pair = assertDepsMessageAsync(instance, keyTxn, keyRoute, keyConflicts(keyConflicts, keys));
                             keyConflicts.add(pair.left);
                             asyncs.add(pair.right);
 
-                            pair = assertPreAcceptAsync(instance, rangeTxn, rangeRoute, keyConflicts(keyConflicts, keys), rangeConflicts);
+                            pair = assertDepsMessageAsync(instance, rangeTxn, rangeRoute, keyConflicts(keyConflicts, keys), rangeConflicts);
                             rangeConflicts.put(partialRange.get(0), Collections.singletonList(pair.left));
                             asyncs.add(pair.right);
                         }
