@@ -576,7 +576,6 @@ public class AccordCommandStoreFuzzTest extends CQLTester
     {
         TxnId txnId = new TxnId(instance.timeService.epoch(), instance.timeService.now(), txn.kind(), txn.keys().domain(), nodeId);
         var preAccept = new PreAccept(instance.nodeId, new Topologies.Single(SizeOfIntersectionSorter.SUPPLIER, instance.topology), txnId, txn, route);
-        instance.journal.appendMessageBlocking(preAccept);
         return Pair.create(txnId, instance.processAsync(preAccept, safe -> {
             var reply = preAccept.apply(safe);
             Assertions.assertThat(reply.isOk()).isTrue();

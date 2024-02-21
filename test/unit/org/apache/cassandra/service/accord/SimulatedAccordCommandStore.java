@@ -35,6 +35,7 @@ import accord.local.Node;
 import accord.local.NodeTimeService;
 import accord.local.PreLoadContext;
 import accord.local.SafeCommandStore;
+import accord.messages.Message;
 import accord.messages.TxnRequest;
 import accord.primitives.Keys;
 import accord.primitives.Range;
@@ -212,7 +213,7 @@ class SimulatedAccordCommandStore implements AutoCloseable
 
     public <T> T process(PreLoadContext loadCtx, Function<? super SafeCommandStore, T> function) throws ExecutionException, InterruptedException
     {
-        var result = store.submit(loadCtx, function).beginAsResult();
+        var result = processAsync(loadCtx, function);
         processAll();
         return AsyncChains.getBlocking(result);
     }
@@ -224,6 +225,8 @@ class SimulatedAccordCommandStore implements AutoCloseable
 
     public <T> AsyncResult<T> processAsync(PreLoadContext loadCtx, Function<? super SafeCommandStore, T> function)
     {
+        if (loadCtx instanceof Message)
+            journal.appendMessageBlocking((Message) loadCtx);
         return store.submit(loadCtx, function).beginAsResult();
     }
 
