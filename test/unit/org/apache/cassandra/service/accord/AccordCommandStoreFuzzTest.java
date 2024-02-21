@@ -357,7 +357,7 @@ public class AccordCommandStoreFuzzTest extends CQLTester
         var tbl = reverseTokenTbl;
         int numSamples = 100;
 
-        qt().withSeed(4760793912722218623L).withExamples(10).check(rs -> {
+        qt().withExamples(10).check(rs -> {
             clearSystemTables();
             try (var instance = new SimulatedAccordCommandStore(rs))
             {
@@ -431,14 +431,16 @@ public class AccordCommandStoreFuzzTest extends CQLTester
                 FullKeyRoute keyRoute = keys.toRoute(pk.toUnseekable());
                 Txn keyTxn = createTxn(wrapInTxn("INSERT INTO " + tbl + "(pk, value) VALUES (?, ?)"), Arrays.asList(key, 42));
 
-                Ranges left = Ranges.of(tokenRange(tbl.id, token - 10, token + 5));
-                Ranges right = Ranges.of(tokenRange(tbl.id, token - 5, token + 10));
+                Range left = tokenRange(tbl.id, token - 10, token + 5);
+                Range right = tokenRange(tbl.id, token - 5, token + 10);
 
                 List<TxnId> keyConflicts = new ArrayList<>(numSamples);
-                List<TxnId> rangeConflicts = new ArrayList<>(numSamples);
+                Map<Range, List<TxnId>> rangeConflicts = new HashMap<>();
+                rangeConflicts.put(left, new ArrayList<>());
+                rangeConflicts.put(right, new ArrayList<>());
                 for (int i = 0; i < numSamples; i++)
                 {
-                    Ranges partialRange = rs.nextBoolean() ? left : right;
+                    Ranges partialRange = Ranges.of(rs.nextBoolean() ? left : right);
                     try
                     {
                         instance.maybeCacheEvict(keys, partialRange);
@@ -446,7 +448,7 @@ public class AccordCommandStoreFuzzTest extends CQLTester
 
                         FullRangeRoute rangeRoute = partialRange.toRoute(pk.toUnseekable());
                         Txn rangeTxn = createTxn(Txn.Kind.ExclusiveSyncPoint, partialRange);
-                        rangeConflicts.add(assertPreAccept(instance, rangeTxn, rangeRoute, keyConflicts(keyConflicts, keys), rangeConflicts(rangeConflicts, partialRange)));
+                        rangeConflicts.get(partialRange.get(0)).add(assertPreAccept(instance, rangeTxn, rangeRoute, keyConflicts(keyConflicts, keys), rangeConflicts));
                     }
                     catch (Throwable t)
                     {
