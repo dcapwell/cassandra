@@ -58,6 +58,7 @@ import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey;
+import org.apache.cassandra.service.accord.async.AsyncDebug;
 import org.apache.cassandra.tcm.ClusterMetadata;
 import org.apache.cassandra.tcm.transformations.AddAccordTable;
 import org.apache.cassandra.utils.Pair;
@@ -172,17 +173,17 @@ public abstract class SimulatedAccordCommandStoreTestBase extends CQLTester
         return kc;
     }
 
-    protected static TxnId assertPreAccept(SimulatedAccordCommandStore instance,
-                                           Txn txn, FullRoute<?> route,
-                                           Map<Key, List<TxnId>> keyConflicts) throws ExecutionException, InterruptedException
+    protected static TxnId assertDepsMessage(SimulatedAccordCommandStore instance,
+                                             Txn txn, FullRoute<?> route,
+                                             Map<Key, List<TxnId>> keyConflicts) throws ExecutionException, InterruptedException
     {
-        return assertPreAccept(instance, txn, route, keyConflicts, Collections.emptyMap());
+        return assertDepsMessage(instance, txn, route, keyConflicts, Collections.emptyMap());
     }
 
-    protected static TxnId assertPreAccept(SimulatedAccordCommandStore instance,
-                                           Txn txn, FullRoute<?> route,
-                                           Map<Key, List<TxnId>> keyConflicts,
-                                           Map<Range, List<TxnId>> rangeConflicts) throws ExecutionException, InterruptedException
+    protected static TxnId assertDepsMessage(SimulatedAccordCommandStore instance,
+                                             Txn txn, FullRoute<?> route,
+                                             Map<Key, List<TxnId>> keyConflicts,
+                                             Map<Range, List<TxnId>> rangeConflicts) throws ExecutionException, InterruptedException
     {
         var pair = assertDepsMessageAsync(instance, txn, route, keyConflicts, rangeConflicts);
         instance.processAll();
@@ -273,6 +274,7 @@ public abstract class SimulatedAccordCommandStoreTestBase extends CQLTester
             return new BeginRecovery(nodeId, new Topologies.Single(SizeOfIntersectionSorter.SUPPLIER, instance.topology), txnId, txn, route, ballot);
         }));
         var recoverAsync = delay.flatMap(br -> instance.processAsync(br, safe -> {
+            AsyncDebug.check(txnId);
             var reply = br.apply(safe);
             Assertions.assertThat(reply.isOk()).isTrue();
             BeginRecovery.RecoverOk success = (BeginRecovery.RecoverOk) reply;

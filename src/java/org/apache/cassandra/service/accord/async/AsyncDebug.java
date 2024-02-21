@@ -22,9 +22,14 @@ import accord.primitives.TxnId;
 
 public class AsyncDebug
 {
+    private static final TxnId TARGET = TxnId.fromValues(11, 8, 9, 1);
+    private static final TxnId OTHER = TxnId.fromValues(11,76,9,1);
+
     public static void check(TxnId id)
     {
-        if (TxnId.fromValues(11,16342125,9,1).equals(id))
+        if (TARGET.equals(id))
+            System.out.println();
+        if (OTHER.equals(id))
             System.out.println();
     }
 }

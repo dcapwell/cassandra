@@ -77,7 +77,7 @@ public class SimulatedAccordCommandStoreTest extends SimulatedAccordCommandStore
                     }
                     else
                     {
-                        conflicts.add(assertPreAccept(instance, txn, route, keyConflicts(conflicts, keys)));
+                        conflicts.add(assertDepsMessage(instance, txn, route, keyConflicts(conflicts, keys)));
                     }
                 }
                 if (concurrent)
@@ -195,9 +195,9 @@ public class SimulatedAccordCommandStoreTest extends SimulatedAccordCommandStore
                     }
                     else
                     {
-                        var k = assertPreAccept(instance, keyTxn, keyRoute, Map.of(key, keyConflicts.computeIfAbsent(key, ignore -> new ArrayList<>())), Collections.emptyMap());
+                        var k = assertDepsMessage(instance, keyTxn, keyRoute, Map.of(key, keyConflicts.computeIfAbsent(key, ignore -> new ArrayList<>())), Collections.emptyMap());
                         keyConflicts.get(key).add(k);
-                        rangeConflicts.add(assertPreAccept(instance, rangeTxn, rangeRoute, keyConflicts, rangeConflicts(rangeConflicts, wholeRange)));
+                        rangeConflicts.add(assertDepsMessage(instance, rangeTxn, rangeRoute, keyConflicts, rangeConflicts(rangeConflicts, wholeRange)));
                     }
                 }
                 if (concurrent)
@@ -251,8 +251,8 @@ public class SimulatedAccordCommandStoreTest extends SimulatedAccordCommandStore
                     }
                     else
                     {
-                        keyConflicts.add(assertPreAccept(instance, keyTxn, keyRoute, keyConflicts(keyConflicts, keys)));
-                        rangeConflicts.add(assertPreAccept(instance, rangeTxn, rangeRoute, keyConflicts(keyConflicts, keys), rangeConflicts(rangeConflicts, ranges)));
+                        keyConflicts.add(assertDepsMessage(instance, keyTxn, keyRoute, keyConflicts(keyConflicts, keys)));
+                        rangeConflicts.add(assertDepsMessage(instance, rangeTxn, rangeRoute, keyConflicts(keyConflicts, keys), rangeConflicts(rangeConflicts, ranges)));
                     }
                 }
                 if (concurrent)
@@ -270,7 +270,7 @@ public class SimulatedAccordCommandStoreTest extends SimulatedAccordCommandStore
         var tbl = reverseTokenTbl;
         int numSamples = 100;
 
-        qt().withSeed(4760793912722218623L).withExamples(10).check(rs -> {
+        qt().withSeed(3159375163100347778L).withExamples(10).check(rs -> {
             clearSystemTables();
             try (var instance = new SimulatedAccordCommandStore(rs))
             {
@@ -285,6 +285,7 @@ public class SimulatedAccordCommandStoreTest extends SimulatedAccordCommandStore
                 Map<Range, List<TxnId>> rangeConflicts = new HashMap<>();
                 boolean concurrent = rs.nextBoolean();
                 List<AsyncResult<?>> asyncs = !concurrent ? null : new ArrayList<>(numSamples);
+                List<TxnId> info = !concurrent ? null : new ArrayList<>(numSamples);
                 for (int i = 0; i < numSamples; i++)
                 {
                     Ranges partialRange = Ranges.of(tokenRange(tbl.id, token - i - 1, token + i));
@@ -296,17 +297,19 @@ public class SimulatedAccordCommandStoreTest extends SimulatedAccordCommandStore
                         if (concurrent)
                         {
                             var pair = assertDepsMessageAsync(instance, keyTxn, keyRoute, keyConflicts(keyConflicts, keys));
+                            info.add(pair.left);
                             keyConflicts.add(pair.left);
                             asyncs.add(pair.right);
 
                             pair = assertDepsMessageAsync(instance, rangeTxn, rangeRoute, keyConflicts(keyConflicts, keys), rangeConflicts);
+                            info.add(pair.left);
                             rangeConflicts.put(partialRange.get(0), Collections.singletonList(pair.left));
                             asyncs.add(pair.right);
                         }
                         else
                         {
-                            keyConflicts.add(assertPreAccept(instance, keyTxn, keyRoute, keyConflicts(keyConflicts, keys)));
-                            rangeConflicts.put(partialRange.get(0), Collections.singletonList(assertPreAccept(instance, rangeTxn, rangeRoute, keyConflicts(keyConflicts, keys), rangeConflicts)));
+                            keyConflicts.add(assertDepsMessage(instance, keyTxn, keyRoute, keyConflicts(keyConflicts, keys)));
+                            rangeConflicts.put(partialRange.get(0), Collections.singletonList(assertDepsMessage(instance, rangeTxn, rangeRoute, keyConflicts(keyConflicts, keys), rangeConflicts)));
                         }
                     }
                     catch (Throwable t)
@@ -319,7 +322,7 @@ public class SimulatedAccordCommandStoreTest extends SimulatedAccordCommandStore
                 if (concurrent)
                 {
                     instance.processAll();
-                    safeBlock(asyncs);
+                    safeBlock(asyncs, info);
                 }
             }
         });
@@ -355,11 +358,11 @@ public class SimulatedAccordCommandStoreTest extends SimulatedAccordCommandStore
                     try
                     {
                         instance.maybeCacheEvict(keys, partialRange);
-                        keyConflicts.add(assertPreAccept(instance, keyTxn, keyRoute, keyConflicts(keyConflicts, keys)));
+                        keyConflicts.add(assertDepsMessage(instance, keyTxn, keyRoute, keyConflicts(keyConflicts, keys)));
 
                         FullRangeRoute rangeRoute = partialRange.toRoute(pk.toUnseekable());
                         Txn rangeTxn = createTxn(Txn.Kind.ExclusiveSyncPoint, partialRange);
-                        rangeConflicts.get(partialRange.get(0)).add(assertPreAccept(instance, rangeTxn, rangeRoute, keyConflicts(keyConflicts, keys), rangeConflicts));
+                        rangeConflicts.get(partialRange.get(0)).add(assertDepsMessage(instance, rangeTxn, rangeRoute, keyConflicts(keyConflicts, keys), rangeConflicts));
                     }
                     catch (Throwable t)
                     {

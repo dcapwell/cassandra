@@ -20,6 +20,7 @@ package org.apache.cassandra.service.accord.async;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.IdentityHashMap;
 import java.util.List;
 
 import accord.api.Key;
@@ -30,8 +31,6 @@ import accord.primitives.TxnId;
 import accord.utils.Invariants;
 import org.agrona.collections.Object2ObjectHashMap;
 import org.apache.cassandra.service.accord.RTreeRangeAccessor;
-import org.apache.cassandra.service.accord.TokenRange;
-import org.apache.cassandra.service.accord.api.AccordRoutingKey;
 import org.apache.cassandra.utils.RTree;
 
 /**
@@ -40,19 +39,33 @@ import org.apache.cassandra.utils.RTree;
  */
 public class ExecutionOrder
 {
+    private static class Conflicts
+    {
+        private final List<Key> keyConflicts;
+        private final List<Range> rangeConflicts;
+
+        private Conflicts(List<Key> keyConflicts, List<Range> rangeConflicts)
+        {
+            this.keyConflicts = keyConflicts;
+            this.rangeConflicts = rangeConflicts;
+        }
+    }
     private class RangeState
     {
         private final Range range;
-        private final List<Key> keyConflicts;
-        private final List<Range> rangeConflicts;
+        private final IdentityHashMap<AsyncOperation<?>, Conflicts> operationToConflicts = new IdentityHashMap<>();
         private Object operationOrQueue;
 
         public RangeState(Range range, List<Key> keyConflicts, List<Range> rangeConflicts, AsyncOperation<?> operation)
         {
             this.range = range;
-            this.keyConflicts = keyConflicts;
-            this.rangeConflicts = rangeConflicts;
             this.operationOrQueue = operation;
+            add(operation, keyConflicts, rangeConflicts);
+        }
+
+        public void add(AsyncOperation<?> operation, List<Key> keyConflicts, List<Range> rangeConflicts)
+        {
+            operationToConflicts.put(operation, new Conflicts(keyConflicts, rangeConflicts));
         }
 
         boolean canRun(AsyncOperation<?> operation)
@@ -69,7 +82,7 @@ public class ExecutionOrder
             }
         }
 
-        void remove(AsyncOperation<?> operation)
+        Conflicts remove(AsyncOperation<?> operation)
         {
             if (operationOrQueue instanceof AsyncOperation<?>)
             {
@@ -94,6 +107,12 @@ public class ExecutionOrder
                         head.onUnblocked();
                 }
             }
+            return operationToConflicts.remove(operation);
+        }
+
+        public Conflicts conflicts(AsyncOperation<?> operation)
+        {
+            return operationToConflicts.get(operation);
         }
     }
 
@@ -150,13 +169,13 @@ public class ExecutionOrder
 
         class Result
         {
-            boolean sawSelf = false;
+            RangeState sameRange = null;
             List<Range> rangeConflicts = null;
         }
         Result result = new Result();
         rangeQueues.search(range, e -> {
             if (range.equals(e.getKey()))
-                result.sawSelf = true;
+                result.sameRange = e.getValue();
             else
             {
                 if (result.rangeConflicts == null)
@@ -179,12 +198,15 @@ public class ExecutionOrder
                 queue.add(operation);
             }
         });
-        if (!result.sawSelf)
+        if (result.sameRange != null)
+        {
+            result.sameRange.add(operation, keyConflicts, result.rangeConflicts);
+        }
+        else
         {
             rangeQueues.add(range, new RangeState(range, keyConflicts, result.rangeConflicts, operation));
-            return keyConflicts == null;
         }
-        return false;
+        return keyConflicts == null && result.rangeConflicts == null;
     }
 
     /**
@@ -244,11 +266,11 @@ public class ExecutionOrder
     private void unregister(Range range, AsyncOperation<?> operation)
     {
         var state = state(range);
-        state.remove(operation);
-        if (state.rangeConflicts != null)
-            state.rangeConflicts.forEach(r -> state(r).remove(operation));
-        if (state.keyConflicts != null)
-            state.keyConflicts.forEach(k -> unregister(k, operation));
+        var conflicts = state.remove(operation);
+        if (conflicts.rangeConflicts != null)
+            conflicts.rangeConflicts.forEach(r -> state(r).remove(operation));
+        if (conflicts.keyConflicts != null)
+            conflicts.keyConflicts.forEach(k -> unregister(k, operation));
     }
 
     /**
@@ -313,18 +335,19 @@ public class ExecutionOrder
         var state = state(range);
         if (!state.canRun(operation))
             return false;
-        if (state.rangeConflicts != null)
+        var conflicts = state.conflicts(operation);
+        if (conflicts.rangeConflicts != null)
         {
-            for (var r : state.rangeConflicts)
+            for (var r : conflicts.rangeConflicts)
             {
                 var subState = state(r);
                 if (!subState.canRun(operation))
                     return false;
             }
         }
-        if (state.keyConflicts != null)
+        if (conflicts.keyConflicts != null)
         {
-            for (Key key : state.keyConflicts)
+            for (Key key : conflicts.keyConflicts)
             {
                 if (!canRun(key, operation))
                     return false;
