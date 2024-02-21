@@ -233,8 +233,7 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
                 {
                     if (!slice.intersects(range))
                         continue;
-                    AccordSafeCommandsForRange safeCommandsForRange = commandsForRange(range);
-                    CommandsForRange cfr = safeCommandsForRange.current();
+                    CommandsForRange cfr = commandsForRange(range).current();
                     accumulate = map.apply(cfr, accumulate);
                 }
             }
