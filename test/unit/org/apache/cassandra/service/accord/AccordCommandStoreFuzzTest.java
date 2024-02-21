@@ -42,6 +42,7 @@ import accord.primitives.FullKeyRoute;
 import accord.primitives.FullRangeRoute;
 import accord.primitives.FullRoute;
 import accord.primitives.Keys;
+import accord.primitives.Range;
 import accord.primitives.Ranges;
 import accord.primitives.Txn;
 import accord.primitives.TxnId;
@@ -369,7 +370,7 @@ public class AccordCommandStoreFuzzTest extends CQLTester
 
                 List<TxnId> keyConflicts = new ArrayList<>(numSamples);
 //                List<TxnId> rangeConflicts = new ArrayList<>(numSamples);
-                Map<Ranges, List<TxnId>> rangeConflicts = new HashMap<>();
+                Map<Range, List<TxnId>> rangeConflicts = new HashMap<>();
 //                boolean concurrent = rs.nextBoolean();
                 boolean concurrent = false;
                 List<AsyncResult<?>> asyncs = !concurrent ? null : new ArrayList<>(numSamples);
@@ -388,13 +389,13 @@ public class AccordCommandStoreFuzzTest extends CQLTester
                             asyncs.add(pair.right);
 
                             pair = assertPreAcceptAsync(instance, rangeTxn, rangeRoute, keyConflicts(keyConflicts, keys), rangeConflicts);
-                            rangeConflicts.put(partialRange, Collections.singletonList(pair.left));
+                            rangeConflicts.put(partialRange.get(0), Collections.singletonList(pair.left));
                             asyncs.add(pair.right);
                         }
                         else
                         {
                             keyConflicts.add(assertPreAccept(instance, keyTxn, keyRoute, keyConflicts(keyConflicts, keys)));
-                            rangeConflicts.put(partialRange, Collections.singletonList(assertPreAccept(instance, rangeTxn, rangeRoute, keyConflicts(keyConflicts, keys), rangeConflicts)));
+                            rangeConflicts.put(partialRange.get(0), Collections.singletonList(assertPreAccept(instance, rangeTxn, rangeRoute, keyConflicts(keyConflicts, keys), rangeConflicts)));
                         }
                     }
                     catch (Throwable t)
@@ -520,13 +521,12 @@ public class AccordCommandStoreFuzzTest extends CQLTester
         return kc;
     }
 
-    private static Map<Ranges, List<TxnId>> rangeConflicts(List<TxnId> list, Ranges ranges)
+    private static Map<Range, List<TxnId>> rangeConflicts(List<TxnId> list, Ranges ranges)
     {
-        return Map.of(ranges, list);
-//        Map<Key, List<TxnId>> kc = Maps.newHashMapWithExpectedSize(ranges.size());
-//        for (Key key : ranges)
-//            kc.put(key, list);
-//        return kc;
+        Map<Range, List<TxnId>> kc = Maps.newHashMapWithExpectedSize(ranges.size());
+        for (Range range : ranges)
+            kc.put(range, list);
+        return kc;
     }
 
     private static TxnId assertPreAccept(SimulatedAccordCommandStore instance,
@@ -539,7 +539,7 @@ public class AccordCommandStoreFuzzTest extends CQLTester
     private static TxnId assertPreAccept(SimulatedAccordCommandStore instance,
                                          Txn txn, FullRoute<?> route,
                                          Map<Key, List<TxnId>> keyConflicts,
-                                         Map<Ranges, List<TxnId>> rangeConflicts) throws ExecutionException, InterruptedException
+                                         Map<Range, List<TxnId>> rangeConflicts) throws ExecutionException, InterruptedException
     {
         var pair = assertPreAcceptAsync(instance, txn, route, keyConflicts, rangeConflicts);
         instance.processAll();
@@ -558,13 +558,13 @@ public class AccordCommandStoreFuzzTest extends CQLTester
     private static Pair<TxnId, AsyncResult<?>> assertPreAcceptAsync(SimulatedAccordCommandStore instance,
                                                                     Txn txn, FullRoute<?> route,
                                                                     Map<Key, List<TxnId>> keyConflicts,
-                                                                    Map<Ranges, List<TxnId>> rangeConflicts)
+                                                                    Map<Range, List<TxnId>> rangeConflicts)
     {
         Map<Key, Integer> keySizes = Maps.newHashMapWithExpectedSize(keyConflicts.size());
         for (Map.Entry<Key, List<TxnId>> e : keyConflicts.entrySet())
             keySizes.put(e.getKey(), e.getValue().size());
-        Map<Ranges, Integer> rangeSizes = Maps.newHashMapWithExpectedSize(rangeConflicts.size());
-        for (Map.Entry<Ranges, List<TxnId>> e : rangeConflicts.entrySet())
+        Map<Range, Integer> rangeSizes = Maps.newHashMapWithExpectedSize(rangeConflicts.size());
+        for (Map.Entry<Range, List<TxnId>> e : rangeConflicts.entrySet())
             rangeSizes.put(e.getKey(), e.getValue().size());
         var pair = enqueuePreAccept(instance, txn, route);
         return Pair.create(pair.left, pair.right.map(success -> {
@@ -586,7 +586,7 @@ public class AccordCommandStoreFuzzTest extends CQLTester
     }
 
     private static void assertDeps(Map<Key, List<TxnId>> keyConflicts,
-                                   Map<Ranges, List<TxnId>> rangeConflicts,
+                                   Map<Range, List<TxnId>> rangeConflicts,
                                    PreAccept.PreAcceptOk success)
     {
         if (rangeConflicts.isEmpty())
@@ -601,11 +601,11 @@ public class AccordCommandStoreFuzzTest extends CQLTester
             {
                 try
                 {
-                    var ranges = success.deps.rangeDeps.ranges(i);
-                    Assertions.assertThat(rangeConflicts).describedAs("Txn %s had an unexpected range", success.txnId).containsKey(ranges);
+                    var range = success.deps.rangeDeps.range(i);
+                    Assertions.assertThat(rangeConflicts).describedAs("Txn %s had an unexpected range", success.txnId).containsKey(range);
                     var conflict = success.deps.rangeDeps.txnIdsForRangeIndex(i);
-                    List<TxnId> expectedConflict = rangeConflicts.get(ranges);
-                    Assertions.assertThat(conflict).describedAs("Txn %s Expected range %s to have different conflicting txns", success.txnId, ranges).isEqualTo(expectedConflict);
+                    List<TxnId> expectedConflict = rangeConflicts.get(range);
+                    Assertions.assertThat(conflict).describedAs("Txn %s Expected range %s to have different conflicting txns", success.txnId, range).isEqualTo(expectedConflict);
                 }
                 catch (AssertionError e)
                 {
