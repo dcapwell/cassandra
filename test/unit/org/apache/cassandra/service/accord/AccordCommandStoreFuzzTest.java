@@ -179,7 +179,6 @@ public class AccordCommandStoreFuzzTest extends CQLTester
     public void concurrentRangePartialKeyMatch()
     {
         var tbl = reverseTokenTbl;
-        Ranges wholeRange = Ranges.of(fullRange(tbl.id));
         int numSamples = 250;
         int numConflictKeyTxns = 10;
 
