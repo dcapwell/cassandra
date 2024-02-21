@@ -70,7 +70,6 @@ import static org.apache.cassandra.utils.AccordGenerators.fromQT;
 class SimulatedAccordCommandStore implements AutoCloseable
 {
     private final List<Throwable> failures = new ArrayList<>();
-    private final RandomSource rs;
     private final SimulatedExecutorFactory globalExecutor;
     private final CommandStore.EpochUpdateHolder updateHolder;
     private final BooleanSupplier shouldEvict;
@@ -84,8 +83,7 @@ class SimulatedAccordCommandStore implements AutoCloseable
 
     SimulatedAccordCommandStore(RandomSource rs)
     {
-        this.rs = rs;
-        globalExecutor = new SimulatedExecutorFactory(rs, fromQT(Generators.TIMESTAMP_GEN.map(java.sql.Timestamp::getTime)).mapToLong(TimeUnit.MILLISECONDS::toNanos).next(rs), failures::add);
+        globalExecutor = new SimulatedExecutorFactory(rs.fork(), fromQT(Generators.TIMESTAMP_GEN.map(java.sql.Timestamp::getTime)).mapToLong(TimeUnit.MILLISECONDS::toNanos).next(rs), failures::add);
         this.unorderedScheduled = globalExecutor.scheduled("ignored");
         ExecutorFactory.Global.unsafeSet(globalExecutor);
         Stage.READ.unsafeSetExecutor(unorderedScheduled);
@@ -155,18 +153,19 @@ class SimulatedAccordCommandStore implements AutoCloseable
         updateHolder.add(topology.epoch(), rangesForEpoch, topology.ranges());
         updateHolder.updateGlobal(topology.ranges());
 
-        int evictSelection = rs.nextInt(0, 3);
+        var evictSource = rs.fork();
+        int evictSelection = evictSource.nextInt(0, 3);
         switch (evictSelection)
         {
             case 0: // uniform 50/50
-                shouldEvict = rs::nextBoolean;
+                shouldEvict = evictSource::nextBoolean;
                 break;
             case 1: // variable frequency
-                var freq = rs.nextFloat();
-                shouldEvict = () -> rs.decide(freq);
+                var freq = evictSource.nextFloat();
+                shouldEvict = () -> evictSource.decide(freq);
                 break;
             case 2: // fixed result
-                boolean result = rs.nextBoolean();
+                boolean result = evictSource.nextBoolean();
                 shouldEvict = () -> result;
                 break;
             default:

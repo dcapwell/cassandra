@@ -20,7 +20,6 @@ package org.apache.cassandra.service.accord;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
@@ -76,10 +75,8 @@ public abstract class SimulatedAccordCommandStoreTestBase extends CQLTester
         CassandraRelevantProperties.SAI_TEST_DISABLE_TIMEOUT.setBoolean(true);
     }
 
-    protected enum DepsMessages
-    {PreAccept, BeginRecovery}
-
-    private static EnumSet<DepsMessages> ALL_DEPS_MESSAGES = EnumSet.allOf(DepsMessages.class);
+    protected enum DepsMessage
+    {PreAccept, BeginRecovery, PreAcceptThenBeginRecovery}
 
     protected static TableMetadata intTbl, reverseTokenTbl;
     protected static Node.Id nodeId;
@@ -174,18 +171,20 @@ public abstract class SimulatedAccordCommandStoreTestBase extends CQLTester
     }
 
     protected static TxnId assertDepsMessage(SimulatedAccordCommandStore instance,
+                                             DepsMessage messageType,
                                              Txn txn, FullRoute<?> route,
                                              Map<Key, List<TxnId>> keyConflicts) throws ExecutionException, InterruptedException
     {
-        return assertDepsMessage(instance, txn, route, keyConflicts, Collections.emptyMap());
+        return assertDepsMessage(instance, messageType, txn, route, keyConflicts, Collections.emptyMap());
     }
 
     protected static TxnId assertDepsMessage(SimulatedAccordCommandStore instance,
+                                             DepsMessage messageType,
                                              Txn txn, FullRoute<?> route,
                                              Map<Key, List<TxnId>> keyConflicts,
                                              Map<Range, List<TxnId>> rangeConflicts) throws ExecutionException, InterruptedException
     {
-        var pair = assertDepsMessageAsync(instance, txn, route, keyConflicts, rangeConflicts);
+        var pair = assertDepsMessageAsync(instance, messageType, txn, route, keyConflicts, rangeConflicts);
         instance.processAll();
         AsyncChains.getBlocking(pair.right);
 
@@ -193,21 +192,30 @@ public abstract class SimulatedAccordCommandStoreTestBase extends CQLTester
     }
 
     protected static Pair<TxnId, AsyncResult<?>> assertDepsMessageAsync(SimulatedAccordCommandStore instance,
+                                                                        DepsMessage messageType,
                                                                         Txn txn, FullRoute<?> route,
                                                                         Map<Key, List<TxnId>> keyConflicts)
     {
-        return assertDepsMessageAsync(instance, txn, route, keyConflicts, Collections.emptyMap());
+        return assertDepsMessageAsync(instance, messageType, txn, route, keyConflicts, Collections.emptyMap());
     }
 
     protected static Pair<TxnId, AsyncResult<?>> assertDepsMessageAsync(SimulatedAccordCommandStore instance,
+                                                                        DepsMessage messageType,
                                                                         Txn txn, FullRoute<?> route,
                                                                         Map<Key, List<TxnId>> keyConflicts,
                                                                         Map<Range, List<TxnId>> rangeConflicts)
     {
-//        if (false)
-//            return assertPreAcceptAsync(instance, txn, route, keyConflicts, rangeConflicts);
-//        return assertBeginRecoveryAsync(instance, txn, route, keyConflicts, rangeConflicts);
-        return assertBeginRecoveryAfterPreAcceptAsync(instance, txn, route, keyConflicts, rangeConflicts);
+        switch (messageType)
+        {
+            case PreAccept:
+                return assertPreAcceptAsync(instance, txn, route, keyConflicts, rangeConflicts);
+            case BeginRecovery:
+                return assertBeginRecoveryAsync(instance, txn, route, keyConflicts, rangeConflicts);
+            case PreAcceptThenBeginRecovery:
+                return assertBeginRecoveryAfterPreAcceptAsync(instance, txn, route, keyConflicts, rangeConflicts);
+            default:
+                throw new IllegalArgumentException("Unknown message type: " + messageType);
+        }
     }
 
     protected static Pair<TxnId, AsyncResult<?>> assertPreAcceptAsync(SimulatedAccordCommandStore instance,

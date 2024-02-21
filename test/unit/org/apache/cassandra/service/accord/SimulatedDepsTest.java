@@ -46,7 +46,7 @@ import org.apache.cassandra.service.accord.api.PartitionKey;
 import static accord.utils.Property.qt;
 import static org.apache.cassandra.service.accord.AccordTestUtils.createTxn;
 
-public class SimulatedAccordCommandStoreTest extends SimulatedAccordCommandStoreTestBase
+public class SimulatedDepsTest extends SimulatedAccordCommandStoreTestBase
 {
     @Test
     public void keyConflicts()
@@ -71,13 +71,13 @@ public class SimulatedAccordCommandStoreTest extends SimulatedAccordCommandStore
                     instance.maybeCacheEvict(keys, Ranges.EMPTY);
                     if (concurrent)
                     {
-                        var pair = assertDepsMessageAsync(instance, txn, route, keyConflicts(conflicts, keys));
+                        var pair = assertDepsMessageAsync(instance, rs.pick(DepsMessage.values()), txn, route, keyConflicts(conflicts, keys));
                         conflicts.add(pair.left);
                         asyncs.add(pair.right);
                     }
                     else
                     {
-                        conflicts.add(assertDepsMessage(instance, txn, route, keyConflicts(conflicts, keys)));
+                        conflicts.add(assertDepsMessage(instance, rs.pick(DepsMessage.values()), txn, route, keyConflicts(conflicts, keys)));
                     }
                 }
                 if (concurrent)
@@ -138,13 +138,13 @@ public class SimulatedAccordCommandStoreTest extends SimulatedAccordCommandStore
                         asyncIds.add(p.left);
                     }
 
-                    var k = assertDepsMessageAsync(instance, keyTxn, keyRoute, Map.of(key, keyConflicts, outOfRangeKey, outOfRangeKeyConflicts), Collections.emptyMap());
+                    var k = assertDepsMessageAsync(instance, rs.pick(DepsMessage.values()), keyTxn, keyRoute, Map.of(key, keyConflicts, outOfRangeKey, outOfRangeKeyConflicts), Collections.emptyMap());
                     keyConflicts.add(k.left);
                     outOfRangeKeyConflicts.add(k.left);
                     asyncs.add(k.right);
                     asyncIds.add(k.left);
 
-                    var r = assertDepsMessageAsync(instance, rangeTxn, rangeRoute, Map.of(key, keyConflicts), rangeConflicts(rangeConflicts, partialRange));
+                    var r = assertDepsMessageAsync(instance, rs.pick(DepsMessage.values()), rangeTxn, rangeRoute, Map.of(key, keyConflicts), rangeConflicts(rangeConflicts, partialRange));
                     rangeConflicts.add(r.left);
                     asyncs.add(r.right);
                     asyncIds.add(r.left);
@@ -185,19 +185,19 @@ public class SimulatedAccordCommandStoreTest extends SimulatedAccordCommandStore
 
                     if (concurrent)
                     {
-                        var k = assertDepsMessageAsync(instance, keyTxn, keyRoute, Map.of(key, keyConflicts.computeIfAbsent(key, ignore -> new ArrayList<>())), Collections.emptyMap());
+                        var k = assertDepsMessageAsync(instance, rs.pick(DepsMessage.values()), keyTxn, keyRoute, Map.of(key, keyConflicts.computeIfAbsent(key, ignore -> new ArrayList<>())), Collections.emptyMap());
                         keyConflicts.get(key).add(k.left);
                         asyncs.add(k.right);
 
-                        var r = assertDepsMessageAsync(instance, rangeTxn, rangeRoute, keyConflicts, rangeConflicts(rangeConflicts, wholeRange));
+                        var r = assertDepsMessageAsync(instance, rs.pick(DepsMessage.values()), rangeTxn, rangeRoute, keyConflicts, rangeConflicts(rangeConflicts, wholeRange));
                         rangeConflicts.add(r.left);
                         asyncs.add(r.right);
                     }
                     else
                     {
-                        var k = assertDepsMessage(instance, keyTxn, keyRoute, Map.of(key, keyConflicts.computeIfAbsent(key, ignore -> new ArrayList<>())), Collections.emptyMap());
+                        var k = assertDepsMessage(instance, rs.pick(DepsMessage.values()), keyTxn, keyRoute, Map.of(key, keyConflicts.computeIfAbsent(key, ignore -> new ArrayList<>())), Collections.emptyMap());
                         keyConflicts.get(key).add(k);
-                        rangeConflicts.add(assertDepsMessage(instance, rangeTxn, rangeRoute, keyConflicts, rangeConflicts(rangeConflicts, wholeRange)));
+                        rangeConflicts.add(assertDepsMessage(instance, rs.pick(DepsMessage.values()), rangeTxn, rangeRoute, keyConflicts, rangeConflicts(rangeConflicts, wholeRange)));
                     }
                 }
                 if (concurrent)
@@ -242,17 +242,17 @@ public class SimulatedAccordCommandStoreTest extends SimulatedAccordCommandStore
                     instance.maybeCacheEvict(keys, ranges);
                     if (concurrent)
                     {
-                        var k = assertDepsMessageAsync(instance, keyTxn, keyRoute, keyConflicts(keyConflicts, keys));
+                        var k = assertDepsMessageAsync(instance, rs.pick(DepsMessage.values()), keyTxn, keyRoute, keyConflicts(keyConflicts, keys));
                         keyConflicts.add(k.left);
                         asyncs.add(k.right);
-                        var r = assertDepsMessageAsync(instance, rangeTxn, rangeRoute, keyConflicts(keyConflicts, keys), rangeConflicts(rangeConflicts, ranges));
+                        var r = assertDepsMessageAsync(instance, rs.pick(DepsMessage.values()), rangeTxn, rangeRoute, keyConflicts(keyConflicts, keys), rangeConflicts(rangeConflicts, ranges));
                         rangeConflicts.add(r.left);
                         asyncs.add(r.right);
                     }
                     else
                     {
-                        keyConflicts.add(assertDepsMessage(instance, keyTxn, keyRoute, keyConflicts(keyConflicts, keys)));
-                        rangeConflicts.add(assertDepsMessage(instance, rangeTxn, rangeRoute, keyConflicts(keyConflicts, keys), rangeConflicts(rangeConflicts, ranges)));
+                        keyConflicts.add(assertDepsMessage(instance, rs.pick(DepsMessage.values()), keyTxn, keyRoute, keyConflicts(keyConflicts, keys)));
+                        rangeConflicts.add(assertDepsMessage(instance, rs.pick(DepsMessage.values()), rangeTxn, rangeRoute, keyConflicts(keyConflicts, keys), rangeConflicts(rangeConflicts, ranges)));
                     }
                 }
                 if (concurrent)
@@ -270,7 +270,7 @@ public class SimulatedAccordCommandStoreTest extends SimulatedAccordCommandStore
         var tbl = reverseTokenTbl;
         int numSamples = 100;
 
-        qt().withSeed(3159375163100347778L).withExamples(10).check(rs -> {
+        qt().withExamples(10).check(rs -> {
             clearSystemTables();
             try (var instance = new SimulatedAccordCommandStore(rs))
             {
@@ -296,20 +296,20 @@ public class SimulatedAccordCommandStoreTest extends SimulatedAccordCommandStore
                         instance.maybeCacheEvict(keys, partialRange);
                         if (concurrent)
                         {
-                            var pair = assertDepsMessageAsync(instance, keyTxn, keyRoute, keyConflicts(keyConflicts, keys));
+                            var pair = assertDepsMessageAsync(instance, rs.pick(DepsMessage.values()), keyTxn, keyRoute, keyConflicts(keyConflicts, keys));
                             info.add(pair.left);
                             keyConflicts.add(pair.left);
                             asyncs.add(pair.right);
 
-                            pair = assertDepsMessageAsync(instance, rangeTxn, rangeRoute, keyConflicts(keyConflicts, keys), rangeConflicts);
+                            pair = assertDepsMessageAsync(instance, rs.pick(DepsMessage.values()), rangeTxn, rangeRoute, keyConflicts(keyConflicts, keys), rangeConflicts);
                             info.add(pair.left);
                             rangeConflicts.put(partialRange.get(0), Collections.singletonList(pair.left));
                             asyncs.add(pair.right);
                         }
                         else
                         {
-                            keyConflicts.add(assertDepsMessage(instance, keyTxn, keyRoute, keyConflicts(keyConflicts, keys)));
-                            rangeConflicts.put(partialRange.get(0), Collections.singletonList(assertDepsMessage(instance, rangeTxn, rangeRoute, keyConflicts(keyConflicts, keys), rangeConflicts)));
+                            keyConflicts.add(assertDepsMessage(instance, rs.pick(DepsMessage.values()), keyTxn, keyRoute, keyConflicts(keyConflicts, keys)));
+                            rangeConflicts.put(partialRange.get(0), Collections.singletonList(assertDepsMessage(instance, rs.pick(DepsMessage.values()), rangeTxn, rangeRoute, keyConflicts(keyConflicts, keys), rangeConflicts)));
                         }
                     }
                     catch (Throwable t)
@@ -358,11 +358,11 @@ public class SimulatedAccordCommandStoreTest extends SimulatedAccordCommandStore
                     try
                     {
                         instance.maybeCacheEvict(keys, partialRange);
-                        keyConflicts.add(assertDepsMessage(instance, keyTxn, keyRoute, keyConflicts(keyConflicts, keys)));
+                        keyConflicts.add(assertDepsMessage(instance, rs.pick(DepsMessage.values()), keyTxn, keyRoute, keyConflicts(keyConflicts, keys)));
 
                         FullRangeRoute rangeRoute = partialRange.toRoute(pk.toUnseekable());
                         Txn rangeTxn = createTxn(Txn.Kind.ExclusiveSyncPoint, partialRange);
-                        rangeConflicts.get(partialRange.get(0)).add(assertDepsMessage(instance, rangeTxn, rangeRoute, keyConflicts(keyConflicts, keys), rangeConflicts));
+                        rangeConflicts.get(partialRange.get(0)).add(assertDepsMessage(instance, rs.pick(DepsMessage.values()), rangeTxn, rangeRoute, keyConflicts(keyConflicts, keys), rangeConflicts));
                     }
                     catch (Throwable t)
                     {
