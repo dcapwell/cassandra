@@ -604,6 +604,9 @@ public class AccordKeyspace
             if (current == updated)
                 return row;
 
+            if (updated.size() == 0)
+                return null;
+
             ByteBuffer buffer = CommandsForKeySerializer.toBytesWithoutKey(updated);
             return BTreeRow.singleCellRow(Clustering.EMPTY, BufferCell.live(data, cell.timestamp(), buffer));
         }
@@ -1453,7 +1456,7 @@ public class AccordKeyspace
                 Invariants.checkState(partition.hasNext());
                 Row row = partition.next();
                 ByteBuffer data = cellValue(row, accessor.data);
-                return CommandsForKeySerializer.fromBytes(key, data.duplicate());
+                return CommandsForKeySerializer.fromBytes(key, data);
             }
         }
         catch (Throwable t)

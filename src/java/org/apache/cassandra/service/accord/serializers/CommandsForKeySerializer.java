@@ -470,6 +470,7 @@ public class CommandsForKeySerializer
         if (!in.hasRemaining())
             return null;
 
+        in = in.duplicate();
         int commandCount = VIntCoding.readUnsignedVInt32(in);
         if (commandCount == 0)
             return new CommandsForKey(key);
