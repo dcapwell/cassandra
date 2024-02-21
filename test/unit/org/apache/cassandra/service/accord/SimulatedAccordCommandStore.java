@@ -27,6 +27,7 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.ToLongFunction;
 
+import accord.impl.SizeOfIntersectionSorter;
 import accord.impl.TestAgent;
 import accord.local.Command;
 import accord.local.CommandStore;
@@ -35,14 +36,20 @@ import accord.local.Node;
 import accord.local.NodeTimeService;
 import accord.local.PreLoadContext;
 import accord.local.SafeCommandStore;
+import accord.messages.BeginRecovery;
 import accord.messages.Message;
+import accord.messages.PreAccept;
 import accord.messages.TxnRequest;
+import accord.primitives.Ballot;
+import accord.primitives.FullRoute;
 import accord.primitives.Keys;
 import accord.primitives.Range;
 import accord.primitives.Ranges;
 import accord.primitives.RoutableKey;
 import accord.primitives.Timestamp;
+import accord.primitives.Txn;
 import accord.primitives.TxnId;
+import accord.topology.Topologies;
 import accord.topology.Topology;
 import accord.utils.RandomSource;
 import accord.utils.async.AsyncChains;
@@ -53,12 +60,15 @@ import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.metrics.AccordStateCacheMetrics;
 import org.apache.cassandra.tcm.ClusterMetadata;
 import org.apache.cassandra.utils.Generators;
+import org.apache.cassandra.utils.Pair;
+import org.assertj.core.api.Assertions;
 
 import static org.apache.cassandra.utils.AccordGenerators.fromQT;
 
 class SimulatedAccordCommandStore implements AutoCloseable
 {
     private final List<Throwable> failures = new ArrayList<>();
+    private final RandomSource rs;
     private final SimulatedExecutorFactory globalExecutor;
     private final CommandStore.EpochUpdateHolder updateHolder;
     private final BooleanSupplier shouldEvict;
@@ -71,6 +81,7 @@ class SimulatedAccordCommandStore implements AutoCloseable
 
     SimulatedAccordCommandStore(RandomSource rs)
     {
+        this.rs = rs;
         globalExecutor = new SimulatedExecutorFactory(rs, fromQT(Generators.TIMESTAMP_GEN.map(java.sql.Timestamp::getTime)).mapToLong(TimeUnit.MILLISECONDS::toNanos).next(rs), failures::add);
         var unorderedScheduled = globalExecutor.scheduled("ignored");
         ExecutorFactory.Global.unsafeSet(globalExecutor);
@@ -229,6 +240,52 @@ class SimulatedAccordCommandStore implements AutoCloseable
             journal.appendMessageBlocking((Message) loadCtx);
         return store.submit(loadCtx, function).beginAsResult();
     }
+
+    public Pair<TxnId, AsyncResult<PreAccept.PreAcceptOk>> enqueuePreAccept(Txn txn, FullRoute<?> route)
+    {
+        TxnId txnId = new TxnId(timeService.epoch(), timeService.now(), txn.kind(), txn.keys().domain(), nodeId);
+        var preAccept = new PreAccept(nodeId, new Topologies.Single(SizeOfIntersectionSorter.SUPPLIER, topology), txnId, txn, route);
+        return Pair.create(txnId, processAsync(preAccept, safe -> {
+            var reply = preAccept.apply(safe);
+            Assertions.assertThat(reply.isOk()).isTrue();
+            return (PreAccept.PreAcceptOk) reply;
+        }));
+    }
+
+    public Pair<TxnId, AsyncResult<BeginRecovery.RecoverOk>> enqueueBeginRecovery(Txn txn, FullRoute<?> route)
+    {
+        TxnId txnId = new TxnId(timeService.epoch(), timeService.now(), txn.kind(), txn.keys().domain(), nodeId);
+        Ballot ballot = Ballot.fromValues(timeService.epoch(), timeService.now(), nodeId);
+        BeginRecovery br = new BeginRecovery(nodeId, new Topologies.Single(SizeOfIntersectionSorter.SUPPLIER, topology), txnId, txn, route, ballot);
+
+        return Pair.create(txnId, processAsync(br, safe -> {
+            var reply = br.apply(safe);
+            Assertions.assertThat(reply.isOk()).isTrue();
+            return (BeginRecovery.RecoverOk) reply;
+        }).beginAsResult());
+    }
+
+    public Pair<TxnId, AsyncResult<BeginRecovery.RecoverOk>> enqueuePreAcceptThenBeginRecovery(Txn txn, FullRoute<?> route)
+    {
+        TxnId txnId = new TxnId(timeService.epoch(), timeService.now(), txn.kind(), txn.keys().domain(), nodeId);
+        PreAccept preAccept = new PreAccept(nodeId, new Topologies.Single(SizeOfIntersectionSorter.SUPPLIER, topology), txnId, txn, route);
+        var async = processAsync(preAccept, safe -> {
+            var reply = preAccept.apply(safe);
+            Assertions.assertThat(reply.isOk()).isTrue();
+            return (PreAccept.PreAcceptOk) reply;
+        });
+
+        return Pair.create(txnId, async.flatMap(ignore -> {
+            Ballot ballot = Ballot.fromValues(timeService.epoch(), timeService.now(), nodeId);
+            BeginRecovery br = new BeginRecovery(nodeId, new Topologies.Single(SizeOfIntersectionSorter.SUPPLIER, topology), txnId, txn, route, ballot);
+            return processAsync(br, safe -> {
+                var reply = br.apply(safe);
+                Assertions.assertThat(reply.isOk()).isTrue();
+                return (BeginRecovery.RecoverOk) reply;
+            });
+        }).beginAsResult());
+    }
+    
 
     public void processAll()
     {
