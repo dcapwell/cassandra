@@ -195,7 +195,22 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
 
         bytesCached -= node.lastQueriedEstimatedSizeOnHeap;
         Instance<?, ?, ?> instance = instanceForNode(node);
-        instance.evict((AccordCachingState) node);
+        instance.bytesCached -= node.lastQueriedEstimatedSizeOnHeap;
+
+        if (node.status() == LOADED && VALIDATE_LOAD_ON_EVICT)
+            instance.validateLoadEvicted(node);
+
+        if (!node.hasListeners())
+        {
+            AccordCachingState<?, ?> self = instances.get(node.index).cache.remove(node.key());
+            checkState(self == node, "Leaked node detected; was attempting to remove %s but cache had %s", node, self);
+            if (instance.listeners != null)
+                instance.listeners.forEach(l -> l.onEvict((AccordCachingState) node));
+        }
+        else
+        {
+            node.markEvicted(); // keep the node in the cache to prevent transient listeners from being GCd
+        }
     }
 
     private Instance<?, ?, ?> instanceForNode(AccordCachingState<?, ?> node)
@@ -280,26 +295,6 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
             this.heapEstimator = heapEstimator;
             this.instanceMetrics = metrics.forInstance(keyClass);
             this.nodeFactory = nodeFactory;
-        }
-
-        void evict(AccordCachingState<K, V> node)
-        {
-            bytesCached -= node.lastQueriedEstimatedSizeOnHeap;
-
-            if (node.status() == LOADED && VALIDATE_LOAD_ON_EVICT)
-                validateLoadEvicted(node);
-
-            if (!node.hasListeners())
-            {
-                AccordCachingState<?, ?> self = instances.get(node.index).cache.remove(node.key());
-                checkState(self == node, "Leaked node detected; was attempting to remove %s but cache had %s", node, self);
-                if (listeners != null)
-                    listeners.forEach(l -> l.onEvict(node));
-            }
-            else
-            {
-                node.markEvicted(); // keep the node in the cache to prevent transient listeners from being GCd
-            }
         }
 
         public void register(Listener<K, V> l)

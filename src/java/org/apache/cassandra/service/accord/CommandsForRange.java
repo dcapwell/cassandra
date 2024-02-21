@@ -137,10 +137,7 @@ public class CommandsForRange implements CommandsSummary
         for (Map.Entry<Range, List<DiskCommandsForRanges.Summary>> e : collect.entrySet())
         {
             for (DiskCommandsForRanges.Summary command : e.getValue())
-            {
-                T initial = accumulate;
-                accumulate = map.apply(p1, e.getKey(), command.txnId, command.executeAt, initial);
-            }
+                accumulate = map.apply(p1, e.getKey(), command.txnId, command.executeAt, accumulate);
         }
 
         return accumulate;
