@@ -56,6 +56,7 @@ import org.apache.cassandra.index.sai.plan.Expression;
 import org.apache.cassandra.index.sai.utils.IndexIdentifier;
 import org.apache.cassandra.index.sai.utils.PrimaryKey;
 import org.apache.cassandra.schema.TableId;
+import org.apache.cassandra.service.accord.AccordKeyspace;
 import org.apache.cassandra.service.accord.TokenRange;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey;
 import org.apache.cassandra.utils.ByteArrayUtil;
@@ -136,7 +137,7 @@ public class RangeMemoryIndex extends UnseekableMemoryIndex
             case Range:
                 TokenRange ts = (TokenRange) keyOrRange;
 
-                var storeId = SaiSerializer.storeId(pk);
+                var storeId = AccordKeyspace.CommandRows.getStoreId(pk.partitionKey());
                 var tableId = ts.table();
                 var group = new Group(storeId, tableId);
                 var range = new Range(unwrap((AccordRoutingKey) ts.start()), unwrap((AccordRoutingKey) ts.end()));

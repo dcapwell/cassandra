@@ -305,6 +305,12 @@ public class AccordKeyspace
             return Int32Type.instance.compose(partitionKeyComponents[store_id.position()]);
         }
 
+        public static int getStoreId(DecoratedKey pk)
+        {
+            var array = splitPartitionKey(pk);
+            return getStoreId(array);
+        }
+
         public static TxnId getTxnId(ByteBuffer[] partitionKeyComponents)
         {
             return deserializeTimestampOrNull(partitionKeyComponents[txn_id.position()], ByteBufferAccessor.instance, TxnId::fromBits);

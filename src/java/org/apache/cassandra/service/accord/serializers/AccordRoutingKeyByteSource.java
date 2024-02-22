@@ -37,7 +37,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteSourceInverse;
 
 import static org.apache.cassandra.service.accord.api.AccordRoutingKey.RoutingKeyKind.SENTINEL;
 
-public class ByteOrderedTokenSerializers
+public class AccordRoutingKeyByteSource
 {
     private static final byte[] MIN_ORDER = { -1 };
     private static final byte[] TOKEN_ORDER = { 0 };
