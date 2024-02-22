@@ -233,10 +233,6 @@ public class AsyncLoader
 
     private AsyncChain<Set<PartitionKey>> findOverlappingKeys(Range range)
     {
-        Set<PartitionKey> cached = commandStore.commandsForKeyCache().stream()
-                                               .map(n -> (PartitionKey) n.key())
-                                               .filter(range::contains)
-                                               .collect(Collectors.toSet());
         // save to a variable as java gets confused when `.map` is called on the result of asChain
         AsyncChain<Set<PartitionKey>> map = Observable.asChain(callback ->
                                                                AccordKeyspace.findAllKeysBetween(commandStore.id(),

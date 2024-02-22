@@ -43,7 +43,6 @@ import accord.messages.TxnRequest;
 import accord.primitives.Ballot;
 import accord.primitives.FullRoute;
 import accord.primitives.Keys;
-import accord.primitives.Range;
 import accord.primitives.Ranges;
 import accord.primitives.Routable;
 import accord.primitives.RoutableKey;
@@ -80,6 +79,7 @@ class SimulatedAccordCommandStore implements AutoCloseable
     public final Topology topology;
     public final MockJournal journal;
     public final ScheduledExecutorPlus unorderedScheduled;
+    public final List<String> evictions = new ArrayList<>();
 
     SimulatedAccordCommandStore(RandomSource rs)
     {
@@ -148,6 +148,27 @@ class SimulatedAccordCommandStore implements AutoCloseable
                                             journal,
                                             new AccordStateCacheMetrics("test"));
 
+        store.cache().instances().forEach(i -> {
+            i.register(new AccordStateCache.Listener()
+            {
+                @Override
+                public void onAdd(AccordCachingState state)
+                {
+                }
+
+                @Override
+                public void onRelease(AccordCachingState state)
+                {
+                }
+
+                @Override
+                public void onEvict(AccordCachingState state)
+                {
+                    evictions.add(i + " evicted " + state);
+                }
+            });
+        });
+
         this.topology = AccordTopology.createAccordTopology(ClusterMetadata.current());
         var rangesForEpoch = new CommandStores.RangesForEpoch(topology.epoch(), topology.ranges(), store);
         updateHolder.add(topology.epoch(), rangesForEpoch, topology.ranges());
@@ -193,16 +214,8 @@ class SimulatedAccordCommandStore implements AutoCloseable
             }
             else if (RoutableKey.class.isAssignableFrom(keyType))
             {
-                //TODO (now, coverage): this is broken and conflicts with Benedict's work to make this stable... hold off testing this for now
-                // this is some form of CommandsForKey... possible matches are: TimestampsForKey, DepsCommandsForKey, AllCommandsForKey,and UpdatesForKey
-//                    RoutableKey key = (RoutableKey) state.key();
-//                    if (keys.contains(key) && rs.nextBoolean())
-//                        cache.maybeEvict(state);
-            }
-            else if (Range.class.isAssignableFrom(keyType))
-            {
-                Ranges key = Ranges.of((Range) state.key());
-                if ((key.intersects(keys) || key.intersects(ranges))
+                RoutableKey key = (RoutableKey) state.key();
+                if ((keys.contains(key) || ranges.intersects(key))
                     && shouldEvict.getAsBoolean())
                     cache.maybeEvict(state);
             }

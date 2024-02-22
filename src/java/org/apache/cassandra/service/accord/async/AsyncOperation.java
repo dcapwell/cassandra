@@ -232,7 +232,6 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
 
     protected void runInternal()
     {
-        AsyncDebug.check(primaryTxnId());
         Boolean canRun = null;
         switch (state)
         {

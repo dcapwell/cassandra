@@ -57,7 +57,6 @@ import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey;
-import org.apache.cassandra.service.accord.async.AsyncDebug;
 import org.apache.cassandra.tcm.ClusterMetadata;
 import org.apache.cassandra.tcm.transformations.AddAccordTable;
 import org.apache.cassandra.utils.Pair;
@@ -282,7 +281,6 @@ public abstract class SimulatedAccordCommandStoreTestBase extends CQLTester
             return new BeginRecovery(nodeId, new Topologies.Single(SizeOfIntersectionSorter.SUPPLIER, instance.topology), txnId, txn, route, ballot);
         }));
         var recoverAsync = delay.flatMap(br -> instance.processAsync(br, safe -> {
-            AsyncDebug.check(txnId);
             var reply = br.apply(safe);
             Assertions.assertThat(reply.isOk()).isTrue();
             BeginRecovery.RecoverOk success = (BeginRecovery.RecoverOk) reply;

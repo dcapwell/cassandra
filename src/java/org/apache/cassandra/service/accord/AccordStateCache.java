@@ -18,6 +18,7 @@
 package org.apache.cassandra.service.accord;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -249,6 +250,11 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
         ToLongFunction<V> heapEstimator)
     {
         return instance(keyClass, valClass, safeRefFactory, loadFunction, saveFunction, validateFunction, heapEstimator, AccordCachingState.defaultFactory());
+    }
+
+    public Collection<Instance<?, ? ,? >> instances()
+    {
+        return instances;
     }
 
     public interface Listener<K, V>
@@ -608,6 +614,15 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
         public long weightedSize()
         {
             return bytesCached;
+        }
+
+        @Override
+        public String toString()
+        {
+            return "Instance{" +
+                   "index=" + index +
+                   ", keyClass=" + keyClass +
+                   '}';
         }
     }
 

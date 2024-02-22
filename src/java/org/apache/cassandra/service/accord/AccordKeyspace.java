@@ -1135,14 +1135,14 @@ public class AccordKeyspace
             this.start = start;
             this.end = end;
 
-            String selection = selection(TimestampsForKeys, requiredColumns, COLUMNS_FOR_ITERATION);
+            String selection = selection(CommandsForKeys, requiredColumns, COLUMNS_FOR_ITERATION);
             this.cqlFirst = format("SELECT DISTINCT %s\n" +
                                           "FROM %s\n" +
                                           "WHERE store_id = ?\n" +
                                           (startInclusive ? "  AND key_token >= ?\n" : "  AND key_token > ?\n") +
                                           (endInclusive ? "  AND key_token <= ?\n" : "  AND key_token < ?\n") +
                                           "ALLOW FILTERING",
-                                          selection, TimestampsForKeys);
+                                          selection, CommandsForKeys);
             this.cqlContinue = format("SELECT DISTINCT %s\n" +
                                              "FROM %s\n" +
                                              "WHERE store_id = ?\n" +
@@ -1150,7 +1150,7 @@ public class AccordKeyspace
                                              "  AND key > ?\n" +
                                              (endInclusive ? "  AND key_token <= ?\n" : "  AND key_token < ?\n") +
                                              "ALLOW FILTERING",
-                                             selection, TimestampsForKeys);
+                                             selection, CommandsForKeys);
         }
 
         @Override
