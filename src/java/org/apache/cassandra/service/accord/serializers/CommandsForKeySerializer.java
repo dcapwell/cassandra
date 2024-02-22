@@ -223,11 +223,16 @@ public class CommandsForKeySerializer
             flags |= Invariants.checkArgument(headerBytes - 1, headerBytes <= 4) << 3;
 
             int hlcBytesLookup;
-            {
-                int l0 = Math.max(0, minBasicBytes - headerBytes);
+            {   // 2bits per size, first value may be zero and remainder may be increments of 1-4;
+                // only need to be able to encode a distribution of approx. 8 bytes at most, so
+                // pick lowest number we need first, then next lowest as 25th %ile while ensuring value of 1-4;
+                // then pick highest number we need, ensuring at least 2 greater than second (leaving room for third)
+                // then pick third number as 75th %ile, but at least 1 less than highest, and one more than second
+                // finally, ensure third then second are distributed so that there is no more than a gap of 4 between them and the next
+                int l0 = Math.max(0, Math.min(3, minBasicBytes - headerBytes));
                 int l1 = Math.max(l0+1, Math.min(l0+4,Arrays.binarySearch(bytesHistogram, commandCount/4) - headerBytes));
-                int l3 = Math.max(4, maxBasicBytes - headerBytes);
-                int l2 = Math.min(l3-1, Math.max(l1+1, Arrays.binarySearch(bytesHistogram, (3*commandCount)/4) - headerBytes));
+                int l3 = Math.max(l1+2, maxBasicBytes - headerBytes);
+                int l2 = Math.max(l1+1, Math.min(l3-1, Arrays.binarySearch(bytesHistogram, (3*commandCount)/4) - headerBytes));
                 while (l3-l2 > 4) ++l2;
                 while (l2-l1 > 4) ++l1;
                 hlcBytesLookup = setHlcBytes(l0, l1, l2, l3);

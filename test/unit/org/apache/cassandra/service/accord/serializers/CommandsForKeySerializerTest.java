@@ -56,17 +56,26 @@ import accord.primitives.Timestamp;
 import accord.primitives.Txn;
 import accord.primitives.TxnId;
 import accord.primitives.Writes;
+import accord.utils.AccordGens;
+import accord.utils.Gens;
 import accord.utils.RandomSource;
 import org.agrona.collections.Int2ObjectHashMap;
 import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.schema.KeyspaceParams;
+import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.service.accord.AccordTestUtils;
+import org.apache.cassandra.service.accord.api.PartitionKey;
 import org.apache.cassandra.service.accord.txn.TxnData;
 import org.apache.cassandra.service.accord.txn.TxnWrite;
 import org.apache.cassandra.simulator.RandomSource.Choices;
+import org.apache.cassandra.utils.AccordGenerators;
+import org.apache.cassandra.utils.CassandraGenerators;
 
 import static accord.local.Status.Durability.NotDurable;
+import static accord.utils.Property.qt;
 import static org.apache.cassandra.cql3.statements.schema.CreateTableStatement.parse;
 import static org.apache.cassandra.service.accord.AccordTestUtils.createPartialTxn;
 
@@ -296,5 +305,43 @@ public class CommandsForKeySerializerTest
         {
             throw new AssertionError(seed + " seed failed", t);
         }
+    }
+//
+//    @Test
+//    public void test()
+//    {
+//        var tableGen = AccordGenerators.fromQT(CassandraGenerators.TABLE_ID_GEN);
+//        var txnIdGen = AccordGens.txnIds(rs -> rs.nextLong(0, 100));
+//        qt().withSeed(6760912016465815152L).check(rs -> {
+//            TableId table = tableGen.next(rs);
+//            PartitionKey pk = new PartitionKey(table, Murmur3Partitioner.instance.decorateKey(Murmur3Partitioner.LongToken.keyForToken(rs.nextLong())));
+//            var redudentBefore = txnIdGen.next(rs);
+//            TxnId[] ids = Gens.arrays(TxnId.class, txnIdGen).unique().ofSizeBetween(0, 10).next(rs);
+//            CommandsForKey.Info[] info = new CommandsForKey.Info[ids.length];
+//            for (int i = 0; i < info.length; i++)
+//                info[i] = rs.pick(CommandsForKey.InternalStatus.values()).asNoInfo;
+//            Arrays.sort(ids, Comparator.naturalOrder());
+//            CommandsForKey expected = CommandsForKey.SerializerSupport.create(pk, redudentBefore, ids, info);
+//
+//            ByteBuffer buffer = CommandsForKeySerializer.toBytesWithoutKey(expected);
+//            CommandsForKey roundTrip = CommandsForKeySerializer.fromBytes(pk, buffer);
+//            Assert.assertEquals(expected, roundTrip);
+//        });
+//    }
+
+    @Test
+    public void thereAndBackAgain()
+    {
+        long tokenValue = -2311778975040348869L;
+        DecoratedKey key = Murmur3Partitioner.instance.decorateKey(Murmur3Partitioner.LongToken.keyForToken(tokenValue));
+        PartitionKey pk = new PartitionKey(TableId.fromString("1b255f4d-ef25-40a6-0000-000000000009"), key);
+        CommandsForKey expected = CommandsForKey.SerializerSupport.create(pk,
+                                                     TxnId.fromValues(0,0,0,0),
+                                                     new TxnId[] {TxnId.fromValues(11,34052499,2,1)},
+                                                     new CommandsForKey.Info[] {CommandsForKey.InternalStatus.PREACCEPTED.asNoInfo});
+
+        ByteBuffer buffer = CommandsForKeySerializer.toBytesWithoutKey(expected);
+        CommandsForKey roundTrip = CommandsForKeySerializer.fromBytes(pk, buffer);
+        Assert.assertEquals(expected, roundTrip);
     }
 }
