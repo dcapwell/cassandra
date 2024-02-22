@@ -57,7 +57,6 @@ import accord.primitives.Txn;
 import accord.primitives.TxnId;
 import accord.primitives.Writes;
 import accord.utils.AccordGens;
-import accord.utils.AsymmetricComparator;
 import accord.utils.Gens;
 import accord.utils.RandomSource;
 import accord.utils.SortedArrays;
@@ -74,7 +73,6 @@ import org.apache.cassandra.service.accord.txn.TxnData;
 import org.apache.cassandra.service.accord.txn.TxnWrite;
 import org.apache.cassandra.simulator.RandomSource.Choices;
 import org.apache.cassandra.utils.AccordGenerators;
-import org.apache.cassandra.utils.AsymmetricOrdering;
 import org.apache.cassandra.utils.CassandraGenerators;
 
 import static accord.local.Status.Durability.NotDurable;
@@ -95,120 +93,135 @@ public class CommandsForKeySerializerTest
         StorageService.instance.initServer();
     }
 
-    private static List<Command> generateObjectGraph(int txnIdCount, Supplier<TxnId> txnIdSupplier, Supplier<SaveStatus> saveStatusSupplier, Function<TxnId, PartialTxn> txnSupplier, Function<TxnId, Timestamp> timestampSupplier, IntSupplier missingCountSupplier, RandomSource source)
+    static class Cmd
     {
-        class Info
+        final TxnId txnId;
+        final SaveStatus saveStatus;
+        final PartialTxn txn;
+        final Timestamp executeAt;
+        final List<TxnId> deps = new ArrayList<>();
+        final List<TxnId> missing = new ArrayList<>();
+
+        Cmd(TxnId txnId, PartialTxn txn, SaveStatus saveStatus, Timestamp executeAt)
         {
-            final TxnId txnId;
-            final SaveStatus saveStatus;
-            final PartialTxn txn;
-            final Timestamp executeAt;
-            final List<TxnId> deps = new ArrayList<>();
-            final List<TxnId> missing = new ArrayList<>();
-
-            Info(TxnId txnId, PartialTxn txn, SaveStatus saveStatus, Timestamp executeAt)
-            {
-                this.txnId = txnId;
-                this.saveStatus = saveStatus;
-                this.txn = txn;
-                this.executeAt = executeAt;
-            }
-
-            CommonAttributes attributes()
-            {
-                Mutable mutable = new Mutable(txnId);
-                if (saveStatus.known.isDefinitionKnown())
-                    mutable.partialTxn(txn);
-
-                mutable.route(txn.keys().toRoute(txn.keys().get(0).someIntersectingRoutingKey(null)));
-                mutable.durability(NotDurable);
-                if (saveStatus.known.deps.hasProposedOrDecidedDeps())
-                {
-                    try (KeyDeps.Builder builder = KeyDeps.builder();)
-                    {
-                        for (TxnId id : deps)
-                            builder.add((Key)txn.keys().get(0), id);
-                        mutable.partialDeps(new PartialDeps(AccordTestUtils.fullRange(txn), builder.build(), RangeDeps.NONE));
-                    }
-                }
-
-                return mutable;
-            }
-
-            Command build()
-            {
-                switch (saveStatus)
-                {
-                    default: throw new AssertionError("Unhandled saveStatus: " + saveStatus);
-                    case Uninitialised:
-                    case NotDefined:
-                        return Command.SerializerSupport.notDefined(attributes(), Ballot.ZERO);
-                    case PreAccepted:
-                        return Command.SerializerSupport.preaccepted(attributes(), executeAt, Ballot.ZERO);
-                    case Accepted:
-                    case AcceptedInvalidate:
-                    case AcceptedWithDefinition:
-                    case AcceptedInvalidateWithDefinition:
-                    case PreCommittedWithDefinition:
-                    case PreCommittedWithDefinitionAndAcceptedDeps:
-                    case PreCommittedWithAcceptedDeps:
-                    case PreCommitted:
-                        return Command.SerializerSupport.accepted(attributes(), saveStatus, executeAt, Ballot.ZERO, Ballot.ZERO);
-
-                    case Committed:
-                        return Command.SerializerSupport.committed(attributes(), saveStatus, executeAt, Ballot.ZERO, Ballot.ZERO, null);
-
-                    case Stable:
-                    case ReadyToExecute:
-                        return Command.SerializerSupport.committed(attributes(), saveStatus, executeAt, Ballot.ZERO, Ballot.ZERO, Command.WaitingOn.EMPTY);
-
-                    case PreApplied:
-                    case Applying:
-                    case Applied:
-                        return Command.SerializerSupport.executed(attributes(), saveStatus, executeAt, Ballot.ZERO, Ballot.ZERO, Command.WaitingOn.EMPTY, new Writes(txnId, executeAt, txn.keys(), new TxnWrite(Collections.emptyList(), true)), new TxnData());
-
-                    case TruncatedApplyWithDeps:
-                    case TruncatedApply:
-                        return Command.SerializerSupport.truncatedApply(attributes(), saveStatus, executeAt, null, null);
-
-                    case TruncatedApplyWithOutcome:
-                        return Command.SerializerSupport.truncatedApply(attributes(), saveStatus, executeAt, new Writes(txnId, executeAt, txn.keys(), new TxnWrite(Collections.emptyList(), true)), new TxnData());
-
-                    case Erased:
-                    case ErasedOrInvalidated:
-                    case Invalidated:
-                        return Command.SerializerSupport.invalidated(txnId, Listeners.Immutable.EMPTY);
-                }
-            }
+            this.txnId = txnId;
+            this.saveStatus = saveStatus;
+            this.txn = txn;
+            this.executeAt = executeAt;
         }
 
-        Info[] infos = new Info[txnIdCount];
+        CommonAttributes attributes()
+        {
+            Mutable mutable = new Mutable(txnId);
+            if (saveStatus.known.isDefinitionKnown())
+                mutable.partialTxn(txn);
+
+            mutable.route(txn.keys().toRoute(txn.keys().get(0).someIntersectingRoutingKey(null)));
+            mutable.durability(NotDurable);
+            if (saveStatus.known.deps.hasProposedOrDecidedDeps())
+            {
+                try (KeyDeps.Builder builder = KeyDeps.builder();)
+                {
+                    for (TxnId id : deps)
+                        builder.add((Key)txn.keys().get(0), id);
+                    mutable.partialDeps(new PartialDeps(AccordTestUtils.fullRange(txn), builder.build(), RangeDeps.NONE));
+                }
+            }
+
+            return mutable;
+        }
+
+        Command toCommand()
+        {
+            switch (saveStatus)
+            {
+                default: throw new AssertionError("Unhandled saveStatus: " + saveStatus);
+                case Uninitialised:
+                case NotDefined:
+                    return Command.SerializerSupport.notDefined(attributes(), Ballot.ZERO);
+                case PreAccepted:
+                    return Command.SerializerSupport.preaccepted(attributes(), executeAt, Ballot.ZERO);
+                case Accepted:
+                case AcceptedInvalidate:
+                case AcceptedWithDefinition:
+                case AcceptedInvalidateWithDefinition:
+                case PreCommittedWithDefinition:
+                case PreCommittedWithDefinitionAndAcceptedDeps:
+                case PreCommittedWithAcceptedDeps:
+                case PreCommitted:
+                    return Command.SerializerSupport.accepted(attributes(), saveStatus, executeAt, Ballot.ZERO, Ballot.ZERO);
+
+                case Committed:
+                    return Command.SerializerSupport.committed(attributes(), saveStatus, executeAt, Ballot.ZERO, Ballot.ZERO, null);
+
+                case Stable:
+                case ReadyToExecute:
+                    return Command.SerializerSupport.committed(attributes(), saveStatus, executeAt, Ballot.ZERO, Ballot.ZERO, Command.WaitingOn.EMPTY);
+
+                case PreApplied:
+                case Applying:
+                case Applied:
+                    return Command.SerializerSupport.executed(attributes(), saveStatus, executeAt, Ballot.ZERO, Ballot.ZERO, Command.WaitingOn.EMPTY, new Writes(txnId, executeAt, txn.keys(), new TxnWrite(Collections.emptyList(), true)), new TxnData());
+
+                case TruncatedApplyWithDeps:
+                case TruncatedApply:
+                    return Command.SerializerSupport.truncatedApply(attributes(), saveStatus, executeAt, null, null);
+
+                case TruncatedApplyWithOutcome:
+                    return Command.SerializerSupport.truncatedApply(attributes(), saveStatus, executeAt, new Writes(txnId, executeAt, txn.keys(), new TxnWrite(Collections.emptyList(), true)), new TxnData());
+
+                case Erased:
+                case ErasedOrInvalidated:
+                case Invalidated:
+                    return Command.SerializerSupport.invalidated(txnId, Listeners.Immutable.EMPTY);
+            }
+        }
+    }
+
+    static class ObjectGraph
+    {
+        final Cmd[] cmds;
+        ObjectGraph(Cmd[] cmds)
+        {
+            this.cmds = cmds;
+        }
+
+        List<Command> toCommands()
+        {
+            List<Command> commands = new ArrayList<>(cmds.length);
+            for (int i = 0 ; i < cmds.length ; ++i)
+                commands.add(cmds[i].toCommand());
+            return commands;
+        }
+    }
+
+    private static ObjectGraph generateObjectGraph(int txnIdCount, Supplier<TxnId> txnIdSupplier, Supplier<SaveStatus> saveStatusSupplier, Function<TxnId, PartialTxn> txnSupplier, Function<TxnId, Timestamp> timestampSupplier, IntSupplier missingCountSupplier, RandomSource source)
+    {
+        Cmd[] cmds = new Cmd[txnIdCount];
         for (int i = 0 ; i < txnIdCount ; ++i)
         {
             TxnId txnId = txnIdSupplier.get();
             SaveStatus saveStatus = saveStatusSupplier.get();
-            Timestamp executeAt = null;
+            Timestamp executeAt = txnId;
             if (saveStatus.known.executeAt.compareTo(Status.KnownExecuteAt.ExecuteAtProposed) >= 0)
                 executeAt = timestampSupplier.apply(txnId);
 
-            infos[i] = new Info(txnId, txnSupplier.apply(txnId), saveStatus, executeAt);
+            cmds[i] = new Cmd(txnId, txnSupplier.apply(txnId), saveStatus, executeAt);
         }
-        Arrays.sort(infos, Comparator.comparing(o -> o.txnId));
+        Arrays.sort(cmds, Comparator.comparing(o -> o.txnId));
         for (int i = 0 ; i < txnIdCount ; ++i)
         {
-            if (!infos[i].saveStatus.known.deps.hasProposedOrDecidedDeps())
+            if (!cmds[i].saveStatus.known.deps.hasProposedOrDecidedDeps())
                 continue;
 
-            Timestamp knownBefore = infos[i].saveStatus.known.deps.hasCommittedOrDecidedDeps() ? infos[i].executeAt : infos[i].txnId;
-            int limit = SortedArrays.binarySearch(infos, 0, infos.length, knownBefore, (a, b) -> a.compareTo(b.txnId), FAST);
+            Timestamp knownBefore = cmds[i].saveStatus.known.deps.hasCommittedOrDecidedDeps() ? cmds[i].executeAt : cmds[i].txnId;
+            int limit = SortedArrays.binarySearch(cmds, 0, cmds.length, knownBefore, (a, b) -> a.compareTo(b.txnId), FAST);
             if (limit < 0) limit = -1 - i;
 
-            List<TxnId> deps = infos[i].deps;
-            List<TxnId> missing = infos[i].missing;
+            List<TxnId> deps = cmds[i].deps;
+            List<TxnId> missing = cmds[i].missing;
             for (int j = 0 ; j < limit ; ++j)
-            {
-                if (i != j) deps.add(infos[j].txnId);
-            }
+                if (i != j) deps.add(cmds[j].txnId);
 
             int missingCount = Math.min(limit, missingCountSupplier.getAsInt());
             while (missingCount > 0)
@@ -222,11 +235,7 @@ public class CommandsForKeySerializerTest
             deps.sort(TxnId::compareTo);
             missing.sort(TxnId::compareTo);
         }
-
-        Command[] commands = new Command[infos.length];
-        for (int i = 0 ; i < commands.length ; ++i)
-            commands[i] = infos[i].build();
-        return Arrays.asList(commands);
+        return new ObjectGraph(cmds);
     }
 
     private static Function<Timestamp, TxnId> txnIdSupplier(LongUnaryOperator epochSupplier, LongUnaryOperator hlcSupplier, Supplier<Txn.Kind> kindSupplier, Supplier<Node.Id> idSupplier)
@@ -256,6 +265,7 @@ public class CommandsForKeySerializerTest
     @Test
     public void serde()
     {
+        testOne(6830171223855772010L);
         Random random = new Random();
         for (int i = 0 ; i < 10000 ; ++i)
         {
@@ -340,10 +350,25 @@ public class CommandsForKeySerializerTest
 
             PartialTxn txn = createPartialTxn(0);
             Key key = (Key) txn.keys().get(0);
-            List<Command> commands = generateObjectGraph(source.nextInt(0, 100), () -> txnIdSupplier.apply(null), saveStatusSupplier, ignore -> txn, executeAtSupplier, missingCountSupplier, source);
+            ObjectGraph graph = generateObjectGraph(source.nextInt(0, 100), () -> txnIdSupplier.apply(null), saveStatusSupplier, ignore -> txn, executeAtSupplier, missingCountSupplier, source);
+            List<Command> commands = graph.toCommands();
             CommandsForKey cfk = new CommandsForKey(key);
-            for (Command command : commands)
-                cfk = cfk.update(null, command);
+            while (commands.size() > 0)
+            {
+                int next = source.nextInt(commands.size());
+                cfk = cfk.update(null, commands.get(next));
+                commands.set(next, commands.get(commands.size() - 1));
+                commands.remove(commands.size() - 1);
+            }
+
+            for (int i = 0 ; i < graph.cmds.length ; ++i)
+            {
+                Cmd cmd = graph.cmds[i];
+                CommandsForKey.Info info = cfk.info(i);
+                Assert.assertEquals(cmd.executeAt, info.executeAt(cfk.txnId(i)));
+                Assert.assertEquals(CommandsForKey.InternalStatus.from(cmd.saveStatus), info.status);
+                Assert.assertArrayEquals(cmd.missing.toArray(TxnId[]::new), info.missing);
+            }
 
             ByteBuffer buffer = CommandsForKeySerializer.toBytesWithoutKey(cfk);
             CommandsForKey roundTrip = CommandsForKeySerializer.fromBytes(key, buffer);
