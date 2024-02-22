@@ -276,7 +276,7 @@ public class AbstractTypeTest
         // so try to limit the possible expansion of types
         Gen<AbstractType<?>> gen = baseline.withCompositeElementGen(new TypeGenBuilder(baseline).withDefaultSizeGen(1).withMaxDepth(1).build())
                                    .build();
-        qt().withShrinkCycles(0).forAll(examples(1, gen)).checkAssert(example -> {
+        qt().withExamples(Integer.MAX_VALUE).withShrinkCycles(0).forAll(examples(1, gen)).checkAssert(example -> {
             AbstractType type = example.type;
             for (Object value : example.samples)
             {

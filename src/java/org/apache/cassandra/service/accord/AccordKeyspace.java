@@ -1422,7 +1422,8 @@ public class AccordKeyspace
     @VisibleForTesting
     public static SchemaProvider schema = Schema.instance;
 
-    private static ByteBuffer serializeRoutingKey(AccordRoutingKey routingKey)
+    @VisibleForTesting
+    public static ByteBuffer serializeRoutingKey(AccordRoutingKey routingKey)
     {
         AccordRoutingKeyByteSource.Serializer serializer = TABLE_SERIALIZERS.computeIfAbsent(routingKey.table(), ignore -> {
             IPartitioner partitioner;

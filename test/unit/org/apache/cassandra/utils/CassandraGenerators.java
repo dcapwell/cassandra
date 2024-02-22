@@ -81,6 +81,7 @@ import org.apache.cassandra.schema.MemtableParams;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.TableParams;
+import org.apache.cassandra.utils.AbstractTypeGenerators.TypeGenBuilder;
 import org.apache.cassandra.utils.AbstractTypeGenerators.ValueDomain;
 import org.quicktheories.core.Gen;
 import org.quicktheories.core.RandomnessSource;
@@ -88,6 +89,7 @@ import org.quicktheories.generators.Generate;
 import org.quicktheories.generators.SourceDSL;
 import org.quicktheories.impl.Constraint;
 
+import static org.apache.cassandra.utils.AbstractTypeGenerators.TypeKind.COUNTER;
 import static org.apache.cassandra.utils.AbstractTypeGenerators.allowReversed;
 import static org.apache.cassandra.utils.AbstractTypeGenerators.getTypeSupport;
 import static org.apache.cassandra.utils.Generators.IDENTIFIER_GEN;
@@ -604,15 +606,7 @@ public final class CassandraGenerators
 
     public static Gen<IPartitioner> localPartitioner()
     {
-        var typeGen = AbstractTypeGenerators.builder()
-                                            // neither of these types support the property
-                                            //   expected == fromComparableBytes(asComparableBytes(expected))
-                                            // so rather than having tests try to skip... just avoid those types!
-                                            .withoutEmpty()
-                                            .withoutTypeKinds(AbstractTypeGenerators.TypeKind.COUNTER)
-                                            .withoutPrimitive(DecimalType.instance)
-                                            .build();
-        return typeGen.map(LocalPartitioner::new);
+        return AbstractTypeGenerators.safeTypeGen().map(LocalPartitioner::new);
     }
 
     public static Gen<Token> localPartitionerToken()
