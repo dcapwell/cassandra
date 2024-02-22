@@ -35,6 +35,7 @@ import accord.primitives.Txn;
 import accord.primitives.TxnId;
 import accord.utils.Invariants;
 import org.apache.cassandra.db.TypeSizes;
+import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.vint.VIntCoding;
 
 import static accord.primitives.Txn.Kind.ExclusiveSyncPoint;
@@ -104,7 +105,23 @@ public class CommandsForKeySerializer
     {
         int commandCount = cfk.size();
         if (commandCount == 0)
-            return ByteBuffer.allocate(1);
+        {
+            // TODO (expected): we should not need to special-case, but best solution here is not to store redundantBefore;
+            //    but this requires some modest deeper changes, so for now special-case serialization when empty
+            Timestamp redundantBefore = cfk.redundantBefore();
+            ByteBuffer out = ByteBuffer.allocate(TypeSizes.sizeofUnsignedVInt(0) +
+                                                 TypeSizes.sizeofUnsignedVInt(redundantBefore.epoch()) +
+                                                 TypeSizes.sizeofUnsignedVInt(redundantBefore.hlc()) +
+                                                 TypeSizes.sizeofUnsignedVInt(redundantBefore.flags()) +
+                                                 TypeSizes.sizeofUnsignedVInt(redundantBefore.node.id));
+            VIntCoding.writeUnsignedVInt32(0, out);
+            VIntCoding.writeUnsignedVInt(redundantBefore.epoch(), out);
+            VIntCoding.writeUnsignedVInt(redundantBefore.hlc(), out);
+            VIntCoding.writeUnsignedVInt32(redundantBefore.flags(), out);
+            VIntCoding.writeUnsignedVInt32(redundantBefore.node.id, out);
+            out.flip();
+            return out;
+        }
 
         int[] nodeIds = cachedInts().getInts(Math.min(64, commandCount));
         try
@@ -171,6 +188,7 @@ public class CommandsForKeySerializer
                 TxnId txnId = cfk.txnId(i);
                 {
                     long epoch = txnId.epoch();
+                    Invariants.checkState(epoch >= prevEpoch);
                     long epochDelta = epoch - prevEpoch;
                     long hlc = txnId.hlc();
                     long hlcDelta = hlc - prevHlc;
@@ -478,7 +496,13 @@ public class CommandsForKeySerializer
         in = in.duplicate();
         int commandCount = VIntCoding.readUnsignedVInt32(in);
         if (commandCount == 0)
-            return new CommandsForKey(key);
+        {
+            long epoch = VIntCoding.readUnsignedVInt(in);
+            long hlc = VIntCoding.readUnsignedVInt(in);
+            int flags = VIntCoding.readUnsignedVInt32(in);
+            Node.Id id = new Node.Id(VIntCoding.readUnsignedVInt32(in));
+            return new CommandsForKey(key).withoutRedundant(TxnId.fromValues(epoch, hlc, flags, id));
+        }
 
         TxnId[] txnIds = new TxnId[commandCount];
         Info[] infos = new Info[commandCount];

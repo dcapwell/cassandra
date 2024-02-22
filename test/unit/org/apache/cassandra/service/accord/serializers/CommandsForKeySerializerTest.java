@@ -57,8 +57,10 @@ import accord.primitives.Txn;
 import accord.primitives.TxnId;
 import accord.primitives.Writes;
 import accord.utils.AccordGens;
+import accord.utils.AsymmetricComparator;
 import accord.utils.Gens;
 import accord.utils.RandomSource;
+import accord.utils.SortedArrays;
 import org.agrona.collections.Int2ObjectHashMap;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.db.DecoratedKey;
@@ -72,10 +74,12 @@ import org.apache.cassandra.service.accord.txn.TxnData;
 import org.apache.cassandra.service.accord.txn.TxnWrite;
 import org.apache.cassandra.simulator.RandomSource.Choices;
 import org.apache.cassandra.utils.AccordGenerators;
+import org.apache.cassandra.utils.AsymmetricOrdering;
 import org.apache.cassandra.utils.CassandraGenerators;
 
 import static accord.local.Status.Durability.NotDurable;
 import static accord.utils.Property.qt;
+import static accord.utils.SortedArrays.Search.FAST;
 import static org.apache.cassandra.cql3.statements.schema.CreateTableStatement.parse;
 import static org.apache.cassandra.service.accord.AccordTestUtils.createPartialTxn;
 
@@ -91,7 +95,7 @@ public class CommandsForKeySerializerTest
         StorageService.instance.initServer();
     }
 
-    private static List<Command> generateObjectGraph(int txnIdCount, Supplier<TxnId> txnIdSupplier, Supplier<SaveStatus> saveStatusSupplier, Function<TxnId, PartialTxn> txnSupplier, Function<TxnId, Timestamp> timestampSupplier, IntSupplier missingCountSupplier)
+    private static List<Command> generateObjectGraph(int txnIdCount, Supplier<TxnId> txnIdSupplier, Supplier<SaveStatus> saveStatusSupplier, Function<TxnId, PartialTxn> txnSupplier, Function<TxnId, Timestamp> timestampSupplier, IntSupplier missingCountSupplier, RandomSource source)
     {
         class Info
         {
@@ -100,6 +104,7 @@ public class CommandsForKeySerializerTest
             final PartialTxn txn;
             final Timestamp executeAt;
             final List<TxnId> deps = new ArrayList<>();
+            final List<TxnId> missing = new ArrayList<>();
 
             Info(TxnId txnId, PartialTxn txn, SaveStatus saveStatus, Timestamp executeAt)
             {
@@ -129,7 +134,6 @@ public class CommandsForKeySerializerTest
 
                 return mutable;
             }
-
 
             Command build()
             {
@@ -190,6 +194,32 @@ public class CommandsForKeySerializerTest
             infos[i] = new Info(txnId, txnSupplier.apply(txnId), saveStatus, executeAt);
         }
         Arrays.sort(infos, Comparator.comparing(o -> o.txnId));
+        for (int i = 0 ; i < txnIdCount ; ++i)
+        {
+            if (!infos[i].saveStatus.known.deps.hasProposedOrDecidedDeps())
+                continue;
+
+            Timestamp knownBefore = infos[i].saveStatus.known.deps.hasCommittedOrDecidedDeps() ? infos[i].executeAt : infos[i].txnId;
+            int limit = SortedArrays.binarySearch(infos, 0, infos.length, knownBefore, (a, b) -> a.compareTo(b.txnId), FAST);
+            if (limit < 0) limit = -1 - i;
+
+            List<TxnId> deps = infos[i].deps;
+            List<TxnId> missing = infos[i].missing;
+            for (int j = 0 ; j < limit ; ++j)
+                deps.add(infos[j].txnId);
+
+            int missingCount = Math.min(limit, missingCountSupplier.getAsInt());
+            while (missingCount > 0)
+            {
+                int remove = source.nextInt(deps.size());
+                missing.add(deps.get(remove));
+                deps.set(remove, deps.get(deps.size() - 1));
+                deps.remove(deps.size() - 1);
+                --missingCount;
+            }
+            deps.sort(TxnId::compareTo);
+            missing.sort(TxnId::compareTo);
+        }
 
         Command[] commands = new Command[infos.length];
         for (int i = 0 ; i < commands.length ; ++i)
@@ -262,15 +292,23 @@ public class CommandsForKeySerializerTest
                 return Txn.Kind.EphemeralRead; // not actually a valid value for CFK
             };
 
+            boolean permitMissing = source.decide(0.75f);
             final IntSupplier missingCountSupplier; {
-            float zeroChance = source.nextFloat();
-            int maxMissing = source.nextInt(1, 10);
-            missingCountSupplier = () -> {
-                float v = source.nextFloat();
-                if (v < zeroChance) return 0;
-                return source.nextInt(0, maxMissing);
-            };
-        }
+                if (!permitMissing)
+                {
+                    missingCountSupplier = () -> 0;
+                }
+                else
+                {
+                    float zeroChance = source.nextFloat();
+                    int maxMissing = source.nextInt(1, 10);
+                    missingCountSupplier = () -> {
+                        float v = source.nextFloat();
+                        if (v < zeroChance) return 0;
+                        return source.nextInt(0, maxMissing);
+                    };
+                }
+            }
 
             Choices<SaveStatus> saveStatusChoices = Choices.uniform(SaveStatus.values());
             Supplier<SaveStatus> saveStatusSupplier = () -> {
@@ -282,17 +320,25 @@ public class CommandsForKeySerializerTest
 
             Set<Timestamp> uniqueTs = new TreeSet<>();
             final Function<Timestamp, TxnId> txnIdSupplier = timestampSupplier(uniqueTs, txnIdSupplier(epochSupplier, hlcSupplier, kindSupplier, idSupplier));
-            final Function<TxnId, Timestamp> timestampSupplier;
+            boolean permitExecuteAt = source.decide(0.75f);
+            final Function<TxnId, Timestamp> executeAtSupplier;
             {
-                Function<Timestamp, Timestamp> rawTimestampSupplier = timestampSupplier(uniqueTs, timestampSupplier(epochSupplier, hlcSupplier, flagSupplier, idSupplier));
-                float useTxnIdChance = source.nextFloat();
-                BooleanSupplier useTxnId = () -> source.decide(useTxnIdChance);
-                timestampSupplier = txnId -> useTxnId.getAsBoolean() ? txnId : rawTimestampSupplier.apply(txnId);
+                if (!permitExecuteAt)
+                {
+                    executeAtSupplier = id -> id;
+                }
+                else
+                {
+                    Function<Timestamp, Timestamp> rawTimestampSupplier = timestampSupplier(uniqueTs, timestampSupplier(epochSupplier, hlcSupplier, flagSupplier, idSupplier));
+                    float useTxnIdChance = source.nextFloat();
+                    BooleanSupplier useTxnId = () -> source.decide(useTxnIdChance);
+                    executeAtSupplier = txnId -> useTxnId.getAsBoolean() ? txnId : rawTimestampSupplier.apply(txnId);
+                }
             }
 
             PartialTxn txn = createPartialTxn(0);
             Key key = (Key) txn.keys().get(0);
-            List<Command> commands = generateObjectGraph(source.nextInt(0, 100), () -> txnIdSupplier.apply(null), saveStatusSupplier, ignore -> txn, timestampSupplier, missingCountSupplier);
+            List<Command> commands = generateObjectGraph(source.nextInt(0, 100), () -> txnIdSupplier.apply(null), saveStatusSupplier, ignore -> txn, executeAtSupplier, missingCountSupplier, source);
             CommandsForKey cfk = new CommandsForKey(key);
             for (Command command : commands)
                 cfk = cfk.update(null, command);
@@ -306,28 +352,33 @@ public class CommandsForKeySerializerTest
             throw new AssertionError(seed + " seed failed", t);
         }
     }
-//
-//    @Test
-//    public void test()
-//    {
-//        var tableGen = AccordGenerators.fromQT(CassandraGenerators.TABLE_ID_GEN);
-//        var txnIdGen = AccordGens.txnIds(rs -> rs.nextLong(0, 100));
-//        qt().withSeed(6760912016465815152L).check(rs -> {
-//            TableId table = tableGen.next(rs);
-//            PartitionKey pk = new PartitionKey(table, Murmur3Partitioner.instance.decorateKey(Murmur3Partitioner.LongToken.keyForToken(rs.nextLong())));
-//            var redudentBefore = txnIdGen.next(rs);
-//            TxnId[] ids = Gens.arrays(TxnId.class, txnIdGen).unique().ofSizeBetween(0, 10).next(rs);
-//            CommandsForKey.Info[] info = new CommandsForKey.Info[ids.length];
-//            for (int i = 0; i < info.length; i++)
-//                info[i] = rs.pick(CommandsForKey.InternalStatus.values()).asNoInfo;
-//            Arrays.sort(ids, Comparator.naturalOrder());
-//            CommandsForKey expected = CommandsForKey.SerializerSupport.create(pk, redudentBefore, ids, info);
-//
-//            ByteBuffer buffer = CommandsForKeySerializer.toBytesWithoutKey(expected);
-//            CommandsForKey roundTrip = CommandsForKeySerializer.fromBytes(pk, buffer);
-//            Assert.assertEquals(expected, roundTrip);
-//        });
-//    }
+
+    @Test
+    public void test()
+    {
+        var tableGen = AccordGenerators.fromQT(CassandraGenerators.TABLE_ID_GEN);
+        var txnIdGen = AccordGens.txnIds(rs -> rs.nextLong(0, 100), rs -> rs.nextLong(100), rs -> rs.nextInt(10));
+        qt().check(rs -> {
+            TableId table = tableGen.next(rs);
+            PartitionKey pk = new PartitionKey(table, Murmur3Partitioner.instance.decorateKey(Murmur3Partitioner.LongToken.keyForToken(rs.nextLong())));
+            var redudentBefore = txnIdGen.next(rs);
+            TxnId[] ids = Gens.arrays(TxnId.class, rs0 -> {
+                TxnId next = txnIdGen.next(rs0);
+                while (next.compareTo(redudentBefore) <= 0)
+                    next = txnIdGen.next(rs0);
+                return next;
+            }).unique().ofSizeBetween(0, 10).next(rs);
+            CommandsForKey.Info[] info = new CommandsForKey.Info[ids.length];
+            for (int i = 0; i < info.length; i++)
+                info[i] = rs.pick(CommandsForKey.InternalStatus.values()).asNoInfo;
+            Arrays.sort(ids, Comparator.naturalOrder());
+            CommandsForKey expected = CommandsForKey.SerializerSupport.create(pk, redudentBefore, ids, info);
+
+            ByteBuffer buffer = CommandsForKeySerializer.toBytesWithoutKey(expected);
+            CommandsForKey roundTrip = CommandsForKeySerializer.fromBytes(pk, buffer);
+            Assert.assertEquals(expected, roundTrip);
+        });
+    }
 
     @Test
     public void thereAndBackAgain()
