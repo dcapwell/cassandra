@@ -164,7 +164,7 @@ public class SimulatedDepsTest extends SimulatedAccordCommandStoreTestBase
         Txn rangeTxn = createTxn(Txn.Kind.ExclusiveSyncPoint, wholeRange);
         int numSamples = 300;
 
-        qt().withSeed(9217708224707554120L).withExamples(10).check(rs -> {
+        qt().withExamples(10).check(rs -> {
             clearSystemTables();
             try (var instance = new SimulatedAccordCommandStore(rs))
             {
