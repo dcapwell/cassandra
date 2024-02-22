@@ -168,7 +168,6 @@ public class SaiSerializer
                 var sentinel = key.asSentinelKey();
                 return sentinel.isMin ? ByteSource.withTerminator(ByteSource.TERMINATOR, minPrefix(), ByteSource.fixedLength(empty))
                                       : ByteSource.withTerminator(ByteSource.TERMINATOR, maxPrefix(), ByteSource.fixedLength(empty));
-//                return ByteSource.fixedLength(sentinel.isMin ? min() : max());
             }
             else
             {
