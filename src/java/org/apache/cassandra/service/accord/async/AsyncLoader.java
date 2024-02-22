@@ -236,20 +236,11 @@ public class AsyncLoader
         // save to a variable as java gets confused when `.map` is called on the result of asChain
         AsyncChain<Set<PartitionKey>> map = Observable.asChain(callback ->
                                                                AccordKeyspace.findAllKeysBetween(commandStore.id(),
-                                                                                                 toTokenKey(range.start()).token(), range.startInclusive(),
-                                                                                                 toTokenKey(range.end()).token(), range.endInclusive(),
+                                                                                                 (AccordRoutingKey) range.start(), range.startInclusive(),
+                                                                                                 (AccordRoutingKey) range.end(), range.endInclusive(),
                                                                                                  callback),
                                                                Collectors.toSet());
         return map.map(s -> ImmutableSet.<PartitionKey>builder().addAll(s).build());
-    }
-
-    private static TokenKey toTokenKey(RoutingKey start)
-    {
-        if (start instanceof TokenKey)
-            return (TokenKey) start;
-        if (start instanceof AccordRoutingKey.SentinelKey)
-            return ((AccordRoutingKey.SentinelKey) start).toTokenKeyBroken();
-        throw new IllegalArgumentException(String.format("Unable to convert RoutingKey %s (type %s) to TokenKey", start, start.getClass()));
     }
 
     @VisibleForTesting

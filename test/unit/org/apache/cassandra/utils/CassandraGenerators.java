@@ -602,7 +602,7 @@ public final class CassandraGenerators
         return rs -> partitioner.getToken(bytes.generate(rs));
     }
 
-    public static Gen<Token> localPartitionerToken()
+    public static Gen<IPartitioner> localPartitioner()
     {
         var typeGen = AbstractTypeGenerators.builder()
                                             // neither of these types support the property
@@ -612,10 +612,15 @@ public final class CassandraGenerators
                                             .withoutTypeKinds(AbstractTypeGenerators.TypeKind.COUNTER)
                                             .withoutPrimitive(DecimalType.instance)
                                             .build();
+        return typeGen.map(LocalPartitioner::new);
+    }
+
+    public static Gen<Token> localPartitionerToken()
+    {
+        var lpGen = localPartitioner();
         return rs -> {
-            var type = typeGen.generate(rs);
-            var bytes = AbstractTypeGenerators.getTypeSupport(type).bytesGen();
-            LocalPartitioner lp = new LocalPartitioner(type);
+            var lp = lpGen.generate(rs);
+            var bytes = AbstractTypeGenerators.getTypeSupport(lp.getTokenValidator()).bytesGen();
             return lp.getToken(bytes.generate(rs));
         };
     }
@@ -641,6 +646,22 @@ public final class CassandraGenerators
                                                                                                         SupportedPartitioners.Random, randomPartitionerToken(),
                                                                                                         SupportedPartitioners.Local, localPartitionerToken(),
                                                                                                         SupportedPartitioners.OrderPreserving, orderPreservingToken());
+
+    public static Gen<IPartitioner> partitioners()
+    {
+        var pGen = SourceDSL.arbitrary().enumValues(SupportedPartitioners.class);
+        return pGen.flatMap(p -> {
+            switch (p)
+            {
+                case Murmur: return ignore -> Murmur3Partitioner.instance;
+                case ByteOrdered: return ignore -> ByteOrderedPartitioner.instance;
+                case Random: return ignore -> RandomPartitioner.instance;
+                case OrderPreserving: return ignore -> OrderPreservingPartitioner.instance;
+                case Local: return localPartitioner();
+                default: throw new AssertionError("Unknown partition: " + p);
+            }
+        });
+    }
 
     public static Gen<Token> token()
     {

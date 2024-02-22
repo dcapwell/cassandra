@@ -70,6 +70,11 @@ public class AccordRoutingKeyByteSource
         return new FixedLength(partitioner, ByteComparable.Version.OSS50);
     }
 
+    public static VariableLength variableLength(IPartitioner partitioner)
+    {
+        return new VariableLength(partitioner, ByteComparable.Version.OSS50);
+    }
+
     public static abstract class Serializer
     {
         protected final IPartitioner partitioner;

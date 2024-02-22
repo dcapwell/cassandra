@@ -28,6 +28,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -119,6 +121,7 @@ import org.apache.cassandra.db.rows.Row.Deletion;
 import org.apache.cassandra.db.rows.RowIterator;
 import org.apache.cassandra.db.transform.FilteredPartitions;
 import org.apache.cassandra.dht.ByteOrderedPartitioner;
+import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.LocalPartitioner;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Token;
@@ -133,6 +136,7 @@ import org.apache.cassandra.schema.Indexes;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.schema.Schema;
+import org.apache.cassandra.schema.SchemaProvider;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.Tables;
@@ -142,7 +146,9 @@ import org.apache.cassandra.schema.Views;
 import org.apache.cassandra.serializers.UUIDSerializer;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.accord.AccordConfigurationService.SyncStatus;
+import org.apache.cassandra.service.accord.api.AccordRoutingKey;
 import org.apache.cassandra.service.accord.api.PartitionKey;
+import org.apache.cassandra.service.accord.serializers.AccordRoutingKeyByteSource;
 import org.apache.cassandra.service.accord.serializers.CommandSerializers;
 import org.apache.cassandra.service.accord.serializers.CommandStoreSerializers;
 import org.apache.cassandra.service.accord.serializers.CommandsForKeySerializer;
@@ -1107,15 +1113,15 @@ public class AccordKeyspace
     }
 
     public static void findAllKeysBetween(int commandStore,
-                                          Token start, boolean startInclusive,
-                                          Token end, boolean endInclusive,
+                                          AccordRoutingKey start, boolean startInclusive,
+                                          AccordRoutingKey end, boolean endInclusive,
                                           Observable<PartitionKey> callback)
     {
         //TODO (optimize) : CQL doesn't look smart enough to only walk Index.db, and ends up walking the Data.db file for each row in the partitions found (for frequent keys, this cost adds up)
         // it would be possible to find all SSTables that "could" intersect this range, then have a merge iterator over the Index.db (filtered to the range; index stores partition liveness)...
         KeysBetween work = new KeysBetween(commandStore,
-                                           AccordKeyspace.serializeToken(start), startInclusive,
-                                           AccordKeyspace.serializeToken(end), endInclusive,
+                                           AccordKeyspace.serializeRoutingKey(start), startInclusive,
+                                           AccordKeyspace.serializeRoutingKey(end), endInclusive,
                                            ImmutableSet.of("key"),
                                            Stage.READ.executor(), Observable.distinct(callback).map(AccordKeyspace::deserializeKey));
         work.schedule();
@@ -1318,10 +1324,10 @@ public class AccordKeyspace
         TableId tableId = TableId.fromUUID(UUIDSerializer.instance.deserialize(split[0]));
         ByteBuffer key = split[1];
 
-        TableMetadata metadata = Schema.instance.getTableMetadata(tableId);
-        if (metadata == null)
+        IPartitioner partitioner = schema.getTablePartitioner(tableId);
+        if (partitioner == null)
             throw new IllegalStateException("Table with id " + tableId + " could not be found; was it deleted?");
-        return new PartitionKey(tableId, metadata.partitioner.decorateKey(key));
+        return new PartitionKey(tableId, partitioner.decorateKey(key));
     }
 
     public static PartitionKey deserializeKey(UntypedResultSet.Row row)
@@ -1405,16 +1411,40 @@ public class AccordKeyspace
 
     private static DecoratedKey makeKey(CommandsForKeyAccessor accessor, int storeId, PartitionKey key)
     {
-        Token token = key.token();
         ByteBuffer pk = accessor.keyComparator.make(storeId,
-                                                    serializeToken(token),
+                                                    serializeRoutingKey(key.toUnseekable()),
                                                     serializeKey(key)).serializeAsPartitionKey();
         return accessor.table.partitioner.decorateKey(pk);
+    }
+
+    @VisibleForTesting
+    public static final ConcurrentMap<TableId, AccordRoutingKeyByteSource.Serializer> TABLE_SERIALIZERS = new ConcurrentHashMap<>();
+    @VisibleForTesting
+    public static SchemaProvider schema = Schema.instance;
+
+    private static ByteBuffer serializeRoutingKey(AccordRoutingKey routingKey)
+    {
+        AccordRoutingKeyByteSource.Serializer serializer = TABLE_SERIALIZERS.computeIfAbsent(routingKey.table(), ignore -> {
+            IPartitioner partitioner;
+            if (routingKey.kindOfRoutingKey() == AccordRoutingKey.RoutingKeyKind.TOKEN)
+                partitioner = routingKey.asTokenKey().token().getPartitioner();
+            else
+                partitioner = schema.getTablePartitioner(routingKey.table());
+            return AccordRoutingKeyByteSource.variableLength(partitioner);
+        });
+        byte[] bytes = serializer.serialize(routingKey);
+        return ByteBuffer.wrap(bytes);
     }
 
     private static PartitionUpdate getCommandsForKeyPartitionUpdate(int storeId, PartitionKey key, CommandsForKey commandsForKey, long timestampMicros)
     {
         ByteBuffer bytes = CommandsForKeySerializer.toBytesWithoutKey(commandsForKey);
+        return getCommandsForKeyPartitionUpdate(storeId, key, timestampMicros, bytes);
+    }
+
+    @VisibleForTesting
+    public static PartitionUpdate getCommandsForKeyPartitionUpdate(int storeId, PartitionKey key, long timestampMicros, ByteBuffer bytes)
+    {
         return singleRowUpdate(CommandsForKeysAccessor.table,
                                makeKey(CommandsForKeysAccessor, storeId, key),
                                singleCellRow(Clustering.EMPTY, BufferCell.live(CommandsForKeysAccessor.data, timestampMicros, bytes)));
