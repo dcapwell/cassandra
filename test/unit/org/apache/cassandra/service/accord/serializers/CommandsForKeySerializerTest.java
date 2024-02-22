@@ -206,7 +206,9 @@ public class CommandsForKeySerializerTest
             List<TxnId> deps = infos[i].deps;
             List<TxnId> missing = infos[i].missing;
             for (int j = 0 ; j < limit ; ++j)
-                deps.add(infos[j].txnId);
+            {
+                if (i != j) deps.add(infos[j].txnId);
+            }
 
             int missingCount = Math.min(limit, missingCountSupplier.getAsInt());
             while (missingCount > 0)
