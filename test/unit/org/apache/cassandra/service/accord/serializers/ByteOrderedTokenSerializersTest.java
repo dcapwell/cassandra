@@ -22,7 +22,9 @@ import org.junit.Test;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.marshal.ByteArrayAccessor;
+import org.apache.cassandra.dht.ByteOrderedPartitioner;
 import org.apache.cassandra.dht.Murmur3Partitioner;
+import org.apache.cassandra.service.accord.api.AccordRoutingKey;
 import org.apache.cassandra.service.accord.serializers.ByteOrderedTokenSerializers.FixedLength;
 import org.apache.cassandra.utils.AccordGenerators;
 import org.apache.cassandra.utils.ByteArrayUtil;
@@ -33,14 +35,10 @@ import org.assertj.core.api.Assertions;
 
 import static accord.utils.Property.qt;
 import static org.apache.cassandra.utils.AccordGenerators.fromQT;
-import static org.apache.cassandra.utils.CassandraGenerators.murmurToken;
+import static org.apache.cassandra.utils.CassandraGenerators.token;
 
 public class ByteOrderedTokenSerializersTest
 {
-    private static final FixedLength MURMUR = new FixedLength(Murmur3Partitioner.instance, ByteComparable.Version.OSS50);
-    private static final byte[] MAX = ByteSourceInverse.readBytes(MURMUR.maxAsComparableBytes());
-    private static final byte[] MIN = ByteSourceInverse.readBytes(MURMUR.minAsComparableBytes());
-
     static
     {
         DatabaseDescriptor.clientInitialization();
@@ -49,30 +47,41 @@ public class ByteOrderedTokenSerializersTest
     }
 
     @Test
-    public void fixedLengthTokenSerde()
+    public void tokenSerde()
     {
-        qt().forAll(fromQT(murmurToken())).check(token -> {
-            var bytes = MURMUR.serialize(token);
-            // working
-            // [64, -128, 64, 64, 120, -113, 47, 11, -78, -83, 121, 56]
-            Assertions.assertThat(bytes)
-                      .hasSize(MURMUR.valueSize())
-                      .hasSize(MIN.length)
-                      .hasSize(MAX.length);
+        qt().forAll(fromQT(token())).check(token -> {
+            var serializer = ByteOrderedTokenSerializers.create(token.getPartitioner());
+            byte[] min = ByteSourceInverse.readBytes(serializer.minAsComparableBytes());
+            byte[] max = ByteSourceInverse.readBytes(serializer.maxAsComparableBytes());
 
-            Assertions.assertThat(ByteArrayUtil.compareUnsigned(MIN, 0, bytes, 0, bytes.length)).isLessThan(0);
-            Assertions.assertThat(ByteArrayUtil.compareUnsigned(MAX, 0, bytes, 0, bytes.length)).isGreaterThan(0);
+            var bytes = serializer.serialize(token);
+            if (serializer instanceof FixedLength)
+            {
+                FixedLength fl = (FixedLength) serializer;
+                Assertions.assertThat(bytes)
+                          .hasSize(fl.valueSize())
+                          .hasSize(min.length)
+                          .hasSize(max.length);
+            }
 
-            var read = MURMUR.tokenFromComparableBytes(ByteArrayAccessor.instance, bytes);
+            Assertions.assertThat(ByteArrayUtil.compareUnsigned(min, 0, bytes, 0, bytes.length)).isLessThan(0);
+            Assertions.assertThat(ByteArrayUtil.compareUnsigned(max, 0, bytes, 0, bytes.length)).isGreaterThan(0);
+
+            var read = serializer.tokenFromComparableBytes(ByteArrayAccessor.instance, bytes);
             Assertions.assertThat(read).isEqualTo(token);
         });
     }
 
     @Test
-    public void fixedLengthAccordRoutingKeySerde()
+    public void accordRoutingKeySerde()
     {
-        qt().forAll(AccordGenerators.routingKeyGen(fromQT(CassandraGenerators.TABLE_ID_GEN), fromQT(murmurToken()))).check(key -> {
-            var read = MURMUR.fromComparableBytes(ByteArrayAccessor.instance, MURMUR.serialize(key));
+        qt().forAll(AccordGenerators.routingKeyGen(fromQT(CassandraGenerators.TABLE_ID_GEN), fromQT(token()))).check(key -> {
+            ByteOrderedTokenSerializers.Serializer serializer = key.kindOfRoutingKey() == AccordRoutingKey.RoutingKeyKind.SENTINEL ?
+                                                                // doesn't really matter...
+                                                                new ByteOrderedTokenSerializers.VariableLength(ByteOrderedPartitioner.instance, ByteComparable.Version.OSS50)
+                                                                                                                                   : ByteOrderedTokenSerializers.create(key.asTokenKey().token().getPartitioner());
+
+            var read = serializer.fromComparableBytes(ByteArrayAccessor.instance, serializer.serialize(key));
             Assertions.assertThat(read).isEqualTo(key);
         });
     }

@@ -19,7 +19,6 @@
 package org.apache.cassandra.service.accord.serializers;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.UUID;
 import java.util.function.Function;
@@ -31,6 +30,7 @@ import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey;
+import org.apache.cassandra.utils.ByteArrayUtil;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.bytecomparable.ByteSourceInverse;
@@ -58,33 +58,30 @@ public class ByteOrderedTokenSerializers
         return ByteSource.signedFixedLengthNumber(ByteArrayAccessor.instance, MAX_ORDER);
     }
 
-    public static class VariableLength
+    public static Serializer create(IPartitioner partitioner)
     {
-
+        if (partitioner.isFixedLength())
+            return new FixedLength(partitioner, ByteComparable.Version.OSS50);
+        return new VariableLength(partitioner, ByteComparable.Version.OSS50);
     }
 
-    public static class FixedLength
+    public static FixedLength fixedLength(IPartitioner partitioner)
     {
-        private final IPartitioner partitioner;
-        private final ByteComparable.Version version;
-        private final byte[] empty;
+        return new FixedLength(partitioner, ByteComparable.Version.OSS50);
+    }
 
-        public FixedLength(IPartitioner partitioner, ByteComparable.Version version)
+    public static abstract class Serializer
+    {
+        protected final IPartitioner partitioner;
+        protected final ByteComparable.Version version;
+        protected final byte[] empty;
+
+        protected Serializer(IPartitioner partitioner, ByteComparable.Version version, byte[] empty)
         {
             this.partitioner = partitioner;
             this.version = version;
-            if (!partitioner.isFixedLength())
-                throw new IllegalArgumentException("Unable to use partitioner " + partitioner.getClass() + "; it is not fixed-length");
-
-            int tokenSize = ByteSourceInverse.readBytes(partitioner.getMinimumToken().asComparableBytes(version)).length;
-            this.empty = new byte[tokenSize];
+            this.empty = empty;
         }
-
-        public int valueSize()
-        {
-            return 4 + empty.length;
-        }
-
 
         public ByteSource minAsComparableBytes()
         {
@@ -207,6 +204,36 @@ public class ByteOrderedTokenSerializers
         public byte[] serialize(AccordRoutingKey key)
         {
             return ByteSourceInverse.readBytes(asComparableBytes(key));
+        }
+    }
+
+    public static class VariableLength extends Serializer
+    {
+        public VariableLength(IPartitioner partitioner, ByteComparable.Version version)
+        {
+            super(partitioner, version, ByteArrayUtil.EMPTY_BYTE_ARRAY);
+        }
+    }
+
+    public static class FixedLength extends Serializer
+    {
+        public FixedLength(IPartitioner partitioner, ByteComparable.Version version)
+        {
+            super(partitioner, version, computeEmptyBytes(partitioner, version));
+        }
+
+        private static byte[] computeEmptyBytes(IPartitioner partitioner, ByteComparable.Version version)
+        {
+            if (!partitioner.isFixedLength())
+                throw new IllegalArgumentException("Unable to use partitioner " + partitioner.getClass() + "; it is not fixed-length");
+
+            int tokenSize = ByteSourceInverse.readBytes(partitioner.getMinimumToken().asComparableBytes(version)).length;
+            return new byte[tokenSize];
+        }
+
+        public int valueSize()
+        {
+            return 4 + empty.length;
         }
     }
 }

@@ -53,6 +53,7 @@ import org.apache.cassandra.db.Slices;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.ByteBufferAccessor;
 import org.apache.cassandra.db.marshal.CompositeType;
+import org.apache.cassandra.db.marshal.DecimalType;
 import org.apache.cassandra.db.marshal.EmptyType;
 import org.apache.cassandra.db.marshal.TimeUUIDType;
 import org.apache.cassandra.db.rows.Cell;
@@ -601,6 +602,24 @@ public final class CassandraGenerators
         return rs -> partitioner.getToken(bytes.generate(rs));
     }
 
+    public static Gen<Token> localPartitionerToken()
+    {
+        var typeGen = AbstractTypeGenerators.builder()
+                                            // neither of these types support the property
+                                            //   expected == fromComparableBytes(asComparableBytes(expected))
+                                            // so rather than having tests try to skip... just avoid those types!
+                                            .withoutEmpty()
+                                            .withoutTypeKinds(AbstractTypeGenerators.TypeKind.COUNTER)
+                                            .withoutPrimitive(DecimalType.instance)
+                                            .build();
+        return rs -> {
+            var type = typeGen.generate(rs);
+            var bytes = AbstractTypeGenerators.getTypeSupport(type).bytesGen();
+            LocalPartitioner lp = new LocalPartitioner(type);
+            return lp.getToken(bytes.generate(rs));
+        };
+    }
+
     public static Gen<Token> orderPreservingToken()
     {
         // empty token only happens if partition key is byte[0], which isn't allowed
@@ -613,6 +632,20 @@ public final class CassandraGenerators
         IPartitioner partitioner = range.left.getPartitioner();
         if (partitioner instanceof Murmur3Partitioner) return murmurTokenIn(range);
         throw new UnsupportedOperationException("Unsupported partitioner: " + partitioner.getClass());
+    }
+
+    private enum SupportedPartitioners { Murmur, ByteOrdered, Random, Local, OrderPreserving}
+
+    private static final ImmutableMap<SupportedPartitioners, Gen<Token>> PARTITIONERS = ImmutableMap.of(SupportedPartitioners.Murmur, murmurToken(),
+                                                                                                        SupportedPartitioners.ByteOrdered, byteOrderToken(),
+                                                                                                        SupportedPartitioners.Random, randomPartitionerToken(),
+                                                                                                        SupportedPartitioners.Local, localPartitionerToken(),
+                                                                                                        SupportedPartitioners.OrderPreserving, orderPreservingToken());
+
+    public static Gen<Token> token()
+    {
+        var pGen = SourceDSL.arbitrary().enumValues(SupportedPartitioners.class);
+        return pGen.flatMap(p -> PARTITIONERS.get(p));
     }
 
     public static Gen<Token> token(IPartitioner partitioner)
