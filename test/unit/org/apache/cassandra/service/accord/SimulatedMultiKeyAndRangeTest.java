@@ -45,7 +45,6 @@ import accord.utils.Gen;
 import accord.utils.Gens;
 import accord.utils.async.AsyncResult;
 import org.apache.cassandra.service.accord.api.PartitionKey;
-import org.apache.cassandra.service.accord.async.AsyncDebug;
 import org.apache.cassandra.utils.RTree;
 
 import static accord.utils.Property.qt;
@@ -156,7 +155,6 @@ public class SimulatedMultiKeyAndRangeTest extends SimulatedAccordCommandStoreTe
                             });
                             var p = assertDepsMessageAsync(instance, msgGen.next(rs), txn, route, expectedKeyConflicts, expectedRangeConflicts);
                             asyncs.add(p.right);
-                            AsyncDebug.check(p.left);
                             ranges.forEach(r -> rangeConflicts.add(r, p.left));
                         }
                         break;
