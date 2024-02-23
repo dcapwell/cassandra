@@ -407,13 +407,14 @@ public class AccordCommandStore extends CommandStore implements CacheSize
                                                  Map<TxnId, AccordSafeCommand> commands,
                                                  NavigableMap<RoutableKey, AccordSafeTimestampsForKey> timestampsForKeys,
                                                  NavigableMap<RoutableKey, AccordSafeCommandsForKey> commandsForKeys,
-                                                 NavigableMap<Range, AccordSafeCommandsForRange> commandsForRanges)
+                                                 @Nullable AccordSafeCommandsForRanges commandsForRanges)
     {
         Invariants.checkState(current == null);
         commands.values().forEach(AccordSafeState::preExecute);
         commandsForKeys.values().forEach(AccordSafeState::preExecute);
         timestampsForKeys.values().forEach(AccordSafeState::preExecute);
-        commandsForRanges.values().forEach(AccordSafeState::preExecute);
+        if (commandsForRanges != null)
+            commandsForRanges.preExecute();
         current = new AccordSafeCommandStore(preLoadContext, commands, timestampsForKeys, commandsForKeys, commandsForRanges, this);
         return current;
     }

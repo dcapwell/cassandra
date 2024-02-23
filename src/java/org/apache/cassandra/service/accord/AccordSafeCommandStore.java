@@ -20,7 +20,6 @@ package org.apache.cassandra.service.accord;
 
 import java.util.Map;
 import java.util.NavigableMap;
-import java.util.TreeMap;
 import java.util.function.BiFunction;
 import javax.annotation.Nullable;
 
@@ -53,7 +52,7 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     private final Map<TxnId, AccordSafeCommand> commands;
     private final NavigableMap<RoutableKey, AccordSafeCommandsForKey> commandsForKeys;
     private final NavigableMap<RoutableKey, AccordSafeTimestampsForKey> timestampsForKeys;
-    private final NavigableMap<Range, AccordSafeCommandsForRange> commandsForRanges;
+    private final @Nullable AccordSafeCommandsForRanges commandsForRanges;
     private final AccordCommandStore commandStore;
     private final RangesForEpoch ranges;
 
@@ -61,7 +60,7 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
                                   Map<TxnId, AccordSafeCommand> commands,
                                   NavigableMap<RoutableKey, AccordSafeTimestampsForKey> timestampsForKey,
                                   NavigableMap<RoutableKey, AccordSafeCommandsForKey> commandsForKey,
-                                  NavigableMap<accord.primitives.Range, AccordSafeCommandsForRange> commandsForRanges,
+                                  @Nullable AccordSafeCommandsForRanges commandsForRanges,
                                   AccordCommandStore commandStore)
     {
         super(context);
@@ -212,53 +211,30 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
 
     private <O> O mapReduceForRange(Routables<?> keysOrRanges, Ranges slice, BiFunction<CommandsSummary, O, O> map, O accumulate)
     {
+        if (commandsForRanges == null)
+            return accumulate;
         switch (keysOrRanges.domain())
         {
             case Key:
             {
                 AbstractKeys<Key> keys = (AbstractKeys<Key>) keysOrRanges.slice(slice, Routables.Slice.Minimal);
-                for (Range range : commandsForRanges.keySet())
-                {
-                    if (!range.intersects(keys))
-                        continue;
-                    CommandsForRange cfr = commandsForRange(range).current();
-                    accumulate = map.apply(cfr, accumulate);
-                }
+                if (!commandsForRanges.ranges().intersects(keys))
+                    return accumulate;
+                accumulate = map.apply(commandsForRanges.current(), accumulate);
             }
             break;
             case Range:
             {
-                AbstractRanges ranges = (AbstractRanges) keysOrRanges;
-                for (Range range : ranges)
-                {
-                    if (!slice.intersects(range))
-                        continue;
-                    CommandsForRange cfr = commandsForRange(range).current();
-                    accumulate = map.apply(cfr, accumulate);
-                }
+                AbstractRanges ranges = (AbstractRanges) keysOrRanges.slice(slice, Routables.Slice.Minimal);
+                if (!commandsForRanges.ranges().intersects(ranges))
+                    return accumulate;
+                accumulate = map.apply(commandsForRanges.current(), accumulate);
             }
             break;
             default:
                 throw new AssertionError("Unknown domain: " + keysOrRanges.domain());
         }
         return accumulate;
-    }
-
-    private AccordSafeCommandsForRange commandsForRange(Range range)
-    {
-        AccordSafeCommandsForRange cfr = commandsForRanges.get(range);
-        if (cfr == null)
-            return null;
-        if (!cfr.isEmpty())
-        {
-            RedundantBefore redundantBefore = commandStore().redundantBefore();
-            redundantBefore.foldl(Ranges.single(range), (entry, ignore) -> {
-                if (entry != null && cfr.current().hasRedundant(entry.shardRedundantBefore()))
-                    cfr.set(cfr.current().withoutRedundant(entry.shardRedundantBefore()));
-                return null;
-            }, null, ignore -> false);
-        }
-        return cfr;
     }
 
     private <O> O mapReduceForKey(Routables<?> keysOrRanges, Ranges slice, BiFunction<CommandsSummary, O, O> map, O accumulate)
@@ -326,13 +302,13 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     public void postExecute(Map<TxnId, AccordSafeCommand> commands,
                             Map<RoutableKey, AccordSafeTimestampsForKey> timestampsForKey,
                             Map<RoutableKey, AccordSafeCommandsForKey> commandsForKeys,
-                            TreeMap<Range, AccordSafeCommandsForRange> commandsForRanges
-                            )
+                            @Nullable AccordSafeCommandsForRanges commandsForRanges)
     {
         postExecute();
         commands.values().forEach(AccordSafeState::postExecute);
         timestampsForKey.values().forEach(AccordSafeState::postExecute);
         commandsForKeys.values().forEach(AccordSafeState::postExecute);
-        commandsForRanges.values().forEach(AccordSafeState::postExecute);
+        if (commandsForRanges != null)
+            commandsForRanges.postExecute();
     }
 }

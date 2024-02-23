@@ -52,7 +52,7 @@ import static accord.utils.Property.qt;
 import static org.apache.cassandra.dht.Murmur3Partitioner.LongToken.keyForToken;
 import static org.apache.cassandra.service.accord.AccordTestUtils.createTxn;
 
-public class SimulatedActionTest extends SimulatedAccordCommandStoreTestBase
+public class SimulatedMultiKeyAndRangeTest extends SimulatedAccordCommandStoreTestBase
 {
     @Test
     public void test()
@@ -66,14 +66,12 @@ public class SimulatedActionTest extends SimulatedAccordCommandStoreTestBase
         Gen<Gen<Domain>> domainDistribution = Gens.enums().allMixedDistribution(Domain.class);
         Gen<Gen<DepsMessage>> msgDistribution = Gens.enums().allMixedDistribution(DepsMessage.class);
 
-        qt().withSeed(4760793912722218623L).withExamples(10).check(rs -> {
+        qt().withExamples(100).check(rs -> {
             AccordKeyspace.unsafeClear();
             try (var instance = new SimulatedAccordCommandStore(rs))
             {
-//                Gen<Domain> domainGen = domainDistribution.next(rs);
-//                Gen<DepsMessage> msgGen = msgDistribution.next(rs);
-                Gen<Domain> domainGen = Gens.constant(Domain.Range);
-                Gen<DepsMessage> msgGen = Gens.enums().all(DepsMessage.class);
+                Gen<Domain> domainGen = domainDistribution.next(rs);
+                Gen<DepsMessage> msgGen = msgDistribution.next(rs);
                 Map<Key, List<TxnId>> keyConflicts = new HashMap<>();
                 RTree<RoutingKey, Range, TxnId> rangeConflicts = RTree.create(RTreeRangeAccessor.instance);
                 List<AsyncResult<?>> asyncs = new ArrayList<>(numSamples);

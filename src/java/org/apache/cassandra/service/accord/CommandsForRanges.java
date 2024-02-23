@@ -33,6 +33,7 @@ import accord.local.SafeCommandStore.TestStartedAt;
 import accord.local.SafeCommandStore.TestStatus;
 import accord.local.SaveStatus;
 import accord.primitives.Range;
+import accord.primitives.Ranges;
 import accord.primitives.Timestamp;
 import accord.primitives.Txn;
 import accord.primitives.TxnId;
@@ -44,14 +45,14 @@ import static accord.local.SafeCommandStore.TestStatus.ANY_STATUS;
 import static accord.local.Status.Stable;
 import static accord.local.Status.Truncated;
 
-public class CommandsForRange implements CommandsSummary
+public class CommandsForRanges implements CommandsSummary
 {
-    private final Range range;
+    private final Ranges ranges;
     private final NavigableMap<Timestamp, DiskCommandsForRanges.Summary> map;
 
-    public CommandsForRange(Range range, NavigableMap<TxnId, DiskCommandsForRanges.Summary> map)
+    public CommandsForRanges(Ranges ranges, NavigableMap<TxnId, DiskCommandsForRanges.Summary> map)
     {
-        this.range = range;
+        this.ranges = ranges;
         this.map = (NavigableMap<Timestamp, DiskCommandsForRanges.Summary>) (NavigableMap<?, ?>) map;
     }
 
@@ -160,7 +161,7 @@ public class CommandsForRange implements CommandsSummary
             // TODO (required): ensure we are excluding any ranges that are now shard-redundant (not sure if this is enforced yet)
             for (Range range : summary.ranges)
             {
-                if (this.range.compareIntersecting(range) != 0)
+                if (!this.ranges.intersects(range))
                     continue;
                 collect.computeIfAbsent(range, ignore -> new ArrayList<>()).add(summary);
             }
@@ -180,7 +181,7 @@ public class CommandsForRange implements CommandsSummary
         return false;
     }
 
-    public CommandsForRange withoutRedundant(TxnId shardRedundantBefore)
+    public CommandsForRanges withoutRedundant(TxnId shardRedundantBefore)
     {
         return null;
     }

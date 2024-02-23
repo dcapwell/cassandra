@@ -63,19 +63,21 @@ public class DiskCommandsForRanges
         this.store = store;
     }
 
-    public AsyncResult<Pair<Watcher, NavigableMap<TxnId, Summary>>> get(Range range)
+    public AsyncResult<Pair<Watcher, NavigableMap<TxnId, Summary>>> get(Ranges ranges)
     {
-        var watcher = fromCache(range);
+        var watcher = fromCache(ranges);
         var before = ImmutableMap.copyOf(watcher.get());
-        return AsyncChains.ofCallable(Stage.READ.executor(), () -> get(range, before))
+        return AsyncChains.ofCallable(Stage.READ.executor(), () -> get(ranges, before))
                           .map(builder -> Pair.create(watcher, builder), store)
                .beginAsResult();
     }
 
-    private NavigableMap<TxnId, Summary> get(Range range, Map<TxnId, Summary> cacheHits)
+    private NavigableMap<TxnId, Summary> get(Ranges ranges, Map<TxnId, Summary> cacheHits)
     {
-        Collection<TxnId> matches = intersects(range);
-        return load(range, cacheHits, matches);
+        Set<TxnId> matches = new HashSet<>();
+        for (Range range : ranges)
+            matches.addAll(intersects(range));
+        return load(ranges, cacheHits, matches);
     }
 
     private Collection<TxnId> intersects(Range range)
@@ -100,14 +102,14 @@ public class DiskCommandsForRanges
 
     public class Watcher implements AccordStateCache.Listener<TxnId, Command>, AutoCloseable
     {
-        private final Ranges cacheRanges;
+        private final Ranges ranges;
 
         private NavigableMap<TxnId, Summary> summaries = null;
         private List<AccordCachingState<TxnId, Command>> needToDoubleCheck = null;
 
-        public Watcher(Ranges cacheRanges)
+        public Watcher(Ranges ranges)
         {
-            this.cacheRanges = cacheRanges;
+            this.ranges = ranges;
         }
 
         public NavigableMap<TxnId, Summary> get()
@@ -136,7 +138,7 @@ public class DiskCommandsForRanges
             var cmd = state.get();
             if (cmd == null)
                 return;
-            Summary summary = create(cmd, cacheRanges, null);
+            Summary summary = create(cmd, ranges, null);
             if (summary != null)
             {
                 if (summaries == null)
@@ -171,19 +173,18 @@ public class DiskCommandsForRanges
         }
     }
 
-    private Watcher fromCache(Range range)
+    private Watcher fromCache(Ranges ranges)
     {
-        Watcher watcher = new Watcher(Ranges.of(range));
+        Watcher watcher = new Watcher(ranges);
         store.commandCache().stream().forEach(watcher::onAdd);
         store.commandCache().register(watcher);
         return watcher;
     }
 
-    private NavigableMap<TxnId, Summary> load(Range range, Map<TxnId, Summary> cacheHits, Collection<TxnId> possibleTxns)
+    private NavigableMap<TxnId, Summary> load(Ranges ranges, Map<TxnId, Summary> cacheHits, Collection<TxnId> possibleTxns)
     {
         //TODO (now): this logic is kinda duplicate of org.apache.cassandra.service.accord.CommandsForRange.mapReduce
         // should figure out if this can be improved... also what is correct?
-        Ranges ranges = Ranges.of(range);
         var durableBefore = store.durableBefore();
         NavigableMap<TxnId, Summary> map = new TreeMap<>();
         for (TxnId txnId : possibleTxns)

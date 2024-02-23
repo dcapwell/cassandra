@@ -33,7 +33,6 @@ import com.google.common.collect.Iterables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import accord.api.RoutingKey;
 import accord.impl.CommandsForKey;
 import accord.local.KeyHistory;
 import accord.local.PreLoadContext;
@@ -50,11 +49,10 @@ import accord.utils.async.Observable;
 import org.apache.cassandra.service.accord.AccordCachingState;
 import org.apache.cassandra.service.accord.AccordCommandStore;
 import org.apache.cassandra.service.accord.AccordKeyspace;
-import org.apache.cassandra.service.accord.AccordSafeCommandsForRange;
+import org.apache.cassandra.service.accord.AccordSafeCommandsForRanges;
 import org.apache.cassandra.service.accord.AccordSafeState;
 import org.apache.cassandra.service.accord.AccordStateCache;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey;
-import org.apache.cassandra.service.accord.api.AccordRoutingKey.TokenKey;
 import org.apache.cassandra.service.accord.api.PartitionKey;
 
 public class AsyncLoader
@@ -211,12 +209,9 @@ public class AsyncLoader
             return chains.isEmpty() ? AsyncChains.success(null) : AsyncChains.reduce(chains, (a, b) -> null);
         }, commandStore));
 
-        for (Range range : ranges)
-        {
-            var chain = commandStore.diskCommandsForRanges().get(range);
-            root.add(chain);
-            context.commandsForRanges.put(range, new AccordSafeCommandsForRange(range, chain));
-        }
+        var chain = commandStore.diskCommandsForRanges().get(ranges);
+        root.add(chain);
+        context.commandsForRanges = new AccordSafeCommandsForRanges(ranges, chain);
 
         return AsyncChains.all(root);
     }

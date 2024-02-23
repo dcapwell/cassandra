@@ -18,31 +18,36 @@
 
 package org.apache.cassandra.service.accord;
 
-import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Objects;
 
 import accord.primitives.Range;
+import accord.primitives.Ranges;
 import accord.primitives.TxnId;
 import accord.utils.async.AsyncChains;
 import accord.utils.async.AsyncResult;
 import org.apache.cassandra.utils.Pair;
 
-public class AccordSafeCommandsForRange implements AccordSafeState<Range, CommandsForRange>
+public class AccordSafeCommandsForRanges implements AccordSafeState<Range, CommandsForRanges>
 {
     private final AsyncResult<Pair<DiskCommandsForRanges.Watcher, NavigableMap<TxnId, DiskCommandsForRanges.Summary>>> chain;
-    private final Range range;
+    private final Ranges ranges;
     private boolean invalidated;
-    private CommandsForRange original, current;
+    private CommandsForRanges original, current;
 
-    public AccordSafeCommandsForRange(Range range, AsyncResult<Pair<DiskCommandsForRanges.Watcher, NavigableMap<TxnId, DiskCommandsForRanges.Summary>>> chain)
+    public AccordSafeCommandsForRanges(Ranges ranges, AsyncResult<Pair<DiskCommandsForRanges.Watcher, NavigableMap<TxnId, DiskCommandsForRanges.Summary>>> chain)
     {
-        this.range = range;
+        this.ranges = ranges;
         this.chain = chain;
     }
 
+    public Ranges ranges()
+    {
+        return ranges;
+    }
+
     @Override
-    public CommandsForRange current()
+    public CommandsForRanges current()
     {
         checkNotInvalidated();
         return current;
@@ -61,13 +66,13 @@ public class AccordSafeCommandsForRange implements AccordSafeState<Range, Comman
     }
 
     @Override
-    public void set(CommandsForRange update)
+    public void set(CommandsForRanges update)
     {
         throw new UnsupportedOperationException();
     }
 
     @Override
-    public CommandsForRange original()
+    public CommandsForRanges original()
     {
         checkNotInvalidated();
         return original;
@@ -80,7 +85,7 @@ public class AccordSafeCommandsForRange implements AccordSafeState<Range, Comman
         Pair<DiskCommandsForRanges.Watcher, NavigableMap<TxnId, DiskCommandsForRanges.Summary>> pair = AsyncChains.getUnchecked(chain);
         pair.left.close();
         pair.left.get().entrySet().forEach(e -> pair.right.put(e.getKey(), e.getValue()));
-        current = original = new CommandsForRange(range, pair.right);
+        current = original = new CommandsForRanges(ranges, pair.right);
     }
 
     @Override
@@ -90,7 +95,7 @@ public class AccordSafeCommandsForRange implements AccordSafeState<Range, Comman
     }
 
     @Override
-    public AccordCachingState<Range, CommandsForRange> global()
+    public AccordCachingState<Range, CommandsForRanges> global()
     {
         throw new UnsupportedOperationException();
     }
@@ -100,7 +105,7 @@ public class AccordSafeCommandsForRange implements AccordSafeState<Range, Comman
     {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-        AccordSafeCommandsForRange that = (AccordSafeCommandsForRange) o;
+        AccordSafeCommandsForRanges that = (AccordSafeCommandsForRanges) o;
         return Objects.equals(original, that.original) && Objects.equals(current, that.current);
     }
 
