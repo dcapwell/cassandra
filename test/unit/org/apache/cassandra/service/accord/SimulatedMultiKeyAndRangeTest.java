@@ -137,7 +137,7 @@ public class SimulatedMultiKeyAndRangeTest extends SimulatedAccordCommandStoreTe
 
                             Map<Key, List<TxnId>> expectedKeyConflicts = keyConflicts.entrySet().stream()
                                                                                      .filter(e -> ranges.contains(e.getKey()))
-                                                                                     .collect(Collectors.toMap(e -> e.getKey(), e -> e.getValue()));
+                                                                                     .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
                             Map<Range, List<TxnId>> expectedRangeConflicts = new HashMap<>();
                             ranges.forEach(r -> rangeConflicts.search(r, e -> {
                                 Range match = e.getKey();
