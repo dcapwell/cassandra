@@ -47,7 +47,6 @@ import accord.local.RedundantBefore;
 import accord.local.SafeCommandStore;
 import accord.local.SerializerSupport.MessageProvider;
 import accord.messages.Message;
-import accord.primitives.Range;
 import accord.primitives.Ranges;
 import accord.primitives.RoutableKey;
 import accord.primitives.Timestamp;
@@ -106,7 +105,7 @@ public class AccordCommandStore extends CommandStore implements CacheSize
     private AsyncOperation<?> currentOperation = null;
     private AccordSafeCommandStore current = null;
     private long lastSystemTimestampMicros = Long.MIN_VALUE;
-    private final DiskCommandsForRanges diskCommandsForRanges;
+    private final CommandsForRangesLoader commandsForRangesLoader;
 
     public AccordCommandStore(int id,
                               NodeTimeService time,
@@ -165,7 +164,7 @@ public class AccordCommandStore extends CommandStore implements CacheSize
                                 AccordObjectSizes::commandsForKey,
                                 AccordCachingState::new);
 
-        this.diskCommandsForRanges = new DiskCommandsForRanges(this);
+        this.commandsForRangesLoader = new CommandsForRangesLoader(this);
 
         AccordKeyspace.loadCommandStoreMetadata(id, ((rejectBefore, durableBefore, redundantBefore, bootstrapBeganAt, safeToRead) -> {
             executor.submit(() -> {
@@ -191,9 +190,9 @@ public class AccordCommandStore extends CommandStore implements CacheSize
                new AccordCommandStore(id, time, agent, dataStore, progressLogFactory, rangesForEpoch, journal, cacheMetrics);
     }
 
-    public DiskCommandsForRanges diskCommandsForRanges()
+    public CommandsForRangesLoader diskCommandsForRanges()
     {
-        return diskCommandsForRanges;
+        return commandsForRangesLoader;
     }
 
     @Override

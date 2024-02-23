@@ -51,14 +51,14 @@ import org.apache.cassandra.utils.Pair;
 
 //TODO (now, correctness): registerHistoricalTransactions, need to handle range -> txn for these
 //TODO (now, correctness): DurableBefore filtering
-public class DiskCommandsForRanges
+public class CommandsForRangesLoader
 {
     private final RoutesSearcher searcher = new RoutesSearcher();
     //TODO (now, durability): find solution for this...
     private final Map<TxnId, Ranges> historicalTransaction = new HashMap<>();
     private final AccordCommandStore store;
 
-    public DiskCommandsForRanges(AccordCommandStore store)
+    public CommandsForRangesLoader(AccordCommandStore store)
     {
         this.store = store;
     }
@@ -77,12 +77,13 @@ public class DiskCommandsForRanges
         Set<TxnId> matches = new HashSet<>();
         for (Range range : ranges)
             matches.addAll(intersects(range));
+        if (matches.isEmpty())
+            return Collections.emptyNavigableMap();
         return load(ranges, cacheHits, matches);
     }
 
     private Collection<TxnId> intersects(Range range)
     {
-        //TODO (now, correctness): cache state
         assert range instanceof TokenRange : "Require TokenRange but given " + range.getClass();
         Set<TxnId> intersects = searcher.intersects(store.id(), (TokenRange) range);
         if (!historicalTransaction.isEmpty())
@@ -130,6 +131,7 @@ public class DiskCommandsForRanges
                 needToDoubleCheck.add(n);
                 return;
             }
+            //TODO (now): include FailedToSave?  Most likely need to, but need to improve test coverage to have failed writes
             if (!(state instanceof AccordCachingState.Loaded
                   || state instanceof AccordCachingState.Modified
                   || state instanceof AccordCachingState.Saving))
@@ -210,7 +212,7 @@ public class DiskCommandsForRanges
             || saveStatus == SaveStatus.Erased
             || !saveStatus.hasBeen(Status.PreAccepted))
             return null;
-        if (!cmd.known().definition.isKnown())
+        if (cmd.partialTxn() == null)
             return null;
 
         var keysOrRanges = cmd.partialTxn().keys();
@@ -235,10 +237,9 @@ public class DiskCommandsForRanges
                 return null;
         }
 
-        Timestamp executeAt = cmd.executeAt();
         var partialDeps = cmd.partialDeps();
         List<TxnId> deps = partialDeps == null ? Collections.emptyList() : partialDeps.txnIds();
-        return new Summary(cmd.txnId(), executeAt, saveStatus, ranges, deps);
+        return new Summary(cmd.txnId(), cmd.executeAt(), saveStatus, ranges, deps);
     }
 
     public void mergeHistoricalTransaction(TxnId txnId, Ranges ranges, BiFunction<? super Ranges, ? super Ranges, ? extends Ranges> remappingFunction)

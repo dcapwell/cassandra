@@ -30,12 +30,12 @@ import org.apache.cassandra.utils.Pair;
 
 public class AccordSafeCommandsForRanges implements AccordSafeState<Range, CommandsForRanges>
 {
-    private final AsyncResult<Pair<DiskCommandsForRanges.Watcher, NavigableMap<TxnId, DiskCommandsForRanges.Summary>>> chain;
+    private final AsyncResult<Pair<CommandsForRangesLoader.Watcher, NavigableMap<TxnId, CommandsForRangesLoader.Summary>>> chain;
     private final Ranges ranges;
     private boolean invalidated;
     private CommandsForRanges original, current;
 
-    public AccordSafeCommandsForRanges(Ranges ranges, AsyncResult<Pair<DiskCommandsForRanges.Watcher, NavigableMap<TxnId, DiskCommandsForRanges.Summary>>> chain)
+    public AccordSafeCommandsForRanges(Ranges ranges, AsyncResult<Pair<CommandsForRangesLoader.Watcher, NavigableMap<TxnId, CommandsForRangesLoader.Summary>>> chain)
     {
         this.ranges = ranges;
         this.chain = chain;
@@ -82,7 +82,7 @@ public class AccordSafeCommandsForRanges implements AccordSafeState<Range, Comma
     public void preExecute()
     {
         checkNotInvalidated();
-        Pair<DiskCommandsForRanges.Watcher, NavigableMap<TxnId, DiskCommandsForRanges.Summary>> pair = AsyncChains.getUnchecked(chain);
+        Pair<CommandsForRangesLoader.Watcher, NavigableMap<TxnId, CommandsForRangesLoader.Summary>> pair = AsyncChains.getUnchecked(chain);
         pair.left.close();
         pair.left.get().entrySet().forEach(e -> pair.right.put(e.getKey(), e.getValue()));
         current = original = new CommandsForRanges(ranges, pair.right);

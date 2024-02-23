@@ -48,12 +48,12 @@ import static accord.local.Status.Truncated;
 public class CommandsForRanges implements CommandsSummary
 {
     private final Ranges ranges;
-    private final NavigableMap<Timestamp, DiskCommandsForRanges.Summary> map;
+    private final NavigableMap<Timestamp, CommandsForRangesLoader.Summary> map;
 
-    public CommandsForRanges(Ranges ranges, NavigableMap<TxnId, DiskCommandsForRanges.Summary> map)
+    public CommandsForRanges(Ranges ranges, NavigableMap<TxnId, CommandsForRangesLoader.Summary> map)
     {
         this.ranges = ranges;
-        this.map = (NavigableMap<Timestamp, DiskCommandsForRanges.Summary>) (NavigableMap<?, ?>) map;
+        this.map = (NavigableMap<Timestamp, CommandsForRangesLoader.Summary>) (NavigableMap<?, ?>) map;
     }
 
     @Override
@@ -71,8 +71,8 @@ public class CommandsForRanges implements CommandsSummary
     private <P1, T> T mapReduce(@Nonnull Timestamp testTimestamp, @Nullable TxnId testTxnId, Txn.Kind.Kinds testKind, TestStartedAt testStartedAt, TestDep testDep, TestStatus testStatus, CommandFunction<P1, T, T> map, P1 p1, T accumulate)
     {
         // TODO (required): reconsider how we build this, to avoid having to provide range keys in order (or ensure our range search does this for us)
-        Map<Range, List<DiskCommandsForRanges.Summary>> collect = new TreeMap<>(Range::compare);
-        NavigableMap<Timestamp, DiskCommandsForRanges.Summary> submap;
+        Map<Range, List<CommandsForRangesLoader.Summary>> collect = new TreeMap<>(Range::compare);
+        NavigableMap<Timestamp, CommandsForRangesLoader.Summary> submap;
         switch (testStartedAt)
         {
             case STARTED_AFTER:
@@ -152,9 +152,9 @@ public class CommandsForRanges implements CommandsSummary
             }
         }));
 
-        for (Map.Entry<Range, List<DiskCommandsForRanges.Summary>> e : collect.entrySet())
+        for (Map.Entry<Range, List<CommandsForRangesLoader.Summary>> e : collect.entrySet())
         {
-            for (DiskCommandsForRanges.Summary command : e.getValue())
+            for (CommandsForRangesLoader.Summary command : e.getValue())
                 accumulate = map.apply(p1, e.getKey(), command.txnId, command.executeAt, accumulate);
         }
 

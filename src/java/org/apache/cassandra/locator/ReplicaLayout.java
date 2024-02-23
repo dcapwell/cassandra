@@ -233,7 +233,6 @@ public abstract class ReplicaLayout<E extends Endpoints<E>>
         if (ks.params.replication.isLocal())
         {
             natural = forLocalStrategyToken(metadata, replicationStrategy, token);
-//            natural = EndpointsForToken.natural(ks, token).get();
             pending = EndpointsForToken.empty(token);
         }
         else
