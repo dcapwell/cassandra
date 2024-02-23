@@ -55,7 +55,7 @@ public class SimulatedDepsTest extends SimulatedAccordCommandStoreTestBase
         int numSamples = 100;
 
         qt().withExamples(10).check(rs -> {
-            clearSystemTables();
+            AccordKeyspace.unsafeClear();
             int key = rs.nextInt();
             PartitionKey pk = new PartitionKey(tbl.id, tbl.partitioner.decorateKey(Int32Type.instance.decompose(key)));
             Keys keys = Keys.of(pk);
@@ -97,7 +97,7 @@ public class SimulatedDepsTest extends SimulatedAccordCommandStoreTestBase
         int numConflictKeyTxns = 10;
 
         qt().withExamples(10).check(rs -> {
-            clearSystemTables();
+            AccordKeyspace.unsafeClear();
             try (var instance = new SimulatedAccordCommandStore(rs))
             {
                 long token = rs.nextLong(Long.MIN_VALUE  + 1, Long.MAX_VALUE);
@@ -165,7 +165,7 @@ public class SimulatedDepsTest extends SimulatedAccordCommandStoreTestBase
         int numSamples = 300;
 
         qt().withExamples(10).check(rs -> {
-            clearSystemTables();
+            AccordKeyspace.unsafeClear();
             try (var instance = new SimulatedAccordCommandStore(rs))
             {
                 Map<Key, List<TxnId>> keyConflicts = new HashMap<>();
@@ -217,7 +217,7 @@ public class SimulatedDepsTest extends SimulatedAccordCommandStoreTestBase
         int numSamples = 100;
 
         qt().withExamples(10).check(rs -> {
-            clearSystemTables();
+            AccordKeyspace.unsafeClear();
             try (var instance = new SimulatedAccordCommandStore(rs))
             {
                 long token = rs.nextLong(Long.MIN_VALUE  + 1, Long.MAX_VALUE);
@@ -271,7 +271,7 @@ public class SimulatedDepsTest extends SimulatedAccordCommandStoreTestBase
         int numSamples = 100;
 
         qt().withExamples(10).check(rs -> {
-            clearSystemTables();
+            AccordKeyspace.unsafeClear();
             try (var instance = new SimulatedAccordCommandStore(rs))
             {
                 long token = rs.nextLong(Long.MIN_VALUE + numSamples + 1, Long.MAX_VALUE - numSamples);
@@ -335,7 +335,7 @@ public class SimulatedDepsTest extends SimulatedAccordCommandStoreTestBase
         int numSamples = 100;
 
         qt().withExamples(10).check(rs -> {
-            clearSystemTables();
+            AccordKeyspace.unsafeClear();
             try (var instance = new SimulatedAccordCommandStore(rs))
             {
                 long token = rs.nextLong(Long.MIN_VALUE + numSamples + 1, Long.MAX_VALUE - numSamples);

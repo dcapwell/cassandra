@@ -35,7 +35,7 @@ public class SimpleSimulatedAccordCommandStoreTest extends SimulatedAccordComman
     public void emptyTxns()
     {
         qt().withExamples(10).check(rs -> {
-            clearSystemTables();
+            AccordKeyspace.unsafeClear();
             try (var instance = new SimulatedAccordCommandStore(rs))
             {
                 for (int i = 0, examples = 100; i < examples; i++)
