@@ -50,8 +50,10 @@ import org.apache.cassandra.ServerTestUtils;
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
+import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.schema.Schema;
+import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey;
@@ -59,6 +61,8 @@ import org.apache.cassandra.tcm.ClusterMetadata;
 import org.apache.cassandra.tcm.transformations.AddAccordTable;
 import org.apache.cassandra.utils.Pair;
 import org.assertj.core.api.Assertions;
+
+import static org.apache.cassandra.schema.SchemaConstants.ACCORD_KEYSPACE_NAME;
 
 public abstract class SimulatedAccordCommandStoreTestBase extends CQLTester
 {
@@ -100,6 +104,12 @@ public abstract class SimulatedAccordCommandStoreTestBase extends CQLTester
         AddAccordTable.addTable(reverseTokenTbl.id);
 
         nodeId = AccordTopology.tcmIdToAccord(ClusterMetadata.current().myNodeId());
+
+        // tests may flush, which triggers compaction... since compaction is not simulated this adds a form of non-deterministic behavior
+        for (var store : Keyspace.open(ACCORD_KEYSPACE_NAME).getColumnFamilyStores())
+            store.disableAutoCompaction();
+
+        AccordService.unsafeSetNoop();
 
         ServerTestUtils.markCMS();
     }

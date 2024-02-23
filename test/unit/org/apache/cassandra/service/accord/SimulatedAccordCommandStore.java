@@ -58,12 +58,18 @@ import org.apache.cassandra.concurrent.ExecutorFactory;
 import org.apache.cassandra.concurrent.ScheduledExecutorPlus;
 import org.apache.cassandra.concurrent.SimulatedExecutorFactory;
 import org.apache.cassandra.concurrent.Stage;
+import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.metrics.AccordStateCacheMetrics;
+import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.tcm.ClusterMetadata;
+import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Generators;
 import org.apache.cassandra.utils.Pair;
 import org.assertj.core.api.Assertions;
 
+import static org.apache.cassandra.db.ColumnFamilyStore.FlushReason.UNIT_TESTS;
 import static org.apache.cassandra.utils.AccordGenerators.fromQT;
 
 class SimulatedAccordCommandStore implements AutoCloseable
@@ -71,7 +77,7 @@ class SimulatedAccordCommandStore implements AutoCloseable
     private final List<Throwable> failures = new ArrayList<>();
     private final SimulatedExecutorFactory globalExecutor;
     private final CommandStore.EpochUpdateHolder updateHolder;
-    private final BooleanSupplier shouldEvict;
+    private final BooleanSupplier shouldEvict, shouldFlush, shouldCompact;
 
     public final NodeTimeService timeService;
     public final AccordCommandStore store;
@@ -174,23 +180,26 @@ class SimulatedAccordCommandStore implements AutoCloseable
         updateHolder.add(topology.epoch(), rangesForEpoch, topology.ranges());
         updateHolder.updateGlobal(topology.ranges());
 
-        var evictSource = rs.fork();
-        int evictSelection = evictSource.nextInt(0, 3);
-        switch (evictSelection)
+        shouldEvict = boolSource(rs.fork());
+        shouldFlush = boolSource(rs.fork());
+        shouldCompact = boolSource(rs.fork());
+    }
+
+    private static BooleanSupplier boolSource(RandomSource rs)
+    {
+        int selection = rs.nextInt(0, 3);
+        switch (selection)
         {
             case 0: // uniform 50/50
-                shouldEvict = evictSource::nextBoolean;
-                break;
+                return rs::nextBoolean;
             case 1: // variable frequency
-                var freq = evictSource.nextFloat();
-                shouldEvict = () -> evictSource.decide(freq);
-                break;
+                var freq = rs.nextFloat();
+                return () -> rs.decide(freq);
             case 2: // fixed result
-                boolean result = evictSource.nextBoolean();
-                shouldEvict = () -> result;
-                break;
+                boolean result = rs.nextBoolean();
+                return () -> result;
             default:
-                throw new IllegalStateException("Unexpected int for evict selection: " + evictSelection);
+                throw new IllegalStateException("Unexpected int for bool selection: " + selection);
         }
     }
 
@@ -224,6 +233,31 @@ class SimulatedAccordCommandStore implements AutoCloseable
                 throw new AssertionError("Unexpected key type: " + state.key().getClass());
             }
         });
+
+        for (var store : Keyspace.open(SchemaConstants.ACCORD_KEYSPACE_NAME).getColumnFamilyStores())
+        {
+            if (store.getCurrentMemtable().partitionCount() == 0)
+                continue;
+            if (shouldFlush.getAsBoolean())
+                store.forceBlockingFlush(UNIT_TESTS);
+        }
+        for (var store : Keyspace.open(SchemaConstants.ACCORD_KEYSPACE_NAME).getColumnFamilyStores())
+        {
+            if (store.getLiveSSTables().size() > 5
+                && shouldCompact.getAsBoolean())
+            {
+                // compaction no-op since auto-compaction is disabled... so need to enable quickly
+                store.enableAutoCompaction();
+                try
+                {
+                    FBUtilities.waitOnFutures(CompactionManager.instance.submitBackground(store));
+                }
+                finally
+                {
+                    store.disableAutoCompaction();
+                }
+            }
+        }
     }
 
     public void checkFailures()

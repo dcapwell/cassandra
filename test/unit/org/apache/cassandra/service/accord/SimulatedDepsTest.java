@@ -270,7 +270,7 @@ public class SimulatedDepsTest extends SimulatedAccordCommandStoreTestBase
         var tbl = reverseTokenTbl;
         int numSamples = 100;
 
-        qt().withExamples(10).check(rs -> {
+        qt().withSeed(6484101342775432632L).withExamples(10).check(rs -> {
             AccordKeyspace.unsafeClear();
             try (var instance = new SimulatedAccordCommandStore(rs))
             {

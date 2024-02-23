@@ -134,6 +134,8 @@ public class RangeMemoryIndex extends UnseekableMemoryIndex
     {
         switch (keyOrRange.domain())
         {
+            case Key:
+                return 0;
             case Range:
                 TokenRange ts = (TokenRange) keyOrRange;
 
