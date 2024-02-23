@@ -90,9 +90,6 @@ public class AccordKeyspaceTest extends CQLTester.InMemory
         // since this test does frequent truncates, the info table gets updated and forced flushed... which is 90% of the cost of this test...
         // this flag disables that flush
         CassandraRelevantProperties.UNSAFE_SYSTEM.setBoolean(true);
-
-        // make sure blob is always the same
-        CassandraRelevantProperties.TEST_BLOB_SHARED_SEED.setInt(42);
     }
 
     @Test

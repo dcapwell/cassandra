@@ -29,11 +29,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
 import javax.annotation.Nullable;
 
 import com.google.common.collect.ImmutableList;
@@ -53,11 +53,10 @@ import org.apache.cassandra.db.Slices;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.ByteBufferAccessor;
 import org.apache.cassandra.db.marshal.CompositeType;
-import org.apache.cassandra.db.marshal.DecimalType;
 import org.apache.cassandra.db.marshal.EmptyType;
 import org.apache.cassandra.db.marshal.TimeUUIDType;
-import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.marshal.UserType;
+import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.dht.ByteOrderedPartitioner;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.LocalPartitioner;
@@ -81,7 +80,6 @@ import org.apache.cassandra.schema.MemtableParams;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.TableParams;
-import org.apache.cassandra.utils.AbstractTypeGenerators.TypeGenBuilder;
 import org.apache.cassandra.utils.AbstractTypeGenerators.ValueDomain;
 import org.quicktheories.core.Gen;
 import org.quicktheories.core.RandomnessSource;
@@ -89,7 +87,6 @@ import org.quicktheories.generators.Generate;
 import org.quicktheories.generators.SourceDSL;
 import org.quicktheories.impl.Constraint;
 
-import static org.apache.cassandra.utils.AbstractTypeGenerators.TypeKind.COUNTER;
 import static org.apache.cassandra.utils.AbstractTypeGenerators.allowReversed;
 import static org.apache.cassandra.utils.AbstractTypeGenerators.getTypeSupport;
 import static org.apache.cassandra.utils.Generators.IDENTIFIER_GEN;
@@ -635,11 +632,12 @@ public final class CassandraGenerators
 
     private enum SupportedPartitioners { Murmur, ByteOrdered, Random, Local, OrderPreserving}
 
-    private static final ImmutableMap<SupportedPartitioners, Gen<Token>> PARTITIONERS = ImmutableMap.of(SupportedPartitioners.Murmur, murmurToken(),
-                                                                                                        SupportedPartitioners.ByteOrdered, byteOrderToken(),
-                                                                                                        SupportedPartitioners.Random, randomPartitionerToken(),
-                                                                                                        SupportedPartitioners.Local, localPartitionerToken(),
-                                                                                                        SupportedPartitioners.OrderPreserving, orderPreservingToken());
+    // need to use Supplier<Gen> here else this loads AbstractTypeGenerators, which depends on this class; so circular dependency
+    private static final ImmutableMap<SupportedPartitioners, Supplier<Gen<Token>>> PARTITIONERS = ImmutableMap.of(SupportedPartitioners.Murmur, CassandraGenerators::murmurToken,
+                                                                                                                  SupportedPartitioners.ByteOrdered, CassandraGenerators::byteOrderToken,
+                                                                                                                  SupportedPartitioners.Random, CassandraGenerators::randomPartitionerToken,
+                                                                                                                  SupportedPartitioners.Local, CassandraGenerators::localPartitionerToken,
+                                                                                                                  SupportedPartitioners.OrderPreserving, CassandraGenerators::orderPreservingToken);
 
     public static Gen<IPartitioner> partitioners()
     {
@@ -660,7 +658,7 @@ public final class CassandraGenerators
     public static Gen<Token> token()
     {
         var pGen = SourceDSL.arbitrary().enumValues(SupportedPartitioners.class);
-        return pGen.flatMap(p -> PARTITIONERS.get(p));
+        return pGen.flatMap(p -> PARTITIONERS.get(p).get());
     }
 
     public static Gen<Token> token(IPartitioner partitioner)
