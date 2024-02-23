@@ -139,11 +139,10 @@ public class SimulatedMultiKeyAndRangeTest extends SimulatedAccordCommandStoreTe
                                                                                      .filter(e -> ranges.contains(e.getKey()))
                                                                                      .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
                             Map<Range, List<TxnId>> expectedRangeConflicts = new HashMap<>();
-                            ranges.forEach(r -> rangeConflicts.search(r, e -> {
-                                Range match = e.getKey();
-                                TxnId txnId = e.getValue();
-                                expectedRangeConflicts.computeIfAbsent(match, ignore -> new ArrayList<>()).add(txnId);
-                            }));
+                            ranges.forEach(r ->
+                                           rangeConflicts.search(r, e ->
+                                                                    expectedRangeConflicts.computeIfAbsent(e.getKey(), ignore -> new ArrayList<>()).add(e.getValue())));
+                            // need to dedup/sort txns
                             expectedRangeConflicts.values().forEach(l -> {
                                 var sortedDedup = new ArrayList<>(new TreeSet<>(l));
                                 l.clear();
