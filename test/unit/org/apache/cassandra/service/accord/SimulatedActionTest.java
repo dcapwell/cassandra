@@ -63,12 +63,15 @@ public class SimulatedActionTest extends SimulatedAccordCommandStoreTestBase
         long maxToken = 100;
         Gen<Gen.IntGen> keyDistribution = Gens.ints().mixedDistribution(1, 5);
         Gen<Gen.IntGen> rangeDistribution = Gens.ints().mixedDistribution(1, 5);
+        Gen<Gen<Domain>> domainDistribution = Gens.enums().allMixedDistribution(Domain.class);
+        Gen<Gen<DepsMessage>> msgDistribution = Gens.enums().allMixedDistribution(DepsMessage.class);
 
         qt().withSeed(4760793912722218623L).withExamples(10).check(rs -> {
             AccordKeyspace.unsafeClear();
             try (var instance = new SimulatedAccordCommandStore(rs))
             {
-//                Gen<Routable.Domain> domainGen = Gens.enums().all(Routable.Domain.class);
+//                Gen<Domain> domainGen = domainDistribution.next(rs);
+//                Gen<DepsMessage> msgGen = msgDistribution.next(rs);
                 Gen<Domain> domainGen = Gens.constant(Domain.Range);
                 Gen<DepsMessage> msgGen = Gens.enums().all(DepsMessage.class);
                 Map<Key, List<TxnId>> keyConflicts = new HashMap<>();
