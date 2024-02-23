@@ -601,6 +601,11 @@ public class AccordKeyspace
             return Int32Type.instance.compose(partitionKeyComponents[store_id.position()]);
         }
 
+        public PartitionKey getKey(DecoratedKey key)
+        {
+            return getKey(splitPartitionKey(key));
+        }
+
         public PartitionKey getKey(ByteBuffer[] partitionKeyComponents)
         {
             return deserializeKey(partitionKeyComponents[key.position()]);

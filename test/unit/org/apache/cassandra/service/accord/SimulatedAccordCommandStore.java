@@ -59,10 +59,12 @@ import org.apache.cassandra.concurrent.ScheduledExecutorPlus;
 import org.apache.cassandra.concurrent.SimulatedExecutorFactory;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.DataRange;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.compaction.CompactionManager;
+import org.apache.cassandra.db.filter.ColumnFilter;
+import org.apache.cassandra.db.memtable.Memtable;
 import org.apache.cassandra.metrics.AccordStateCacheMetrics;
-import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.tcm.ClusterMetadata;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Generators;
@@ -70,6 +72,7 @@ import org.apache.cassandra.utils.Pair;
 import org.assertj.core.api.Assertions;
 
 import static org.apache.cassandra.db.ColumnFamilyStore.FlushReason.UNIT_TESTS;
+import static org.apache.cassandra.schema.SchemaConstants.ACCORD_KEYSPACE_NAME;
 import static org.apache.cassandra.utils.AccordGenerators.fromQT;
 
 class SimulatedAccordCommandStore implements AutoCloseable
@@ -234,17 +237,17 @@ class SimulatedAccordCommandStore implements AutoCloseable
             }
         });
 
-        for (var store : Keyspace.open(SchemaConstants.ACCORD_KEYSPACE_NAME).getColumnFamilyStores())
+        for (var store : Keyspace.open(ACCORD_KEYSPACE_NAME).getColumnFamilyStores())
         {
-            if (store.getCurrentMemtable().partitionCount() == 0)
+            Memtable memtable = store.getCurrentMemtable();
+            if (memtable.partitionCount() == 0 || !intersects(store, memtable, keys, ranges))
                 continue;
             if (shouldFlush.getAsBoolean())
                 store.forceBlockingFlush(UNIT_TESTS);
         }
-        for (var store : Keyspace.open(SchemaConstants.ACCORD_KEYSPACE_NAME).getColumnFamilyStores())
+        for (var store : Keyspace.open(ACCORD_KEYSPACE_NAME).getColumnFamilyStores())
         {
-            if (store.getLiveSSTables().size() > 5
-                && shouldCompact.getAsBoolean())
+            if (store.getLiveSSTables().size() > 5 && shouldCompact.getAsBoolean())
             {
                 // compaction no-op since auto-compaction is disabled... so need to enable quickly
                 store.enableAutoCompaction();
@@ -258,6 +261,29 @@ class SimulatedAccordCommandStore implements AutoCloseable
                 }
             }
         }
+    }
+
+    private static boolean intersects(ColumnFamilyStore store, Memtable memtable, Keys keys, Ranges ranges)
+    {
+        if (keys.isEmpty() && ranges.isEmpty()) // shouldn't happen, but just in case...
+            return false;
+        switch (store.name)
+        {
+            case "commands_for_key":
+                // pk = (store_id, key_token, key)
+                // since this is simulating a single store, store_id is a constant, so check key
+                try (var it = memtable.partitionIterator(ColumnFilter.NONE, DataRange.allData(store.getPartitioner()), null))
+                {
+                    while (it.hasNext())
+                    {
+                        var key = AccordKeyspace.CommandsForKeysAccessor.getKey(it.next().partitionKey());
+                        if (keys.contains(key) || ranges.intersects(key))
+                            return true;
+                    }
+                }
+                break;
+        }
+        return false;
     }
 
     public void checkFailures()
