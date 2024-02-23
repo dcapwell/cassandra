@@ -63,6 +63,7 @@ import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.LocalPartitioner;
+import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.schema.MemtableParams;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.SchemaConstants;
@@ -70,7 +71,6 @@ import org.apache.cassandra.schema.SchemaProvider;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey;
 import org.apache.cassandra.service.accord.api.PartitionKey;
-import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CassandraGenerators;
 import org.assertj.core.api.Assertions;
 import org.mockito.Mockito;
@@ -156,13 +156,13 @@ public class AccordKeyspaceTest extends CQLTester.InMemory
                                                      .sorted()
                                                      .collect(Collectors.toList());
 
-        qt().withSeed(-3892767246556534332L).check(rs -> {
+        qt().check(rs -> {
             clearSystemTables();
             // control SSTable format
-            DatabaseDescriptor.setSelectedSSTableFormat(sstableFormats.get("bti"));
+            DatabaseDescriptor.setSelectedSSTableFormat(sstableFormats.get(rs.pick(sstableFormatNames)));
             // control memtable format
             Keyspace.open("system_accord").initCf(Schema.instance.getTableMetadata("system_accord", "commands_for_key").unbuild()
-                                                                 .memtable(MemtableParams.get("trie"))
+                                                                 .memtable(MemtableParams.get(rs.pick(memtableFormats)))
                                                                  .build(), false);
 
             TreeMap<TableId, IPartitioner> tables = new TreeMap<>();
@@ -177,6 +177,8 @@ public class AccordKeyspaceTest extends CQLTester.InMemory
             AccordKeyspace.schema = Mockito.mock(SchemaProvider.class);
             Mockito.when(AccordKeyspace.schema.getTablePartitioner(Mockito.any())).thenAnswer((Answer<IPartitioner>) invocationOnMock -> tables.get(invocationOnMock.getArgument(0)));
             int numStores = rs.nextInt(1, 3);
+
+            // The model of the DB
             TreeMap<Integer, SortedSet<PartitionKey>> storesToKeys = new TreeMap<>();
             for (int i = 0, numKeys = rs.nextInt(10, 20); i < numKeys; i++)
             {
@@ -202,68 +204,82 @@ public class AccordKeyspaceTest extends CQLTester.InMemory
                 {
                     try
                     {
-                        new Mutation(AccordKeyspace.getCommandsForKeyPartitionUpdate(store, pk, 42, ByteBufferUtil.EMPTY_BYTE_BUFFER)).apply();
+                        // using Mutation directly (what we do in Accord) can break when user data is too large; leading to data loss
+                        // The memtable will allow the write, but it will be dropped when writing to the SSTable...
+                        //TODO (now, correctness): since we store the user token + user key, if a key is close to the PK limits then we could tip over and loose our CFK
+//                        new Mutation(AccordKeyspace.getCommandsForKeyPartitionUpdate(store, pk, 42, ByteBufferUtil.EMPTY_BYTE_BUFFER)).apply();
+                        execute("INSERT INTO system_accord.commands_for_key (store_id, key_token, key) VALUES (?, ?, ?)",
+                                store, AccordKeyspace.serializeRoutingKey(pk.toUnseekable()), AccordKeyspace.serializeKey(pk));
                     }
-                    catch (IllegalArgumentException e)
+                    catch (IllegalArgumentException | InvalidRequestException e)
                     {
                         // Sometimes the types are too large (LocalPartitioner) so the mutation gets rejected... just ignore those cases
                         // Length 69912 > max length 65535
                         String msg = e.getMessage();
-                        if (msg != null && msg.startsWith("Length ") && msg.endsWith("> max length 65535"))
+                        if (msg != null)
                         {
-                            // failed to add
-                            keys.remove(pk);
-                            continue;
+                            if ((msg.startsWith("Length ") && msg.endsWith("> max length 65535")) // Clustering was rejected
+                                || (msg.startsWith("Key length of ") && msg.endsWith(" is longer than maximum of 65535"))) // Partition was rejected
+                            {
+                                // failed to add
+                                keys.remove(pk);
+                                continue;
+                            }
                         }
                         throw e;
                     }
                 }
             }
-            Keyspace.open("system_accord").getColumnFamilyStore("commands_for_key").forceBlockingFlush(ColumnFamilyStore.FlushReason.UNIT_TESTS);
 
-            TreeMap<Integer, SortedSet<ByteBuffer>> expectedCqlStoresToKeys = new TreeMap<>();
-            for (var e : storesToKeys.entrySet())
+            for (int read = 0; read < 2; read++)
             {
-                int store = e.getKey();
-                expectedCqlStoresToKeys.put(store, new TreeSet<>(e.getValue().stream().map(p -> AccordKeyspace.serializeRoutingKey(p.toUnseekable())).collect(Collectors.toList())));
-            }
-
-            // make sure no data loss... when this test was written sstable had all the rows but the sstable didn't... this
-            // is mostly a santity check to detect that case early
-            var resultSet = execute("SELECT store_id, key_token FROM system_accord.commands_for_key ALLOW FILTERING");
-            TreeMap<Integer, SortedSet<ByteBuffer>> cqlStoresToKeys = new TreeMap<>();
-            for (var row : resultSet)
-            {
-                int storeId = row.getInt("store_id");
-                ByteBuffer bb = row.getBytes("key_token");
-                cqlStoresToKeys.computeIfAbsent(storeId, ignore -> new TreeSet<>()).add(bb);
-            }
-            Assertions.assertThat(cqlStoresToKeys).isEqualTo(expectedCqlStoresToKeys);
-
-            for (int i = 0, queries = rs.nextInt(1, 5); i < queries; i++)
-            {
-                int store = rs.pick(storesToKeys.keySet());
-                var keysForStore = new ArrayList<>(storesToKeys.get(store));
-
-                int offset;
-                int offsetEnd;
-                if (keysForStore.size() == 1)
+                TreeMap<Integer, SortedSet<ByteBuffer>> expectedCqlStoresToKeys = new TreeMap<>();
+                for (var e : storesToKeys.entrySet())
                 {
-                    offset = 0;
-                    offsetEnd = 1;
+                    int store = e.getKey();
+                    expectedCqlStoresToKeys.put(store, new TreeSet<>(e.getValue().stream().map(p -> AccordKeyspace.serializeRoutingKey(p.toUnseekable())).collect(Collectors.toList())));
                 }
-                else
-                {
-                    offset = rs.nextInt(0, keysForStore.size());
-                    offsetEnd = rs.nextInt(offset, keysForStore.size()) + 1;
-                }
-                List<PartitionKey> expected = keysForStore.subList(offset, offsetEnd);
-                PartitionKey start = expected.get(0);
-                PartitionKey end = expected.get(expected.size() - 1);
 
-                AsyncChain<List<PartitionKey>> map = Observable.asChain(callback -> AccordKeyspace.findAllKeysBetween(store, start.toUnseekable(), true, end.toUnseekable(), true, callback));
-                List<PartitionKey> actual = AsyncChains.getUnchecked(map);
-                Assertions.assertThat(actual).isEqualTo(expected);
+                // make sure no data loss... when this test was written sstable had all the rows but the sstable didn't... this
+                // is mostly a santity check to detect that case early
+                var resultSet = execute("SELECT store_id, key_token FROM system_accord.commands_for_key ALLOW FILTERING");
+                TreeMap<Integer, SortedSet<ByteBuffer>> cqlStoresToKeys = new TreeMap<>();
+                for (var row : resultSet)
+                {
+                    int storeId = row.getInt("store_id");
+                    ByteBuffer bb = row.getBytes("key_token");
+                    cqlStoresToKeys.computeIfAbsent(storeId, ignore -> new TreeSet<>()).add(bb);
+                }
+                Assertions.assertThat(cqlStoresToKeys).isEqualTo(expectedCqlStoresToKeys);
+
+                for (int i = 0, queries = rs.nextInt(1, 5); i < queries; i++)
+                {
+                    int store = rs.pick(storesToKeys.keySet());
+                    var keysForStore = new ArrayList<>(storesToKeys.get(store));
+
+                    int offset;
+                    int offsetEnd;
+                    if (keysForStore.size() == 1)
+                    {
+                        offset = 0;
+                        offsetEnd = 1;
+                    }
+                    else
+                    {
+                        offset = rs.nextInt(0, keysForStore.size());
+                        offsetEnd = rs.nextInt(offset, keysForStore.size()) + 1;
+                    }
+                    List<PartitionKey> expected = keysForStore.subList(offset, offsetEnd);
+                    PartitionKey start = expected.get(0);
+                    PartitionKey end = expected.get(expected.size() - 1);
+
+                    AsyncChain<List<PartitionKey>> map = Observable.asChain(callback -> AccordKeyspace.findAllKeysBetween(store, start.toUnseekable(), true, end.toUnseekable(), true, callback));
+                    List<PartitionKey> actual = AsyncChains.getUnchecked(map);
+                    Assertions.assertThat(actual).isEqualTo(expected);
+                }
+
+                if (read == 0)
+                    Keyspace.open("system_accord").getColumnFamilyStore("commands_for_key").forceBlockingFlush(ColumnFamilyStore.FlushReason.UNIT_TESTS);
             }
         });
     }

@@ -876,7 +876,8 @@ public class AccordKeyspace
         return value;
     }
 
-    private static ByteBuffer serializeKey(PartitionKey key)
+    @VisibleForTesting
+    public static ByteBuffer serializeKey(PartitionKey key)
     {
         return TupleType.buildValue(UUIDSerializer.instance.serialize(key.table().asUUID()), key.partitionKey().getKey());
     }
