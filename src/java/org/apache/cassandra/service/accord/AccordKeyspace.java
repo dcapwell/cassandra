@@ -136,6 +136,7 @@ import org.apache.cassandra.schema.Indexes;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.schema.Schema;
+import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.SchemaProvider;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
@@ -200,6 +201,9 @@ public class AccordKeyspace
         new LocalPartitioner(CompositeType.getInstance(Int32Type.instance, BytesType.instance, KEY_TYPE));
 
     private static final ClusteringIndexFilter FULL_PARTITION = new ClusteringIndexSliceFilter(Slices.ALL, false);
+
+    private static final ConcurrentMap<TableId, AccordRoutingKeyByteSource.Serializer> TABLE_SERIALIZERS = new ConcurrentHashMap<>();
+    private static SchemaProvider schema = Schema.instance;
 
     private enum TokenType
     {
@@ -1419,11 +1423,6 @@ public class AccordKeyspace
     }
 
     @VisibleForTesting
-    public static final ConcurrentMap<TableId, AccordRoutingKeyByteSource.Serializer> TABLE_SERIALIZERS = new ConcurrentHashMap<>();
-    @VisibleForTesting
-    public static SchemaProvider schema = Schema.instance;
-
-    @VisibleForTesting
     public static ByteBuffer serializeRoutingKey(AccordRoutingKey routingKey)
     {
         AccordRoutingKeyByteSource.Serializer serializer = TABLE_SERIALIZERS.computeIfAbsent(routingKey.table(), ignore -> {
@@ -1877,6 +1876,21 @@ public class AccordKeyspace
             }
         }
         consumer.accept(rejectBefore, durableBefore, redundantBefore, bootstrapBeganAt, safeToRead);
+    }
+
+    @VisibleForTesting
+    public static void unsafeSetSchema(SchemaProvider provider)
+    {
+        schema = provider;
+    }
+
+    @VisibleForTesting
+    public static void unsafeClear()
+    {
+        for (var store : Keyspace.open(SchemaConstants.ACCORD_KEYSPACE_NAME).getColumnFamilyStores())
+            store.truncateBlockingWithoutSnapshot();
+        TABLE_SERIALIZERS.clear();
+        schema = Schema.instance;
     }
 
 }

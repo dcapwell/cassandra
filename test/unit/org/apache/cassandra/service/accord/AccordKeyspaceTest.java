@@ -57,7 +57,6 @@ import accord.utils.async.Observable;
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
-import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.db.marshal.Int32Type;
@@ -66,7 +65,6 @@ import org.apache.cassandra.dht.LocalPartitioner;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.schema.MemtableParams;
 import org.apache.cassandra.schema.Schema;
-import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.SchemaProvider;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey;
@@ -77,6 +75,10 @@ import org.mockito.Mockito;
 import org.mockito.stubbing.Answer;
 
 import static accord.utils.Property.qt;
+import static org.apache.cassandra.config.DatabaseDescriptor.setSelectedSSTableFormat;
+import static org.apache.cassandra.db.ColumnFamilyStore.FlushReason.UNIT_TESTS;
+import static org.apache.cassandra.distributed.test.log.ClusterMetadataTestHelper.setMemtable;
+import static org.apache.cassandra.schema.SchemaConstants.ACCORD_KEYSPACE_NAME;
 import static org.apache.cassandra.service.accord.AccordTestUtils.createTxn;
 import static org.apache.cassandra.utils.AbstractTypeGenerators.getTypeSupport;
 import static org.apache.cassandra.utils.AccordGenerators.fromQT;
@@ -137,11 +139,6 @@ public class AccordKeyspaceTest extends CQLTester.InMemory
     }
 
     @Test
-    public void name()
-    {
-    }
-
-    @Test
     public void findOverlappingKeys()
     {
         var tableIdGen = fromQT(CassandraGenerators.TABLE_ID_GEN);
@@ -157,14 +154,14 @@ public class AccordKeyspaceTest extends CQLTester.InMemory
                                                      .collect(Collectors.toList());
 
         qt().check(rs -> {
-            clearSystemTables();
+            AccordKeyspace.unsafeClear();
             // control SSTable format
-            DatabaseDescriptor.setSelectedSSTableFormat(sstableFormats.get(rs.pick(sstableFormatNames)));
+            setSelectedSSTableFormat(sstableFormats.get(rs.pick(sstableFormatNames)));
             // control memtable format
-            Keyspace.open("system_accord").initCf(Schema.instance.getTableMetadata("system_accord", "commands_for_key").unbuild()
-                                                                 .memtable(MemtableParams.get(rs.pick(memtableFormats)))
-                                                                 .build(), false);
+            setMemtable(ACCORD_KEYSPACE_NAME, "commands_for_key", rs.pick(memtableFormats));
 
+            // define the tables w/ partitioners for the test
+            // this uses the ability to override the SchemaProvider for the keyspace and only defines the single API call expected: getTablePartitioner
             TreeMap<TableId, IPartitioner> tables = new TreeMap<>();
             int numTables = rs.nextInt(1, 3);
             for (int i = 0; i < numTables; i++)
@@ -174,12 +171,15 @@ public class AccordKeyspaceTest extends CQLTester.InMemory
                     tableId = tableIdGen.next(rs);
                 tables.put(tableId, partitionGen.next(rs));
             }
-            AccordKeyspace.schema = Mockito.mock(SchemaProvider.class);
-            Mockito.when(AccordKeyspace.schema.getTablePartitioner(Mockito.any())).thenAnswer((Answer<IPartitioner>) invocationOnMock -> tables.get(invocationOnMock.getArgument(0)));
+            SchemaProvider schema = Mockito.mock(SchemaProvider.class);
+            Mockito.when(schema.getTablePartitioner(Mockito.any())).thenAnswer((Answer<IPartitioner>) invocationOnMock -> tables.get(invocationOnMock.getArgument(0)));
+            AccordKeyspace.unsafeSetSchema(schema);
+
             int numStores = rs.nextInt(1, 3);
 
             // The model of the DB
             TreeMap<Integer, SortedSet<PartitionKey>> storesToKeys = new TreeMap<>();
+            // write to the table and the model
             for (int i = 0, numKeys = rs.nextInt(10, 20); i < numKeys; i++)
             {
                 int store = rs.nextInt(0, numStores);
@@ -231,26 +231,33 @@ public class AccordKeyspaceTest extends CQLTester.InMemory
                 }
             }
 
-            for (int read = 0; read < 2; read++)
+            // read from the table and validate it matches the model
+            for (int read = 0; read < 2; read++) // read=0 is memtable, read=1 is sstable
             {
-                TreeMap<Integer, SortedSet<ByteBuffer>> expectedCqlStoresToKeys = new TreeMap<>();
-                for (var e : storesToKeys.entrySet())
                 {
-                    int store = e.getKey();
-                    expectedCqlStoresToKeys.put(store, new TreeSet<>(e.getValue().stream().map(p -> AccordKeyspace.serializeRoutingKey(p.toUnseekable())).collect(Collectors.toList())));
-                }
+                    // Make sure no data was lost
+                    // An issue was found that system mutations bypass checks so make their way to the Memtable, but when we flush to SSTable
+                    // they get filtered out, causing data loss... This check is here to make sure that the data is present (test covers Memtable + SStable)
+                    // in the storage before checking if the filtering logic is correct
+                    TreeMap<Integer, SortedSet<ByteBuffer>> expectedCqlStoresToKeys = new TreeMap<>();
+                    for (var e : storesToKeys.entrySet())
+                    {
+                        int store = e.getKey();
+                        expectedCqlStoresToKeys.put(store, new TreeSet<>(e.getValue().stream().map(p -> AccordKeyspace.serializeRoutingKey(p.toUnseekable())).collect(Collectors.toList())));
+                    }
 
-                // make sure no data loss... when this test was written sstable had all the rows but the sstable didn't... this
-                // is mostly a santity check to detect that case early
-                var resultSet = execute("SELECT store_id, key_token FROM system_accord.commands_for_key ALLOW FILTERING");
-                TreeMap<Integer, SortedSet<ByteBuffer>> cqlStoresToKeys = new TreeMap<>();
-                for (var row : resultSet)
-                {
-                    int storeId = row.getInt("store_id");
-                    ByteBuffer bb = row.getBytes("key_token");
-                    cqlStoresToKeys.computeIfAbsent(storeId, ignore -> new TreeSet<>()).add(bb);
+                    // make sure no data loss... when this test was written sstable had all the rows but the sstable didn't... this
+                    // is mostly a santity check to detect that case early
+                    var resultSet = execute("SELECT store_id, key_token FROM system_accord.commands_for_key ALLOW FILTERING");
+                    TreeMap<Integer, SortedSet<ByteBuffer>> cqlStoresToKeys = new TreeMap<>();
+                    for (var row : resultSet)
+                    {
+                        int storeId = row.getInt("store_id");
+                        ByteBuffer bb = row.getBytes("key_token");
+                        cqlStoresToKeys.computeIfAbsent(storeId, ignore -> new TreeSet<>()).add(bb);
+                    }
+                    Assertions.assertThat(cqlStoresToKeys).isEqualTo(expectedCqlStoresToKeys);
                 }
-                Assertions.assertThat(cqlStoresToKeys).isEqualTo(expectedCqlStoresToKeys);
 
                 for (int i = 0, queries = rs.nextInt(1, 5); i < queries; i++)
                 {
@@ -279,18 +286,8 @@ public class AccordKeyspaceTest extends CQLTester.InMemory
                 }
 
                 if (read == 0)
-                    Keyspace.open("system_accord").getColumnFamilyStore("commands_for_key").forceBlockingFlush(ColumnFamilyStore.FlushReason.UNIT_TESTS);
+                    Keyspace.open(ACCORD_KEYSPACE_NAME).getColumnFamilyStore("commands_for_key").forceBlockingFlush(UNIT_TESTS);
             }
         });
-    }
-
-    protected static void clearSystemTables()
-    {
-        //TODO (testing, maintaince): move this to AccordKeyspace?  Now that there is the serializes to clean up that will be an issue...
-        for (var store : Keyspace.open(SchemaConstants.ACCORD_KEYSPACE_NAME).getColumnFamilyStores())
-            store.truncateBlockingWithoutSnapshot();
-
-        AccordKeyspace.TABLE_SERIALIZERS.clear();
-        AccordKeyspace.schema = Schema.instance;
     }
 }
