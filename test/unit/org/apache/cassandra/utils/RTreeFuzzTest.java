@@ -19,7 +19,6 @@
 package org.apache.cassandra.utils;
 
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.TreeMap;
 import java.util.function.Supplier;
 
@@ -110,7 +109,7 @@ public class RTreeFuzzTest
 
     private static RTree<Integer, Integer, Integer> intTree()
     {
-        return new RTree<>(Comparator.naturalOrder(), new RTree.Accessor<Integer, Integer>()
+        return RTree.create(new RTree.Accessor<>()
         {
             @Override
             public Integer start(Integer integer)

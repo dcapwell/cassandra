@@ -22,7 +22,6 @@ import java.util.TreeMap;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
-
 import javax.annotation.Nullable;
 
 import org.slf4j.Logger;
@@ -39,20 +38,20 @@ import accord.utils.Invariants;
 import accord.utils.async.AsyncChains;
 import org.apache.cassandra.service.accord.AccordCommandStore;
 import org.apache.cassandra.service.accord.AccordSafeCommand;
-import org.apache.cassandra.service.accord.AccordSafeCommandsForKey;
 import org.apache.cassandra.service.accord.AccordSafeCommandStore;
+import org.apache.cassandra.service.accord.AccordSafeCommandsForKey;
 import org.apache.cassandra.service.accord.AccordSafeCommandsForRanges;
 import org.apache.cassandra.service.accord.AccordSafeState;
 import org.apache.cassandra.service.accord.AccordSafeTimestampsForKey;
 
 import static org.apache.cassandra.service.accord.async.AsyncLoader.txnIds;
+import static org.apache.cassandra.service.accord.async.AsyncOperation.State.COMPLETING;
+import static org.apache.cassandra.service.accord.async.AsyncOperation.State.FAILED;
+import static org.apache.cassandra.service.accord.async.AsyncOperation.State.FINISHED;
 import static org.apache.cassandra.service.accord.async.AsyncOperation.State.INITIALIZED;
 import static org.apache.cassandra.service.accord.async.AsyncOperation.State.LOADING;
 import static org.apache.cassandra.service.accord.async.AsyncOperation.State.PREPARING;
 import static org.apache.cassandra.service.accord.async.AsyncOperation.State.RUNNING;
-import static org.apache.cassandra.service.accord.async.AsyncOperation.State.COMPLETING;
-import static org.apache.cassandra.service.accord.async.AsyncOperation.State.FINISHED;
-import static org.apache.cassandra.service.accord.async.AsyncOperation.State.FAILED;
 
 public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements Runnable, Function<SafeCommandStore, R>
 {
@@ -248,7 +247,6 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
                     return;
                 state(PREPARING);
             case PREPARING:
-                AsyncDebug.check(primaryTxnId());
                 safeStore = commandStore.beginOperation(preLoadContext, context.commands, context.timestampsForKey, context.commandsForKey, context.commandsForRanges);
                 state(RUNNING);
             case RUNNING:

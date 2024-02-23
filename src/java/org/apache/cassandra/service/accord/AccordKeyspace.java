@@ -202,6 +202,7 @@ public class AccordKeyspace
 
     private static final ClusteringIndexFilter FULL_PARTITION = new ClusteringIndexSliceFilter(Slices.ALL, false);
 
+    //TODO (now, performance): should this be partitioner rather than TableId?  As of this patch distributed tables should only have 1 partitioner...
     private static final ConcurrentMap<TableId, AccordRoutingKeyByteSource.Serializer> TABLE_SERIALIZERS = new ConcurrentHashMap<>();
     private static SchemaProvider schema = Schema.instance;
 
@@ -248,7 +249,6 @@ public class AccordKeyspace
               + ')')
         .partitioner(new LocalPartitioner(CompositeType.getInstance(Int32Type.instance, Int32Type.instance, TIMESTAMP_TYPE)))
         .indexes(Indexes.builder()
-//                        .add(IndexMetadata.fromSchemaMetadata("route", IndexMetadata.Kind.CUSTOM, ImmutableMap.of("class_name", RoutingKeyIndex.class.getCanonicalName(), "target", "route")))
                         .add(IndexMetadata.fromSchemaMetadata("route", IndexMetadata.Kind.CUSTOM, ImmutableMap.of("class_name", RangeIndex.class.getCanonicalName(), "target", "route")))
                         .build())
         .build();
@@ -432,6 +432,8 @@ public class AccordKeyspace
         }
     }
 
+    //TODO (now, performance): do we actually care about the sort ordering?  We don't do range scans on this table
+    //TODO (now, performance): should we remove key_token?  We don't need it so its just added space
     private static final TableMetadata TimestampsForKeys =
         parse(TIMESTAMPS_FOR_KEY,
               "accord timestamps per key",

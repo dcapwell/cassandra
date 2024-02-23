@@ -117,7 +117,7 @@ public class ExecutionOrder
     }
 
     private final Object2ObjectHashMap<Object, Object> queues = new Object2ObjectHashMap<>();
-    private final RTree<RoutingKey, Range, RangeState> rangeQueues = new RTree<>(Comparator.naturalOrder(), RTreeRangeAccessor.instance);
+    private final RTree<RoutingKey, Range, RangeState> rangeQueues = RTree.create(RTreeRangeAccessor.instance);
 
     /**
      * Register an operation as having a dependency on its keys and TxnIds
