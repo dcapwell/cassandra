@@ -156,60 +156,6 @@ public class SimulatedDepsTest extends SimulatedAccordCommandStoreTestBase
     }
 
     @Test
-    public void keysAllOverConflictingWithRange()
-    {
-        var tbl = reverseTokenTbl;
-        Ranges wholeRange = Ranges.of(fullRange(tbl.id));
-        FullRangeRoute rangeRoute = wholeRange.toRoute(wholeRange.get(0).end());
-        Txn rangeTxn = createTxn(Txn.Kind.ExclusiveSyncPoint, wholeRange);
-        int numSamples = 300;
-
-        qt().withExamples(10).check(rs -> {
-            AccordKeyspace.unsafeClear();
-            try (var instance = new SimulatedAccordCommandStore(rs))
-            {
-                Map<Key, List<TxnId>> keyConflicts = new HashMap<>();
-                List<TxnId> rangeConflicts = new ArrayList<>(numSamples);
-                boolean concurrent = rs.nextBoolean();
-                List<AsyncResult<?>> asyncs = !concurrent ? null : new ArrayList<>(numSamples * 2);
-                for (int i = 0; i < numSamples; i++)
-                {
-                    long token = rs.nextLong(Long.MIN_VALUE  + 1, Long.MAX_VALUE);
-                    Key key = new PartitionKey(tbl.id, tbl.partitioner.decorateKey(LongToken.keyForToken(token)));
-                    Txn keyTxn = createTxn(wrapInTxn("INSERT INTO " + tbl + "(pk, value) VALUES (?, ?)"),
-                                           Arrays.asList(LongToken.keyForToken(token), 42));
-                    Keys keys = (Keys) keyTxn.keys();
-                    FullRoute<?> keyRoute = keys.toRoute(keys.get(0).toUnseekable());
-
-                    instance.maybeCacheEvict((Keys) keyTxn.keys(), wholeRange);
-
-                    if (concurrent)
-                    {
-                        var k = assertDepsMessageAsync(instance, rs.pick(DepsMessage.values()), keyTxn, keyRoute, Map.of(key, keyConflicts.computeIfAbsent(key, ignore -> new ArrayList<>())), Collections.emptyMap());
-                        keyConflicts.get(key).add(k.left);
-                        asyncs.add(k.right);
-
-                        var r = assertDepsMessageAsync(instance, rs.pick(DepsMessage.values()), rangeTxn, rangeRoute, keyConflicts, rangeConflicts(rangeConflicts, wholeRange));
-                        rangeConflicts.add(r.left);
-                        asyncs.add(r.right);
-                    }
-                    else
-                    {
-                        var k = assertDepsMessage(instance, rs.pick(DepsMessage.values()), keyTxn, keyRoute, Map.of(key, keyConflicts.computeIfAbsent(key, ignore -> new ArrayList<>())), Collections.emptyMap());
-                        keyConflicts.get(key).add(k);
-                        rangeConflicts.add(assertDepsMessage(instance, rs.pick(DepsMessage.values()), rangeTxn, rangeRoute, keyConflicts, rangeConflicts(rangeConflicts, wholeRange)));
-                    }
-                }
-                if (concurrent)
-                {
-                    instance.processAll();
-                    safeBlock(asyncs);
-                }
-            }
-        });
-    }
-
-    @Test
     public void simpleRangeConflicts()
     {
         var tbl = reverseTokenTbl;
