@@ -128,35 +128,20 @@ public class CommandsForRanges implements CommandsSummary
                 if (executeAt.compareTo(testTxnId) <= 0)
                     return;
 
+                // TODO (required): we must ensure these txnId are limited to those we intersect in this command store
+                // We are looking for transactions A that have (or have not) B as a dependency.
+                // If B covers ranges [1..3] and A covers [2..3], but the command store only covers ranges [1..2],
+                // we could have A adopt B as a dependency on [3..3] only, and have that A intersects B on this
+                // command store, but also that there is no dependency relation between them on the overlapping
+                // key range [2..2].
+
+                // This can lead to problems on recovery, where we believe a transaction is a dependency
+                // and so it is safe to execute, when in fact it is only a dependency on a different shard
+                // (and that other shard, perhaps, does not know that it is a dependency - and so it is not durably known)
+                // TODO (required): consider this some more
                 if ((testDep == WITH) == !summary.depsIds.contains(testTxnId))
                     return;
             }
-//
-//            if (testStartedAt == ANY
-//                && testDep != ANY_DEPS
-//                && (summary.executeAt == null || summary.executeAt.compareTo(testTxnId) < 0))
-//                return;
-//
-//
-//            if (testDep != ANY_DEPS)
-//            {
-//                if (!summary.saveStatus.known.deps.hasProposedOrDecidedDeps())
-//                    return;
-//
-//                // TODO (required): we must ensure these txnId are limited to those we intersect in this command store
-//                // We are looking for transactions A that have (or have not) B as a dependency.
-//                // If B covers ranges [1..3] and A covers [2..3], but the command store only covers ranges [1..2],
-//                // we could have A adopt B as a dependency on [3..3] only, and have that A intersects B on this
-//                // command store, but also that there is no dependency relation between them on the overlapping
-//                // key range [2..2].
-//
-//                // This can lead to problems on recovery, where we believe a transaction is a dependency
-//                // and so it is safe to execute, when in fact it is only a dependency on a different shard
-//                // (and that other shard, perhaps, does not know that it is a dependency - and so it is not durably known)
-//                // TODO (required): consider this some more
-//                if ((testDep == WITH) == !summary.depsIds.contains(testTxnId))
-//                    return;
-//            }
 
             // TODO (required): ensure we are excluding any ranges that are now shard-redundant (not sure if this is enforced yet)
             for (Range range : summary.ranges)
@@ -174,15 +159,5 @@ public class CommandsForRanges implements CommandsSummary
         }
 
         return accumulate;
-    }
-
-    public boolean hasRedundant(TxnId shardRedundantBefore)
-    {
-        return false;
-    }
-
-    public CommandsForRanges withoutRedundant(TxnId shardRedundantBefore)
-    {
-        return null;
     }
 }

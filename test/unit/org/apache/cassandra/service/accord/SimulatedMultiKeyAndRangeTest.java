@@ -60,15 +60,17 @@ public class SimulatedMultiKeyAndRangeTest extends SimulatedAccordCommandStoreTe
         int numSamples = 300;
         long minToken = 0;
         long maxToken = 100;
-        Gen<Gen.IntGen> keyDistribution = Gens.ints().mixedDistribution(1, 5);
-        Gen<Gen.IntGen> rangeDistribution = Gens.ints().mixedDistribution(1, 5);
-        Gen<Gen<Domain>> domainDistribution = Gens.enums().allMixedDistribution(Domain.class);
-        Gen<Gen<DepsMessage>> msgDistribution = Gens.enums().allMixedDistribution(DepsMessage.class);
+        Gen<Gen.LongGen> tokenDistribution = Gens.mixedDistribution(minToken, maxToken + 1);
+        Gen<Gen.IntGen> keyDistribution = Gens.mixedDistribution(1, 5);
+        Gen<Gen.IntGen> rangeDistribution = Gens.mixedDistribution(1, 5);
+        Gen<Gen<Domain>> domainDistribution = Gens.mixedDistribution(Domain.values());
+        Gen<Gen<DepsMessage>> msgDistribution = Gens.mixedDistribution(DepsMessage.values());
 
         qt().withExamples(100).check(rs -> {
             AccordKeyspace.unsafeClear();
             try (var instance = new SimulatedAccordCommandStore(rs))
             {
+                Gen.LongGen tokenGen = tokenDistribution.next(rs);
                 Gen<Domain> domainGen = domainDistribution.next(rs);
                 Gen<DepsMessage> msgGen = msgDistribution.next(rs);
                 Map<Key, List<TxnId>> keyConflicts = new HashMap<>();
@@ -87,14 +89,9 @@ public class SimulatedMultiKeyAndRangeTest extends SimulatedAccordCommandStoreTe
                             int numKeys = keyCountGen.nextInt(rs);
                             TreeSet<Key> set = new TreeSet<>();
                             while (set.size() != numKeys)
-                            {
-                                long token = rs.nextLong(minToken, maxToken + 1);
-                                Key key = new PartitionKey(tbl.id, tbl.partitioner.decorateKey(keyForToken(token)));
-                                set.add(key);
-                            }
+                                set.add(new PartitionKey(tbl.id, tbl.partitioner.decorateKey(keyForToken(tokenGen.nextLong(rs)))));
                             Keys keys = Keys.of(set);
-                            List<String> inserts = new ArrayList<>(numKeys);
-                            IntStream.range(0, numKeys).forEach(ignore -> inserts.add("INSERT INTO " + tbl + "(pk, value) VALUES (?, ?)"));
+                            List<String> inserts = IntStream.range(0, numKeys).mapToObj(ignore -> "INSERT INTO " + tbl + "(pk, value) VALUES (?, ?)").collect(Collectors.toList());
                             List<Object> binds = new ArrayList<>(numKeys * 2);
                             keys.forEach(k -> {
                                 binds.add(((PartitionKey) k.asKey()).partitionKey().getKey());
@@ -117,7 +114,7 @@ public class SimulatedMultiKeyAndRangeTest extends SimulatedAccordCommandStoreTe
                             Set<Range> set = new HashSet<>();
                             while (set.size() != numRanges)
                             {
-                                long token = rs.nextLong(minToken, maxToken + 1);
+                                long token = tokenGen.nextLong(rs);
                                 int offset = rs.nextInt(1, 10);
                                 long start, end;
                                 if (token + offset > maxToken)
@@ -130,8 +127,7 @@ public class SimulatedMultiKeyAndRangeTest extends SimulatedAccordCommandStoreTe
                                     start = token;
                                     end = start + offset;
                                 }
-                                Range range = tokenRange(tbl.id, start, end);
-                                set.add(range);
+                                set.add(tokenRange(tbl.id, start, end));
                             }
                             // The property ranges.size() == numRanges is not true as this logic will sort + deoverlap
                             // so if the ranges were overlapped, we could have more or less than numRanges
