@@ -39,7 +39,6 @@ import accord.primitives.TxnId;
 
 import static accord.local.SafeCommandStore.TestDep.ANY_DEPS;
 import static accord.local.SafeCommandStore.TestDep.WITH;
-import static accord.local.SafeCommandStore.TestStartedAt.ANY;
 import static accord.local.SafeCommandStore.TestStartedAt.STARTED_BEFORE;
 import static accord.local.SafeCommandStore.TestStatus.ANY_STATUS;
 import static accord.local.Status.Stable;
@@ -160,7 +159,11 @@ public class CommandsForRange implements CommandsSummary
 
             // TODO (required): ensure we are excluding any ranges that are now shard-redundant (not sure if this is enforced yet)
             for (Range range : summary.ranges)
+            {
+                if (this.range.compareIntersecting(range) != 0)
+                    continue;
                 collect.computeIfAbsent(range, ignore -> new ArrayList<>()).add(summary);
+            }
         }));
 
         for (Map.Entry<Range, List<DiskCommandsForRanges.Summary>> e : collect.entrySet())

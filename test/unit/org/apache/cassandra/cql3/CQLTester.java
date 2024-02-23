@@ -2658,6 +2658,11 @@ public abstract class CQLTester
 
     protected static String wrapInTxn(String... stmts)
     {
+        return wrapInTxn(Arrays.asList(stmts));
+    }
+
+    protected static String wrapInTxn(List<String> stmts)
+    {
         StringBuilder sb = new StringBuilder();
         sb.append("BEGIN TRANSACTION\n");
         for (String stmt : stmts)

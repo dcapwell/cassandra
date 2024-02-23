@@ -67,6 +67,11 @@ public class RTree<Token, Range, Value> implements Iterable<Map.Entry<Range, Val
         this.numChildren = numChildren;
     }
 
+    public static <Token extends Comparable<? super Token>, Range, Value> RTree<Token, Range, Value> create(Accessor<Token, Range> accessor)
+    {
+        return new RTree<>(Comparator.naturalOrder(), accessor);
+    }
+
     public List<Value> get(Range range)
     {
         List<Value> matches = new ArrayList<>();

@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import com.google.common.collect.Maps;
 import org.junit.Before;
@@ -310,7 +311,11 @@ public abstract class SimulatedAccordCommandStoreTestBase extends CQLTester
         }
         else
         {
-            Assertions.assertThat(deps.rangeDeps.rangeCount()).describedAs("Txn %s Expected ranges size", txnId).isEqualTo(rangeConflicts.size());
+            List<Range> actualRanges = IntStream.range(0, deps.rangeDeps.rangeCount()).mapToObj(i -> deps.rangeDeps.range(i)).collect(Collectors.toList());
+//            Assertions.assertThat(deps.rangeDeps.rangeCount()).describedAs("Txn %s Expected ranges size; %s", txnId, deps.rangeDeps).isEqualTo(rangeConflicts.size());
+            Assertions.assertThat(Ranges.of(actualRanges.toArray(Range[]::new)))
+                      .describedAs("Txn %s had different ranges than expected", txnId)
+                      .isEqualTo(Ranges.of(rangeConflicts.keySet().toArray(Range[]::new)));
             AssertionError errors = null;
             for (int i = 0; i < rangeConflicts.size(); i++)
             {

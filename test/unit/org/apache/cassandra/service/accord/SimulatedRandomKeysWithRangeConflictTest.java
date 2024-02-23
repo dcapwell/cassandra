@@ -35,10 +35,10 @@ import accord.primitives.Ranges;
 import accord.primitives.Txn;
 import accord.primitives.TxnId;
 import accord.utils.async.AsyncResult;
-import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.service.accord.api.PartitionKey;
 
 import static accord.utils.Property.qt;
+import static org.apache.cassandra.dht.Murmur3Partitioner.LongToken.keyForToken;
 import static org.apache.cassandra.service.accord.AccordTestUtils.createTxn;
 
 public class SimulatedRandomKeysWithRangeConflictTest extends SimulatedAccordCommandStoreTestBase
@@ -63,9 +63,9 @@ public class SimulatedRandomKeysWithRangeConflictTest extends SimulatedAccordCom
                 for (int i = 0; i < numSamples; i++)
                 {
                     long token = rs.nextLong(Long.MIN_VALUE  + 1, Long.MAX_VALUE);
-                    Key key = new PartitionKey(tbl.id, tbl.partitioner.decorateKey(Murmur3Partitioner.LongToken.keyForToken(token)));
+                    Key key = new PartitionKey(tbl.id, tbl.partitioner.decorateKey(keyForToken(token)));
                     Txn keyTxn = createTxn(wrapInTxn("INSERT INTO " + tbl + "(pk, value) VALUES (?, ?)"),
-                                           Arrays.asList(Murmur3Partitioner.LongToken.keyForToken(token), 42));
+                                           Arrays.asList(keyForToken(token), 42));
                     Keys keys = (Keys) keyTxn.keys();
                     FullRoute<?> keyRoute = keys.toRoute(keys.get(0).toUnseekable());
 
@@ -73,19 +73,19 @@ public class SimulatedRandomKeysWithRangeConflictTest extends SimulatedAccordCom
 
                     if (concurrent)
                     {
-                        var k = assertDepsMessageAsync(instance, rs.pick(SimulatedAccordCommandStoreTestBase.DepsMessage.values()), keyTxn, keyRoute, Map.of(key, keyConflicts.computeIfAbsent(key, ignore -> new ArrayList<>())), Collections.emptyMap());
+                        var k = assertDepsMessageAsync(instance, rs.pick(DepsMessage.values()), keyTxn, keyRoute, Map.of(key, keyConflicts.computeIfAbsent(key, ignore -> new ArrayList<>())), Collections.emptyMap());
                         keyConflicts.get(key).add(k.left);
                         asyncs.add(k.right);
 
-                        var r = assertDepsMessageAsync(instance, rs.pick(SimulatedAccordCommandStoreTestBase.DepsMessage.values()), rangeTxn, rangeRoute, keyConflicts, rangeConflicts(rangeConflicts, wholeRange));
+                        var r = assertDepsMessageAsync(instance, rs.pick(DepsMessage.values()), rangeTxn, rangeRoute, keyConflicts, rangeConflicts(rangeConflicts, wholeRange));
                         rangeConflicts.add(r.left);
                         asyncs.add(r.right);
                     }
                     else
                     {
-                        var k = assertDepsMessage(instance, rs.pick(SimulatedAccordCommandStoreTestBase.DepsMessage.values()), keyTxn, keyRoute, Map.of(key, keyConflicts.computeIfAbsent(key, ignore -> new ArrayList<>())), Collections.emptyMap());
+                        var k = assertDepsMessage(instance, rs.pick(DepsMessage.values()), keyTxn, keyRoute, Map.of(key, keyConflicts.computeIfAbsent(key, ignore -> new ArrayList<>())), Collections.emptyMap());
                         keyConflicts.get(key).add(k);
-                        rangeConflicts.add(assertDepsMessage(instance, rs.pick(SimulatedAccordCommandStoreTestBase.DepsMessage.values()), rangeTxn, rangeRoute, keyConflicts, rangeConflicts(rangeConflicts, wholeRange)));
+                        rangeConflicts.add(assertDepsMessage(instance, rs.pick(DepsMessage.values()), rangeTxn, rangeRoute, keyConflicts, rangeConflicts(rangeConflicts, wholeRange)));
                     }
                 }
                 if (concurrent)
