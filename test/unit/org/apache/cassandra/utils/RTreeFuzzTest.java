@@ -109,7 +109,7 @@ public class RTreeFuzzTest
 
     private static RTree<Integer, Integer, Integer> intTree()
     {
-        return RTree.create(new RTree.Accessor<>()
+        return RTree.create(new RTree.Accessor<Integer, Integer>()
         {
             @Override
             public Integer start(Integer integer)
