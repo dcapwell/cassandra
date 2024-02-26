@@ -20,12 +20,14 @@ package org.apache.cassandra.service.accord;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.BiConsumer;
 import java.util.function.Predicate;
 import java.util.zip.Checksum;
@@ -98,6 +100,7 @@ import org.apache.cassandra.service.accord.serializers.PreacceptSerializers;
 import org.apache.cassandra.service.accord.serializers.RecoverySerializers;
 import org.apache.cassandra.service.accord.serializers.SetDurableSerializers;
 import org.apache.cassandra.utils.ByteArrayUtil;
+import org.apache.cassandra.utils.ExecutorUtils;
 import org.apache.cassandra.utils.concurrent.Semaphore;
 import org.jctools.queues.SpscLinkedQueue;
 
@@ -261,8 +264,15 @@ public class AccordJournal implements IJournal, Shutdownable
     @Override
     public boolean awaitTermination(long timeout, TimeUnit units) throws InterruptedException
     {
-        // TODO (expected, other)
-        return true;
+        try
+        {
+            ExecutorUtils.awaitTermination(timeout, units, Arrays.asList(journal, frameAggregator, frameApplicator));
+            return true;
+        }
+        catch (TimeoutException e)
+        {
+            return false;
+        }
     }
 
     /**
