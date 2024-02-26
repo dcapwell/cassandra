@@ -27,6 +27,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -204,7 +205,12 @@ public class AccordKeyspace
 
     //TODO (now, performance): should this be partitioner rather than TableId?  As of this patch distributed tables should only have 1 partitioner...
     private static final ConcurrentMap<TableId, AccordRoutingKeyByteSource.Serializer> TABLE_SERIALIZERS = new ConcurrentHashMap<>();
-    private static SchemaProvider schema = Schema.instance;
+
+    // Schema needs all system keyspace, and this is a system keyspace!  So can not touch schema in init
+    private static class SchemaHolder
+    {
+        private static SchemaProvider schema = Objects.requireNonNull(Schema.instance);
+    }
 
     private enum TokenType
     {
@@ -1336,7 +1342,7 @@ public class AccordKeyspace
         TableId tableId = TableId.fromUUID(UUIDSerializer.instance.deserialize(split[0]));
         ByteBuffer key = split[1];
 
-        IPartitioner partitioner = schema.getTablePartitioner(tableId);
+        IPartitioner partitioner = SchemaHolder.schema.getTablePartitioner(tableId);
         if (partitioner == null)
             throw new IllegalStateException("Table with id " + tableId + " could not be found; was it deleted?");
         return new PartitionKey(tableId, partitioner.decorateKey(key));
@@ -1437,7 +1443,7 @@ public class AccordKeyspace
             if (routingKey.kindOfRoutingKey() == AccordRoutingKey.RoutingKeyKind.TOKEN)
                 partitioner = routingKey.asTokenKey().token().getPartitioner();
             else
-                partitioner = schema.getTablePartitioner(routingKey.table());
+                partitioner = SchemaHolder.schema.getTablePartitioner(routingKey.table());
             return AccordRoutingKeyByteSource.variableLength(partitioner);
         });
         byte[] bytes = serializer.serialize(routingKey);
@@ -1888,7 +1894,7 @@ public class AccordKeyspace
     @VisibleForTesting
     public static void unsafeSetSchema(SchemaProvider provider)
     {
-        schema = provider;
+        SchemaHolder.schema = provider;
     }
 
     @VisibleForTesting
@@ -1897,7 +1903,7 @@ public class AccordKeyspace
         for (var store : Keyspace.open(SchemaConstants.ACCORD_KEYSPACE_NAME).getColumnFamilyStores())
             store.truncateBlockingWithoutSnapshot();
         TABLE_SERIALIZERS.clear();
-        schema = Schema.instance;
+        SchemaHolder.schema = Schema.instance;
     }
 
 }
