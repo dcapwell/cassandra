@@ -68,7 +68,7 @@ public class CommandsForRangesLoader
         var watcher = fromCache(ranges);
         var before = ImmutableMap.copyOf(watcher.get());
         return AsyncChains.ofCallable(Stage.READ.executor(), () -> get(ranges, before))
-                          .map(builder -> Pair.create(watcher, builder), store)
+                          .map(map -> Pair.create(watcher, map), store)
                .beginAsResult();
     }
 
@@ -78,7 +78,7 @@ public class CommandsForRangesLoader
         for (Range range : ranges)
             matches.addAll(intersects(range));
         if (matches.isEmpty())
-            return Collections.emptyNavigableMap();
+            return new TreeMap<>();
         return load(ranges, cacheHits, matches);
     }
 
