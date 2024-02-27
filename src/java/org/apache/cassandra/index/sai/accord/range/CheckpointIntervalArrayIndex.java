@@ -44,6 +44,7 @@ import org.apache.cassandra.io.util.FileHandle;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.io.util.RandomAccessReader;
 import org.apache.cassandra.utils.ByteArrayUtil;
+import org.apache.cassandra.utils.Clock;
 import org.apache.cassandra.utils.Throwables;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.IndexOutput;
@@ -506,7 +507,7 @@ public class CheckpointIntervalArrayIndex
             var keyBuffer = new byte[reader.bytesPerKey];
             var recordBuffer = new byte[reader.recordSize];
             var stats = new Stats();
-            long startNanos = System.nanoTime();
+            long startNanos = Clock.Global.nanoTime();
             try (IndexInput indexInput = IndexFileUtils.instance.openInput(reader.fh))
             {
                 var buffer = new Interval();
@@ -619,7 +620,7 @@ public class CheckpointIntervalArrayIndex
             }
             finally
             {
-                stats.durationNs = System.nanoTime() - startNanos;
+                stats.durationNs = Clock.Global.nanoTime() - startNanos;
             }
             return stats;
         }
