@@ -35,7 +35,6 @@ import accord.primitives.Txn;
 import accord.primitives.TxnId;
 import accord.utils.Invariants;
 import org.apache.cassandra.db.TypeSizes;
-import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.vint.VIntCoding;
 
 import static accord.primitives.Txn.Kind.ExclusiveSyncPoint;

@@ -24,7 +24,6 @@ import java.nio.ByteBuffer;
 import com.google.common.base.Preconditions;
 
 import accord.api.Key;
-import accord.api.RoutingKey;
 import accord.primitives.Routable;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.DecoratedKey;
