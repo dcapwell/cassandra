@@ -20,7 +20,6 @@ package org.apache.cassandra.utils;
 
 import java.util.Arrays;
 import java.util.TreeMap;
-import java.util.function.Supplier;
 
 import org.junit.Test;
 
@@ -33,23 +32,20 @@ import static accord.utils.Property.qt;
 public class RTreeFuzzTest
 {
     private enum Action { Create, Read, Update, Delete }
-    // uniform means we don't split often, but leaving here as I have a demo and this is a good example why bias can be useful
-    private static final Gen<Action> ACTION_GEN = Gens.enums().all(Action.class);
 
     @Test
     public void mapLike()
     {
+        Gen<Gen<Action>> actionDistribution = Gens.mixedDistribution(Action.values());
         qt().check(rs -> {
             TreeMap<Integer, Integer> model = new TreeMap<>();
-            var allActions = rs.randomWeightedPicker(Action.values());
+            Gen<Action> allActions = actionDistribution.next(rs);
+
             var tree = intTree();
             for (int i = 0; i < 1000; i++)
             {
-                // should cleanup dead code, but leaving here for a demo in a few weeks...
-//                Gen<Action> actionGen = model.isEmpty() ? ignore -> Action.Create : ACTION_GEN;
-//                switch (actionGen.next(rs))
-                Supplier<Action> actionGen = model.isEmpty() ? () -> Action.Create : allActions;
-                switch (actionGen.get())
+                Gen<Action> actionGen = model.isEmpty() ? ignore -> Action.Create : allActions;
+                switch (actionGen.next(rs))
                 {
                     case Create:
                     {
