@@ -46,6 +46,16 @@ public enum RTreeRangeAccessor implements RTree.Accessor<RoutingKey, Range>
     }
 
     @Override
+    public boolean contains(RoutingKey start, RoutingKey end, RoutingKey routingKey)
+    {
+        if (routingKey.compareTo(start) <= 0)
+            return false;
+        if (routingKey.compareTo(end) > 0)
+            return false;
+        return true;
+    }
+
+    @Override
     public boolean intersects(Range range, RoutingKey start, RoutingKey end)
     {
         return intersects(range, new TokenRange((AccordRoutingKey) start, (AccordRoutingKey) end));

@@ -40,7 +40,11 @@ public class RTree<Token, Range, Value> implements Iterable<Map.Entry<Range, Val
     {
         Token start(Range range);
         Token end(Range range);
-        boolean contains(Range range, Token token);
+        default boolean contains(Range range, Token token)
+        {
+            return contains(start(range), end(range), token);
+        }
+        boolean contains(Token start, Token end, Token token);
         boolean intersects(Range range, Token start, Token end);
         default boolean intersects(Range left, Range right)
         {
@@ -379,14 +383,15 @@ public class RTree<Token, Range, Value> implements Iterable<Map.Entry<Range, Val
         {
             if (minStart == null)
                 return;
-            if (comparator.compare(minStart, token) >= 0)
-                return;
-            if (comparator.compare(maxEnd, token) < 0)
+            if (!contains(minStart, maxEnd, token))
                 return;
             if (children != null)
             {
                 for (int i = 0, size = children.size(); i < size; i++)
-                    children.get(i).searchToken(token, matches, predicate, transformer);
+                {
+                    Node node = children.get(i);
+                    node.searchToken(token, matches, predicate, transformer);
+                }
                 return;
             }
             values.forEach(e -> {
@@ -398,6 +403,11 @@ public class RTree<Token, Range, Value> implements Iterable<Map.Entry<Range, Val
         boolean intersects(Range range)
         {
             return accessor.intersects(range, minStart, maxEnd);
+        }
+
+        boolean contains(Token start, Token end, Token value)
+        {
+            return accessor.contains(start, end, value);
         }
 
         private void displayTree(int level, StringBuilder sb)
@@ -498,6 +508,26 @@ public class RTree<Token, Range, Value> implements Iterable<Map.Entry<Range, Val
             V previous = v;
             v = Objects.requireNonNull(value);
             return previous;
+        }
+
+        @Override
+        public boolean equals(Object o)
+        {
+            if (this == o) return true;
+            if (o == null || !(o instanceof Map.Entry)) return false;
+            Map.Entry<?, ?> that = (Map.Entry<?, ?>) o;
+            return Objects.equals(k, that.getKey()) && Objects.equals(v, that.getValue());
+        }
+
+        @Override
+        public int hashCode()
+        {
+            return Objects.hash(k, v);
+        }
+
+        @Override
+        public String toString() {
+            return k + "=" + v;
         }
     }
 }

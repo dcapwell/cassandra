@@ -126,6 +126,12 @@ public class RTreeFuzzTest
             }
 
             @Override
+            public boolean contains(Integer start, Integer end, Integer integer)
+            {
+                return end.equals(integer);
+            }
+
+            @Override
             public boolean intersects(Integer integer, Integer start, Integer end)
             {
                 return start < integer && integer <= end;

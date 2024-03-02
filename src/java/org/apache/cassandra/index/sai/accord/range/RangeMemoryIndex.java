@@ -96,7 +96,7 @@ public class RangeMemoryIndex extends UnseekableMemoryIndex
             }
 
             @Override
-            public boolean contains(Range range, byte[] bytes)
+            public boolean contains(byte[] start, byte[] end, byte[] bytes)
             {
                 throw new UnsupportedOperationException();
             }
