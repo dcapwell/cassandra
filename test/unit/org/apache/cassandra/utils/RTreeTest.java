@@ -20,17 +20,19 @@ package org.apache.cassandra.utils;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
-import java.util.function.LongToIntFunction;
 import java.util.function.LongUnaryOperator;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.junit.Test;
-
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,11 +43,11 @@ import accord.utils.Gen;
 import accord.utils.Gens;
 import accord.utils.RandomSource;
 import org.agrona.collections.LongArrayList;
-import org.agrona.collections.LongLongFunction;
 import org.assertj.core.api.Assertions;
 
 import static accord.utils.Property.qt;
 
+@RunWith(Parameterized.class)
 public class RTreeTest
 {
     private static final Logger logger = LoggerFactory.getLogger(RTreeTest.class);
@@ -138,70 +140,73 @@ public class RTreeTest
     private static final Gen.IntGen SMALL_INT_GEN = rs -> rs.nextInt(0, 10);
     private static final int MIN_TOKEN = 0, MAX_TOKEN = 1 << 16;
     private static final int TOKEN_RANGE_SIZE = MAX_TOKEN - MIN_TOKEN + 1;
-    private static final Gen.IntGen TOKEN_GEN = rs -> rs.nextInt(MIN_TOKEN, MAX_TOKEN + 1);
-    private static final Gen<Range> RANGE_GEN = rs -> {
-        int a = TOKEN_GEN.nextInt(rs);
-        int b = TOKEN_GEN.nextInt(rs);
-        while (a == b)
-            b = TOKEN_GEN.nextInt(rs);
-        if (a > b)
-        {
-            int tmp = a;
-            a = b;
-            b = tmp;
-        }
-        return IntKey.range(a, b);
-    };
+    private static final Gen<Gen.IntGen> TOKEN_DISTRIBUTION = Gens.mixedDistribution(MIN_TOKEN, MAX_TOKEN + 1);
+    private static final Gen<Gen.IntGen> RANGE_SIZE_DISTRIBUTION = Gens.mixedDistribution(10, (int) (TOKEN_RANGE_SIZE * .01));
 
+    // Used to test different worse case patterns and see how the tree performs.
     private enum Pattern
-    {RANDOM, NO_OVERLP, SMALL_RANGES}
-
-    @Test
-    public void listModel()
     {
-        test(true);
+        RANDOM, // tends to have high selectivity: matches 50-100% of the tree in testing
+        NO_OVERLP, // tests to have low selectivity; matches 1-2 elements in testing
+        SMALL_RANGES // lower selectivity than RANDOM but still matches ~30% of the tree in testing
+    }
+
+    // Having different models makes sure that the RTree is flexiable enough and can be used with the semantics the user
+    // needs (with regard to inclusivity).  It also adds more confidence that the search logic is correct as different
+    // algorithems help validate this.
+    private enum ModelType {List, IntervalTree}
+    private final Pattern pattern;
+    private final ModelType modelType;
+
+    public RTreeTest(Pattern pattern, ModelType modelType)
+    {
+        this.pattern = pattern;
+        this.modelType = modelType;
+    }
+
+    @Parameterized.Parameters(name = "{0}, {1}")
+    public static Collection<Object[]> data() {
+        return Stream.of(Pattern.values())
+                     .flatMap(p ->
+                              Stream.of(ModelType.values())
+                                    .map(m -> new Object[]{ p, m }))
+                     .collect(Collectors.toList());
     }
 
     @Test
-    public void intervalTreeModel()
+    public void test()
     {
-        test(false);
-    }
+        int samples = 3_000;
+        int examples = 10;
+        LongArrayList byToken = new LongArrayList(samples * examples, -1);
+        LongArrayList modelByToken = new LongArrayList(samples * examples, -1);
+        LongArrayList byTokenLength = new LongArrayList(samples * examples, -1);
+        LongArrayList byRange = new LongArrayList(samples * examples, -1);
+        LongArrayList modelByRange = new LongArrayList(samples * examples, -1);
+        LongArrayList byRangeLength = new LongArrayList(samples * examples, -1);
+        qt().withExamples(examples).check(rs -> {
+            var map = create(modelType);
+            var model = createModel(modelType);
 
-    public void test(boolean useList)
-    {
-        int samples = 10_000;
-        Gen<Pattern> patternGen = Gens.enums().all(Pattern.class);
-        qt().withExamples(10).check(rs -> {
-
-            var map = create(useList);
-            var model = createModel(useList);
-
-            LongArrayList byToken = new LongArrayList(samples, -1);
-            LongArrayList modelByToken = new LongArrayList(samples, -1);
-            LongArrayList byTokenLength = new LongArrayList(samples, -1);
-            LongArrayList byRange = new LongArrayList(samples, -1);
-            LongArrayList modelByRange = new LongArrayList(samples, -1);
-            LongArrayList byRangeLength = new LongArrayList(samples, -1);
-            Pattern pattern = patternGen.next(rs);
-            Gen<Range> rangeGen = rangeGen(pattern, samples);
+            Gen<Range> rangeGen = rangeGen(rs, pattern, samples);
             for (int i = 0; i < samples; i++)
             {
                 var range = rangeGen.next(rs);
                 var value = SMALL_INT_GEN.nextInt(rs);
-                map.add(range, value);
+                map.put(range, value);
                 model.put(range, value);
             }
             model.done();
-            Assertions.assertThat(map).hasSize(samples);
-            // reset range gen as NO_OVERLAP has state
-            rangeGen = rangeGen(pattern, samples);
+            Assertions.assertThat(map.actual()).hasSize(samples);
+            if (rangeGen instanceof NoOverlap)
+                ((NoOverlap) rangeGen).reset();
+            Gen.IntGen tokenGe = TOKEN_DISTRIBUTION.next(rs);
             for (int i = 0; i < samples; i++)
             {
                 {
                     // key lookup
-                    var lookup = IntKey.routing(TOKEN_GEN.nextInt(rs));
-                    var actual = timed(byToken, () -> map.searchToken(lookup));
+                    var lookup = IntKey.routing(tokenGe.nextInt(rs));
+                    var actual = timed(byToken, () -> map.intersectsToken(lookup));
                     var expected = timed(modelByToken, () -> model.intersectsToken(lookup));
                     byTokenLength.addLong(expected.size());
                     Assertions.assertThat(sort(actual))
@@ -211,7 +216,7 @@ public class RTreeTest
                 {
                     // range lookup
                     var lookup = rangeGen.next(rs);
-                    var actual = timed(byRange, () -> map.search(lookup));
+                    var actual = timed(byRange, () -> map.intersects(lookup));
                     var expected = timed(modelByRange, () -> model.intersects(lookup));
                     byRangeLength.addLong(expected.size());
                     Assertions.assertThat(sort(actual))
@@ -219,37 +224,70 @@ public class RTreeTest
                               .isEqualTo(sort(expected));
                 }
             }
-            StringBuilder sb = new StringBuilder();
-            sb.append("=======");
-            sb.append("\nPattern: " + pattern);
-            long modelCost = ObjectSizes.measureDeep(model.actual());
-            sb.append("\nModel: " + model.actual().getClass().getSimpleName());
-            sb.append("\nModel Memory Cost: " + modelCost);
-            long actualCost = ObjectSizes.measureDeep(map);
-            sb.append("\nMemory Cost: " + actualCost + "; " + String.format("%.2f", ((actualCost - modelCost) / (double) actualCost * 100.0)) + "% model size");
-            sb.append("\n=======");
-            sb.append("\nBy Token:");
-            sb.append("\n\tSizes: " + stats(byTokenLength, false));
-            sb.append("\n\tModel: " + stats(modelByToken, true));
-            sb.append("\n\tRTree: " + stats(byToken, true));
-            sb.append("\nBy Range:");
-            sb.append("\n\tSizes: " + stats(byRangeLength, false));
-            sb.append("\n\tModel: " + stats(modelByRange, true));
-            sb.append("\n\tRTree: " + stats(byRange, true));
-            logger.info(sb.toString());
         });
+        StringBuilder sb = new StringBuilder();
+        sb.append("=======");
+        sb.append("\nPattern: " + pattern);
+        sb.append("\nModel: " + modelType);
+        sb.append("\nBy Token:");
+        sb.append("\n\tSizes: " + stats(byTokenLength, false));
+        sb.append("\n\t" + modelType + ": " + stats(modelByToken, true));
+        sb.append("\n\tRTree: " + stats(byToken, true));
+        sb.append("\nBy Range:");
+        sb.append("\n\tSizes: " + stats(byRangeLength, false));
+        sb.append("\n\t" + modelType + ": " + stats(modelByRange, true));
+        sb.append("\n\tRTree: " + stats(byRange, true));
+        logger.info(sb.toString());
     }
 
-    private static Gen<Range> rangeGen(Pattern pattern, int samples)
+    private static class NoOverlap implements Gen<Range>
     {
+        private final int delta;
+        private int idx = 0;
+
+        public NoOverlap(int samples)
+        {
+            this.delta = TOKEN_RANGE_SIZE / samples;
+        }
+
+        @Override
+        public Range next(RandomSource random)
+        {
+            int a = delta * idx++;
+            int b = a + delta;
+            return IntKey.range(a, b);
+        }
+
+        private void reset()
+        {
+            idx = 0;
+        }
+    }
+
+    private static Gen<Range> rangeGen(RandomSource randomSource, Pattern pattern, int samples)
+    {
+        Gen.IntGen tokenGen = TOKEN_DISTRIBUTION.next(randomSource);
         switch (pattern)
         {
             case RANDOM:
-                return RANGE_GEN;
+                return rs -> {
+                    int a = tokenGen.nextInt(rs);
+                    int b = tokenGen.nextInt(rs);
+                    while (a == b)
+                        b = tokenGen.nextInt(rs);
+                    if (a > b)
+                    {
+                        int tmp = a;
+                        a = b;
+                        b = tmp;
+                    }
+                    return IntKey.range(a, b);
+                };
             case SMALL_RANGES:
-                return random -> {
-                    int a = TOKEN_GEN.nextInt(random);
-                    int rangeSize = random.nextInt(100, (int) (TOKEN_RANGE_SIZE * .01));
+                Gen.IntGen rangeSizeGen = RANGE_SIZE_DISTRIBUTION.next(randomSource);
+                return rs -> {
+                    int a = tokenGen.nextInt(rs);
+                    int rangeSize = rangeSizeGen.nextInt(rs);
                     int b = a + rangeSize;
                     if (b > MAX_TOKEN)
                     {
@@ -259,19 +297,7 @@ public class RTreeTest
                     return IntKey.range(a, b);
                 };
             case NO_OVERLP:
-                int delta = TOKEN_RANGE_SIZE / samples;
-                return new Gen<>()
-                {
-                    int idx = 0;
-
-                    @Override
-                    public Range next(RandomSource ignore)
-                    {
-                        int a = delta * idx++;
-                        int b = a + delta;
-                        return IntKey.range(a, b);
-                    }
-                };
+                return new NoOverlap(samples);
             default:
                 throw new AssertionError();
         }
@@ -314,14 +340,6 @@ public class RTreeTest
         return array;
     }
 
-
-    private static RTree<Routing, Range, Integer> create(boolean useList)
-    {
-        if (useList)
-            return new RTree<>(COMPARATOR, END_INCLUSIVE);
-        return new RTree<>(COMPARATOR, ALL_INCLUSIVE);
-    }
-
     private interface Model
     {
         Object actual();
@@ -335,9 +353,66 @@ public class RTreeTest
         void done();
     }
 
-    private static Model createModel(boolean useList)
+    private static RTreeModel create(ModelType modelType)
     {
-        return useList ? new ListModel() : new IntervalTreeModel();
+        switch (modelType)
+        {
+            case List: return new RTreeModel(new RTree<>(COMPARATOR, END_INCLUSIVE));
+            case IntervalTree: return new RTreeModel(new RTree<>(COMPARATOR, ALL_INCLUSIVE));
+            default:
+                throw new AssertionError("Unknown type: " + modelType);
+        }
+    }
+
+    private static Model createModel(ModelType modelType)
+    {
+        switch (modelType)
+        {
+            case List: return new ListModel();
+            case IntervalTree: return new IntervalTreeModel();
+            default:
+                throw new AssertionError("Unknown type: " + modelType);
+        }
+    }
+
+    private static class RTreeModel implements Model
+    {
+        private final RTree<Routing, Range, Integer> rtree;
+
+        private RTreeModel(RTree<Routing, Range, Integer> rtree)
+        {
+            this.rtree = rtree;
+        }
+
+        @Override
+        public RTree<Routing, Range, Integer> actual()
+        {
+            return rtree;
+        }
+
+        @Override
+        public void put(Range range, int value)
+        {
+            rtree.add(range, value);
+        }
+
+        @Override
+        public List<Map.Entry<Range, Integer>> intersectsToken(Routing key)
+        {
+            return rtree.searchToken(key);
+        }
+
+        @Override
+        public List<Map.Entry<Range, Integer>> intersects(Range range)
+        {
+            return rtree.search(range);
+        }
+
+        @Override
+        public void done()
+        {
+
+        }
     }
 
     private static class ListModel implements Model
@@ -393,7 +468,6 @@ public class RTreeTest
         @Override
         public void put(Range range, int value)
         {
-//            actual = actual.unbuild().add(new Interval<>((Routing) range.start(), (Routing) range.end(), value)).build();
             builder.add(new Interval<>((Routing) range.start(), (Routing) range.end(), value));
         }
 

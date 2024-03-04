@@ -36,15 +36,26 @@ import com.google.common.collect.AbstractIterator;
 
 public class RTree<Token, Range, Value> implements Iterable<Map.Entry<Range, Value>>
 {
+    /**
+     * Tuning size target can be tricky as it is based on expected access patterns and expected matche sizes.  There is also
+     * a memory cost to account for as large tree sizes will have far more nodes with a small target than a large target.
+     *
+     * If matching most of the data then larger sizes leads to fewer hops
+     * If matching few elements then tree depth maters the most, if walking a long tree is more costly than walking the
+     * element list, then shrinking depth (by having larger size target) can improve performance.
+     */
+    private static final int DEFAULT_SIZE_TARGET = 1 << 7;
+    private static final int DEFAULT_NUMBER_OF_CHILDREN = 6;
+
     public interface Accessor<Token, Range>
     {
         Token start(Range range);
         Token end(Range range);
+        boolean contains(Token start, Token end, Token token);
         default boolean contains(Range range, Token token)
         {
             return contains(start(range), end(range), token);
         }
-        boolean contains(Token start, Token end, Token token);
         boolean intersects(Range range, Token start, Token end);
         default boolean intersects(Range left, Range right)
         {
@@ -60,7 +71,7 @@ public class RTree<Token, Range, Value> implements Iterable<Map.Entry<Range, Val
 
     public RTree(Comparator<Token> comparator, Accessor<Token, Range> accessor)
     {
-        this(comparator, accessor, 1 << 7, 6);
+        this(comparator, accessor, DEFAULT_SIZE_TARGET, DEFAULT_NUMBER_OF_CHILDREN);
     }
 
     public RTree(Comparator<Token> comparator, Accessor<Token, Range> accessor, int sizeTarget, int numChildren)
