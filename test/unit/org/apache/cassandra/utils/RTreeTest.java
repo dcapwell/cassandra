@@ -47,7 +47,7 @@ public class RTreeTest
 {
     private static final Logger logger = LoggerFactory.getLogger(RTreeTest.class);
     private static final Comparator<Routing> COMPARATOR = Comparator.naturalOrder();
-    private static final RTree.Accessor<Routing, Range> ACCESSOR = new RTree.Accessor<>()
+    private static final RTree.Accessor<Routing, Range> END_INCLUSIVE = new RTree.Accessor<>()
     {
         @Override
         public Routing start(Range range)
@@ -87,6 +87,48 @@ public class RTreeTest
         public boolean intersects(Range left, Range right)
         {
             return left.compareIntersecting(right) == 0;
+        }
+    };
+    private static final RTree.Accessor<Routing, Range> ALL_INCLUSIVE = new RTree.Accessor<>()
+    {
+        @Override
+        public Routing start(Range range)
+        {
+            return (Routing) range.start();
+        }
+
+        @Override
+        public Routing end(Range range)
+        {
+            return (Routing) range.end();
+        }
+
+        @Override
+        public boolean contains(Range range, Routing routing)
+        {
+            return range.contains(routing) || range.start().equals(routing);
+        }
+
+        @Override
+        public boolean contains(Routing start, Routing end, Routing routing)
+        {
+            if (routing.compareTo(start) < 0)
+                return false;
+            if (routing.compareTo(end) > 0)
+                return false;
+            return true;
+        }
+
+        @Override
+        public boolean intersects(Range range, Routing start, Routing end)
+        {
+            return range.compareIntersecting(IntKey.range(start, end)) == 0 || range.end().equals(start) || range.start().equals(end);
+        }
+
+        @Override
+        public boolean intersects(Range left, Range right)
+        {
+            return left.compareIntersecting(right) == 0 || left.end().equals(right.start()) || left.start().equals(right.end());
         }
     };
 
@@ -263,49 +305,8 @@ public class RTreeTest
     private static RTree<Routing, Range, Integer> create()
     {
         if (USE_LIST)
-            return new RTree<>(COMPARATOR, ACCESSOR);
-        return new RTree<>(COMPARATOR, new RTree.Accessor<>()
-        {
-            @Override
-            public Routing start(Range range)
-            {
-                return (Routing) range.start();
-            }
-
-            @Override
-            public Routing end(Range range)
-            {
-                return (Routing) range.end();
-            }
-
-            @Override
-            public boolean contains(Range range, Routing routing)
-            {
-                return range.contains(routing) || range.start().equals(routing);
-            }
-
-            @Override
-            public boolean contains(Routing start, Routing end, Routing routing)
-            {
-                if (routing.compareTo(start) < 0)
-                    return false;
-                if (routing.compareTo(end) > 0)
-                    return false;
-                return true;
-            }
-
-            @Override
-            public boolean intersects(Range range, Routing start, Routing end)
-            {
-                return range.compareIntersecting(IntKey.range(start, end)) == 0 || range.end().equals(start) || range.start().equals(end);
-            }
-
-            @Override
-            public boolean intersects(Range left, Range right)
-            {
-                return left.compareIntersecting(right) == 0 || left.end().equals(right.start()) || left.start().equals(right.end());
-            }
-        });
+            return new RTree<>(COMPARATOR, END_INCLUSIVE);
+        return new RTree<>(COMPARATOR, ALL_INCLUSIVE);
     }
 
     private interface Model
