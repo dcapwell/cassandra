@@ -24,6 +24,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.function.LongToIntFunction;
+import java.util.function.LongUnaryOperator;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -39,6 +41,7 @@ import accord.utils.Gen;
 import accord.utils.Gens;
 import accord.utils.RandomSource;
 import org.agrona.collections.LongArrayList;
+import org.agrona.collections.LongLongFunction;
 import org.assertj.core.api.Assertions;
 
 import static accord.utils.Property.qt;
@@ -153,28 +156,34 @@ public class RTreeTest
     private enum Pattern
     {RANDOM, NO_OVERLP, SMALL_RANGES}
 
-    // IntervalTree has (start, end) semantics, whereas Range has [start, end), so validation will fail!
-    // IntervalTree is also very slow for insertion (as it rebuilds itself all over), which makes the test very slow
-    // For this reason true uses a List with full scan semantics, and false uses IntervalTree and disables validating
-    // but keeps the timing data
-    private static final boolean USE_LIST = false;
+    @Test
+    public void listModel()
+    {
+        test(true);
+    }
 
     @Test
-    public void test()
+    public void intervalTreeModel()
+    {
+        test(false);
+    }
+
+    public void test(boolean useList)
     {
         int samples = 10_000;
         Gen<Pattern> patternGen = Gens.enums().all(Pattern.class);
         qt().withExamples(10).check(rs -> {
 
-            var map = create();
-            var model = createModel();
+            var map = create(useList);
+            var model = createModel(useList);
 
             LongArrayList byToken = new LongArrayList(samples, -1);
             LongArrayList modelByToken = new LongArrayList(samples, -1);
+            LongArrayList byTokenLength = new LongArrayList(samples, -1);
             LongArrayList byRange = new LongArrayList(samples, -1);
             LongArrayList modelByRange = new LongArrayList(samples, -1);
-//            Pattern pattern = patternGen.next(rs);
-            Pattern pattern = Pattern.NO_OVERLP;
+            LongArrayList byRangeLength = new LongArrayList(samples, -1);
+            Pattern pattern = patternGen.next(rs);
             Gen<Range> rangeGen = rangeGen(pattern, samples);
             for (int i = 0; i < samples; i++)
             {
@@ -194,20 +203,20 @@ public class RTreeTest
                     var lookup = IntKey.routing(TOKEN_GEN.nextInt(rs));
                     var actual = timed(byToken, () -> map.searchToken(lookup));
                     var expected = timed(modelByToken, () -> model.intersectsToken(lookup));
-//                    if (VALIDATE)
-                        Assertions.assertThat(sort(actual))
-                                  .describedAs("Write=%d; token=%s", i, lookup)
-                                  .isEqualTo(sort(expected));
+                    byTokenLength.addLong(expected.size());
+                    Assertions.assertThat(sort(actual))
+                              .describedAs("Write=%d; token=%s", i, lookup)
+                              .isEqualTo(sort(expected));
                 }
                 {
                     // range lookup
                     var lookup = rangeGen.next(rs);
                     var actual = timed(byRange, () -> map.search(lookup));
                     var expected = timed(modelByRange, () -> model.intersects(lookup));
-//                    if (VALIDATE)
-                        Assertions.assertThat(sort(actual))
-                                  .describedAs("Write=%d; range=%s", i, lookup)
-                                  .isEqualTo(sort(expected));
+                    byRangeLength.addLong(expected.size());
+                    Assertions.assertThat(sort(actual))
+                              .describedAs("Write=%d; range=%s", i, lookup)
+                              .isEqualTo(sort(expected));
                 }
             }
             StringBuilder sb = new StringBuilder();
@@ -220,11 +229,13 @@ public class RTreeTest
             sb.append("\nMemory Cost: " + actualCost + "; " + String.format("%.2f", ((actualCost - modelCost) / (double) actualCost * 100.0)) + "% model size");
             sb.append("\n=======");
             sb.append("\nBy Token:");
-            sb.append("\n\tModel: " + stats(modelByToken));
-            sb.append("\n\tRTree: " + stats(byToken));
+            sb.append("\n\tSizes: " + stats(byTokenLength, false));
+            sb.append("\n\tModel: " + stats(modelByToken, true));
+            sb.append("\n\tRTree: " + stats(byToken, true));
             sb.append("\nBy Range:");
-            sb.append("\n\tModel: " + stats(modelByRange));
-            sb.append("\n\tRTree: " + stats(byRange));
+            sb.append("\n\tSizes: " + stats(byRangeLength, false));
+            sb.append("\n\tModel: " + stats(modelByRange, true));
+            sb.append("\n\tRTree: " + stats(byRange, true));
             logger.info(sb.toString());
         });
     }
@@ -266,14 +277,16 @@ public class RTreeTest
         }
     }
 
-    private static String stats(LongArrayList list)
+    private static String stats(LongArrayList list, boolean isTime)
     {
+        LongUnaryOperator fn = isTime ? TimeUnit.NANOSECONDS::toMicros : l -> l;
+        String postfix = isTime ? "micro" : "";
         long[] array = list.toLongArray();
         Arrays.sort(array);
         StringBuilder sb = new StringBuilder();
-        sb.append("Min: ").append(TimeUnit.NANOSECONDS.toMicros(array[0])).append("micro");
-        sb.append(", Median: ").append(TimeUnit.NANOSECONDS.toMicros(array[array.length / 2])).append("micro");
-        sb.append(", Max: ").append(TimeUnit.NANOSECONDS.toMicros(array[array.length - 1])).append("micro");
+        sb.append("Min: ").append(fn.applyAsLong(array[0])).append(postfix);
+        sb.append(", Median: ").append(fn.applyAsLong(array[array.length / 2])).append(postfix);
+        sb.append(", Max: ").append(fn.applyAsLong(array[array.length - 1])).append(postfix);
         return sb.toString();
     }
 
@@ -302,9 +315,9 @@ public class RTreeTest
     }
 
 
-    private static RTree<Routing, Range, Integer> create()
+    private static RTree<Routing, Range, Integer> create(boolean useList)
     {
-        if (USE_LIST)
+        if (useList)
             return new RTree<>(COMPARATOR, END_INCLUSIVE);
         return new RTree<>(COMPARATOR, ALL_INCLUSIVE);
     }
@@ -312,6 +325,7 @@ public class RTreeTest
     private interface Model
     {
         Object actual();
+
         void put(Range range, int value);
 
         List<Map.Entry<Range, Integer>> intersectsToken(Routing key);
@@ -321,9 +335,9 @@ public class RTreeTest
         void done();
     }
 
-    private static Model createModel()
+    private static Model createModel(boolean useList)
     {
-        return USE_LIST ? new ListModel() : new IntervalTreeModel();
+        return useList ? new ListModel() : new IntervalTreeModel();
     }
 
     private static class ListModel implements Model
