@@ -338,6 +338,11 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         return isolatedExecutor.isShutdown() || isInternalShutdown();
     }
 
+    private boolean mayHandleMessages()
+    {
+        return !isolatedExecutor.isShutdown();
+    }
+
     private boolean isInternalShutdown()
     {
         switch (status)
@@ -398,7 +403,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         MessagingService.instance().inboundSink.add(message -> {
             if (!cluster.filters().hasInbound())
                 return true;
-            if (isShutdown())
+            if (!mayHandleMessages())
                 return false;
             IMessage serialized = serializeMessage(message.from(), toCassandraInetAddressAndPort(broadcastAddress()), message);
             IInstance from = cluster.get(serialized.from());
@@ -413,7 +418,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
     protected void registerOutboundFilter(ICluster cluster)
     {
         MessagingService.instance().outboundSink.add((message, to) -> {
-            if (isShutdown())
+            if (!mayHandleMessages())
                 return false; // TODO: Simulator needs this to trigger a failure
             IMessage serialzied = serializeMessage(message.from(), to, message);
             int fromNum = config.num(); // since this instance is sending the message, from will always be this instance
