@@ -186,6 +186,9 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
     private CollectingRMIServerSocketFactoryImpl serverSocketFactory;
     private IsolatedJmx isolatedJmx;
 
+    private enum Status { INIT, STARTUP, RUNNING, SHUTDOWN, TERMINATED }
+    private volatile Status status = Status.INIT;
+
     @Deprecated
     Instance(IInstanceConfig config, ClassLoader classLoader)
     {
@@ -320,7 +323,25 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
 
     public boolean isShutdown()
     {
-        return isolatedExecutor.isShutdown();
+        return isolatedExecutor.isShutdown() || isInternalShutdown();
+    }
+
+    private boolean isInternalShutdown()
+    {
+        switch (status)
+        {
+            case INIT:
+            case STARTUP:
+                return false;
+            case RUNNING:
+                break; // need to check internal status
+            case SHUTDOWN:
+            case TERMINATED:
+                return true;
+        }
+        // When we do decom we shutdown the process, but jvm-dtest doesn't know this, so need to check
+        // if that happened
+        return Stage.READ.executor().isShutdown();
     }
 
     @Override
@@ -593,6 +614,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
 
         sync(() -> {
             inInstancelogger = LoggerFactory.getLogger(Instance.class);
+            status = Status.STARTUP;
             try
             {
                 // org.apache.cassandra.distributed.impl.AbstractCluster.startup sets the exception handler for the thread
@@ -761,6 +783,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 PaxosState.startAutoRepairs();
 
                 CassandraDaemon.getInstanceForTesting().completeSetup();
+                status = Status.RUNNING;
             }
             catch (Throwable t)
             {
@@ -851,6 +874,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
     {
         inInstancelogger.info("Shutting down instance {} / {}", config.num(), config.broadcastAddress().getHostString());
         Future<?> future = async((ExecutorService executor) -> {
+            status = Status.SHUTDOWN;
             Throwable error = null;
 
             error = parallelRun(error, executor,
@@ -956,6 +980,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
             }
             finally
             {
+                status = Status.TERMINATED;
                 super.shutdown();
                 startedAt.set(0L);
             }
