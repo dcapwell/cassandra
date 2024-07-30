@@ -18,11 +18,18 @@
 
 package org.apache.cassandra.service.accord.serializers;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import org.junit.Test;
 
+import accord.api.Key;
 import accord.primitives.Deps;
+import accord.primitives.PartialDeps;
+import accord.primitives.Range;
+import accord.primitives.Ranges;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Murmur3Partitioner;
@@ -31,6 +38,10 @@ import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.SchemaProvider;
+import org.apache.cassandra.schema.TableId;
+import org.apache.cassandra.service.accord.TokenRange;
+import org.apache.cassandra.service.accord.api.AccordRoutingKey.SentinelKey;
+import org.apache.cassandra.service.accord.api.PartitionKey;
 import org.apache.cassandra.utils.AccordGenerators;
 import org.mockito.Mockito;
 
@@ -48,10 +59,10 @@ public class DepsSerializerTest
     private static final List<MessagingService.Version> SUPPORTED_VERSIONS = VERSION_51.greaterThanOrEqual();
 
     @Test
-    public void serde()
+    public void depsSerde()
     {
         DataOutputBuffer buffer = new DataOutputBuffer();
-        qt().withSeed(-4368731546033726179L).check(rs -> {
+        qt().check(rs -> {
             IPartitioner partitioner = AccordGenerators.partitioner().next(rs);
             Schema.instance = Mockito.mock(SchemaProvider.class);
             DatabaseDescriptor.setPartitionerUnsafe(partitioner);
@@ -60,5 +71,36 @@ public class DepsSerializerTest
             for (MessagingService.Version version : SUPPORTED_VERSIONS)
                 IVersionedSerializers.testSerde(buffer, DepsSerializer.deps, deps, version.value);
         });
+    }
+
+    @Test
+    public void partialDepsSerde()
+    {
+        DataOutputBuffer buffer = new DataOutputBuffer();
+        qt().check(rs -> {
+            IPartitioner partitioner = AccordGenerators.partitioner().next(rs);
+            Schema.instance = Mockito.mock(SchemaProvider.class);
+            DatabaseDescriptor.setPartitionerUnsafe(partitioner);
+            Mockito.when(Schema.instance.getExistingTablePartitioner(Mockito.any())).thenReturn(partitioner);
+            Deps deps = AccordGenerators.depsGen(partitioner).next(rs);
+            PartialDeps partialDeps = toPartial(deps);
+            for (MessagingService.Version version : SUPPORTED_VERSIONS)
+                IVersionedSerializers.testSerde(buffer, DepsSerializer.partialDeps, partialDeps, version.value);
+        });
+    }
+
+    private static PartialDeps toPartial(Deps deps)
+    {
+        Set<TableId> tables = new HashSet<>();
+        for (Key key : deps.keyDeps.keys())
+            tables.add(((PartitionKey) key).table());
+        for (Key key : deps.directKeyDeps.keys())
+            tables.add(((PartitionKey) key).table());
+        for (Range range : deps.rangeDeps.covering())
+            tables.add(((TokenRange) range).table());
+        List<TokenRange> covering = new ArrayList<>(tables.size());
+        for (TableId table : tables)
+            covering.add(new TokenRange(SentinelKey.min(table), SentinelKey.max(table)));
+        return deps.slice(Ranges.of(covering.toArray(Range[]::new)));
     }
 }
