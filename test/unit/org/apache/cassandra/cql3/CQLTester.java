@@ -74,11 +74,16 @@ import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
+import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.rules.TestName;
+import org.junit.rules.TestWatcher;
+import org.junit.runner.Description;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import accord.utils.DefaultRandom;
+import accord.utils.RandomSource;
 import com.codahale.metrics.Gauge;
 import com.datastax.driver.core.CloseFuture;
 import com.datastax.driver.core.Cluster;
@@ -106,8 +111,10 @@ import org.apache.cassandra.auth.IAuthenticator;
 import org.apache.cassandra.auth.IRoleManager;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.config.CassandraRelevantProperties;
+import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DataStorageSpec;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.config.DurationSpec;
 import org.apache.cassandra.config.EncryptionOptions;
 import org.apache.cassandra.cql3.functions.FunctionName;
 import org.apache.cassandra.cql3.functions.types.ParseUtils;
@@ -421,14 +428,19 @@ public abstract class CQLTester
     @BeforeClass
     public static void setUpClass()
     {
+        prePrepareServer();
+        // Once per-JVM is enough
+        prepareServer();
+    }
+
+    protected static void prePrepareServer()
+    {
         CassandraRelevantProperties.SUPERUSER_SETUP_DELAY_MS.setLong(0);
         ServerTestUtils.daemonInitialization();
         if (ROW_CACHE_SIZE_IN_MIB > 0)
             DatabaseDescriptor.setRowCacheSizeInMiB(ROW_CACHE_SIZE_IN_MIB);
         StorageService.instance.registerMBeans();
         StorageService.instance.setPartitionerUnsafe(Murmur3Partitioner.instance);
-        // Once per-JVM is enough
-        prepareServer();
     }
 
     @AfterClass
@@ -2981,6 +2993,151 @@ public abstract class CQLTester
 
             return Objects.equal(username, u.username)
                 && Objects.equal(password, u.password);
+        }
+    }
+
+    public static abstract class Fuzzed extends CQLTester
+    {
+        protected static RandomSource RANDOM = new DefaultRandom();
+        private static long SEED;
+        private static long CONFIG_SEED;
+
+        @ClassRule
+        public static TestName TEST_CLASS_NAME = new TestName();
+        @Rule
+        public TestName testName = new TestName();
+        @Rule
+        public FailureWatcher failureRule = new FailureWatcher();
+
+        @BeforeClass
+        public static void setUpClass()
+        {
+            setupConfigSeed();
+            try
+            {
+                prePrepareServer();
+                updateConfigs();
+
+                // Once per-JVM is enough
+                prepareServer();
+            }
+            catch (Throwable t)
+            {
+                throwPropertyError(t);
+            }
+        }
+
+        protected static void setupConfigSeed()
+        {
+            String configProp = configSeedProperty();
+            if (System.getProperty(configProp, null) != null)
+            {
+                CONFIG_SEED = Long.parseLong(System.getProperty(configProp));
+            }
+            else
+            {
+                CONFIG_SEED = RANDOM.nextLong();
+            }
+            RANDOM.setSeed(CONFIG_SEED);
+        }
+
+        protected static void updateConfigs()
+        {
+            Config config = DatabaseDescriptor.getRawConfig();
+            config.commitlog_sync = RANDOM.pick(Config.CommitLogSync.values());
+            switch (config.commitlog_sync)
+            {
+                case batch:
+                    break;
+                case periodic:
+                case group:
+                    // how long?
+                    long periodMillis;
+                    switch (RANDOM.nextInt(0, 2))
+                    {
+                        case 0: // millis
+                            periodMillis = RANDOM.nextLong(1, 20);
+                            break;
+                        case 1: // seconds
+                            periodMillis = TimeUnit.SECONDS.toMillis(RANDOM.nextLong(1, 20));
+                            break;
+                        case 2: // minutes
+                            periodMillis = TimeUnit.MINUTES.toMillis(RANDOM.nextLong(1, 5));
+                            break;
+                        default:
+                            throw new AssertionError();
+                    }
+                    if (config.commitlog_sync == Config.CommitLogSync.periodic)
+                        config.commitlog_sync_period = new DurationSpec.IntMillisecondsBound(periodMillis);
+                    else
+                        config.commitlog_sync_group_window = new DurationSpec.IntMillisecondsBound(periodMillis);
+                    break;
+                default:
+                    throw new AssertionError(config.commitlog_sync.name());
+            }
+        }
+
+        @Before
+        public void setupRandomSeed()
+        {
+            updateSeed(testSeedProperty(testName.klass, testName.method));
+        }
+
+        private static String testSeedProperty(String klass, String method)
+        {
+            return String.format("cassandra.test.cqltester.fuzzed.seed.%s.%s", klass, method);
+        }
+
+        private static String configSeedProperty()
+        {
+            return String.format("cassandra.test.cqltester.fuzzed.seed.%s", TEST_CLASS_NAME.klass);
+        }
+
+        private static void updateSeed(String property)
+        {
+            if (System.getProperty(property, null) != null)
+            {
+                SEED = Long.parseLong(System.getProperty(property));
+            }
+            else
+            {
+                SEED = RANDOM.nextLong();
+            }
+            RANDOM.setSeed(SEED);
+        }
+
+        public static class TestName extends TestWatcher
+        {
+            private String klass, method;
+
+            @Override
+            protected void starting(Description description)
+            {
+                klass = description.getClassName();
+                method = description.getMethodName();
+            }
+        }
+
+        public static class FailureWatcher extends TestWatcher
+        {
+            @Override
+            protected void failed(Throwable e, Description description)
+            {
+                String property = testSeedProperty(description.getClassName(), description.getMethodName());
+                throwPropertyError(property, e);
+            }
+        }
+
+        private static AssertionError throwPropertyError(Throwable e)
+        {
+            String configSeedProp = configSeedProperty();
+            throw new AssertionError(String.format("Failure with config seed %d; to set seed do -D%s=%d", CONFIG_SEED, configSeedProp, CONFIG_SEED), e);
+        }
+
+        private static AssertionError throwPropertyError(String testProp, Throwable e)
+        {
+            String configSeedProp = configSeedProperty();
+            throw new AssertionError(String.format("Failure with seed %d; to set seed do -D%s=%d and -D%s=%d", SEED, testProp, SEED, configSeedProp, CONFIG_SEED), e);
         }
     }
 

@@ -30,7 +30,7 @@ import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.cql3.UntypedResultSet.Row;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 
-public class InsertTest extends CQLTester
+public class InsertTest extends CQLTester.Fuzzed
 {
     @Test
     public void testInsertZeroDuration() throws Throwable
