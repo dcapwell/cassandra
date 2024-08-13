@@ -3053,7 +3053,7 @@ public abstract class CQLTester
                 case group:
                     // how long?
                     long periodMillis;
-                    switch (RANDOM.nextInt(0, 2))
+                    switch (RANDOM.nextInt(0, 3))
                     {
                         case 0: // millis
                             periodMillis = RANDOM.nextLong(1, 20);
