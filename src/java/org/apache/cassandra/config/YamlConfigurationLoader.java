@@ -261,7 +261,7 @@ public class YamlConfigurationLoader implements ConfigurationLoader
         return value;
     }
 
-    public static String toYaml(Map<String, ?> map)
+    public static String toYaml(Object map)
     {
         DumperOptions options = new DumperOptions();
         options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
