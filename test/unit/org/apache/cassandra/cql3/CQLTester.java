@@ -41,8 +41,10 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -65,6 +67,7 @@ import javax.net.ssl.SSLException;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import org.apache.commons.lang3.ArrayUtils;
@@ -83,6 +86,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import accord.utils.DefaultRandom;
+import accord.utils.Gens;
 import accord.utils.RandomSource;
 import com.codahale.metrics.Gauge;
 import com.datastax.driver.core.CloseFuture;
@@ -116,6 +120,7 @@ import org.apache.cassandra.config.DataStorageSpec;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.DurationSpec;
 import org.apache.cassandra.config.EncryptionOptions;
+import org.apache.cassandra.config.YamlConfigurationLoader;
 import org.apache.cassandra.cql3.functions.FunctionName;
 import org.apache.cassandra.cql3.functions.types.ParseUtils;
 import org.apache.cassandra.db.ColumnFamilyStore;
@@ -148,6 +153,7 @@ import org.apache.cassandra.db.marshal.VectorType;
 import org.apache.cassandra.db.virtual.VirtualKeyspace;
 import org.apache.cassandra.db.virtual.VirtualKeyspaceRegistry;
 import org.apache.cassandra.db.virtual.VirtualSchemaKeyspace;
+import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.InvalidRequestException;
@@ -155,6 +161,7 @@ import org.apache.cassandra.exceptions.SyntaxException;
 import org.apache.cassandra.index.Index;
 import org.apache.cassandra.index.SecondaryIndexManager;
 import org.apache.cassandra.io.filesystem.ListenableFileSystem;
+import org.apache.cassandra.io.sstable.format.SSTableFormat;
 import org.apache.cassandra.io.util.File;
 import org.apache.cassandra.io.util.FileSystems;
 import org.apache.cassandra.io.util.FileUtils;
@@ -181,7 +188,9 @@ import org.apache.cassandra.transport.SimpleClient;
 import org.apache.cassandra.transport.TlsTestUtils;
 import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.CassandraGenerators;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.Generators;
 import org.apache.cassandra.utils.JMXServerUtils;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.TimeUUID;
@@ -3001,6 +3010,7 @@ public abstract class CQLTester
         protected static RandomSource RANDOM = new DefaultRandom();
         private static long SEED;
         private static long CONFIG_SEED;
+        private static String CONFIG = null;
 
         @ClassRule
         public static TestName TEST_CLASS_NAME = new TestName();
@@ -3023,7 +3033,7 @@ public abstract class CQLTester
             }
             catch (Throwable t)
             {
-                throwPropertyError(t);
+                throwPropertyError(t, null);
             }
         }
 
@@ -3043,14 +3053,37 @@ public abstract class CQLTester
 
         protected static void updateConfigs()
         {
-            Config config = DatabaseDescriptor.getRawConfig();
-            config.commitlog_sync = RANDOM.pick(Config.CommitLogSync.values());
-            switch (config.commitlog_sync)
+            Map<String, Object> config = new LinkedHashMap<>();
+
+            updateConfigPartitioner(config);
+            updateConfigCommitLog(config);
+            updateConfigMemtable(config);
+            updateConfigSSTables(config);
+            updateConfigDisk(config);
+            CONFIG = YamlConfigurationLoader.toYaml(config);
+
+            Config c = DatabaseDescriptor.loadConfig();
+            YamlConfigurationLoader.updateFromMap(config, true, c);
+
+            DatabaseDescriptor.unsafeDaemonInitialization(() -> c);
+        }
+
+        private static void updateConfigPartitioner(Map<String, Object> config)
+        {
+            IPartitioner partitioner = Generators.toGen(CassandraGenerators.nonLocalPartitioners()).next(RANDOM);
+            config.put("partitioner", partitioner.getClass().getSimpleName());
+        }
+
+        protected static void updateConfigCommitLog(Map<String, Object> config)
+        {
+            Config.CommitLogSync commitlog_sync = RANDOM.pick(Config.CommitLogSync.values());
+            config.put("commitlog_sync", commitlog_sync);
+            switch (commitlog_sync)
             {
                 case batch:
                     break;
                 case periodic:
-                case group:
+                {
                     // how long?
                     long periodMillis;
                     switch (RANDOM.nextInt(0, 2))
@@ -3064,14 +3097,39 @@ public abstract class CQLTester
                         default:
                             throw new AssertionError();
                     }
-                    if (config.commitlog_sync == Config.CommitLogSync.periodic)
-                        config.commitlog_sync_period = new DurationSpec.IntMillisecondsBound(periodMillis);
-                    else
-                        config.commitlog_sync_group_window = new DurationSpec.IntMillisecondsBound(periodMillis);
-                    break;
+                    config.put("commitlog_sync_period", new DurationSpec.IntMillisecondsBound(periodMillis).toString());
+                }
+                break;
+                case group:
+                {
+                    // group blocks each and every write for X milliseconds which cause tests to take a lot of time,
+                    // for this reason the period must be "short"
+                    long periodMillis = RANDOM.nextLong(1, 20);
+                    config.put("commitlog_sync_group_window", new DurationSpec.IntMillisecondsBound(periodMillis).toString());
+                }
+                break;
                 default:
-                    throw new AssertionError(config.commitlog_sync.name());
+                    throw new AssertionError(commitlog_sync.name());
             }
+            config.put("commitlog_disk_access_mode", Gens.enums().all(Config.DiskAccessMode.class).filter(m -> m != Config.DiskAccessMode.standard).next(RANDOM));
+        }
+
+        protected static void updateConfigMemtable(Map<String, Object> config)
+        {
+            config.put("memtable_allocation_type", RANDOM.pick(Config.MemtableAllocationType.values()));
+        }
+
+        protected static void updateConfigSSTables(Map<String, Object> config)
+        {
+            NavigableMap<String, SSTableFormat<?, ?>> formats = new TreeMap<>(DatabaseDescriptor.getSSTableFormats());
+            SSTableFormat<?, ?> sstableFormat = RANDOM.pick(new ArrayList<>(formats.values()));
+            config.put("sstable", ImmutableMap.of("selected_format", sstableFormat.name()));
+        }
+
+        private static void updateConfigDisk(Map<String, Object> config)
+        {
+            // direct isn't supported... yet the enum is shared...
+            config.put("disk_access_mode", Gens.enums().all(Config.DiskAccessMode.class).filter(m -> m != Config.DiskAccessMode.direct).next(RANDOM));
         }
 
         @Before
@@ -3121,20 +3179,24 @@ public abstract class CQLTester
             protected void failed(Throwable e, Description description)
             {
                 String property = testSeedProperty(description.getClassName(), description.getMethodName());
-                throwPropertyError(property, e);
+                throwPropertyError(e, property);
             }
         }
 
-        private static AssertionError throwPropertyError(Throwable e)
+        private static AssertionError throwPropertyError(Throwable e, @Nullable String testProp)
         {
             String configSeedProp = configSeedProperty();
-            throw new AssertionError(String.format("Failure with config seed %d; to set seed do -D%s=%d", CONFIG_SEED, configSeedProp, CONFIG_SEED), e);
-        }
-
-        private static AssertionError throwPropertyError(String testProp, Throwable e)
-        {
-            String configSeedProp = configSeedProperty();
-            throw new AssertionError(String.format("Failure with seed %d; to set seed do -D%s=%d and -D%s=%d", SEED, testProp, SEED, configSeedProp, CONFIG_SEED), e);
+            StringBuilder sb = new StringBuilder();
+            sb.append("Property error detected:");
+            sb.append("\nConfig Seed: ").append(CONFIG_SEED).append(" -- To rerun do -D").append(configSeedProp).append('=').append(CONFIG_SEED);
+            if (testProp != null)
+                sb.append("\nSeed: ").append(SEED).append(" -- To rerun do -D").append(testProp).append('=').append(SEED);
+            if (CONFIG != null)
+                sb.append("\nConfig:\n\t").append(CONFIG.replaceAll("\n", "\n\t"));
+            String message = e.getMessage();
+            if (message != null)
+                sb.append("\nError:\n\t").append(message.replaceAll("\n", "\n\t"));
+            throw new AssertionError(sb.toString(), e);
         }
     }
 
