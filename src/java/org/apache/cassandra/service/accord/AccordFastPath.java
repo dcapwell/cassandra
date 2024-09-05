@@ -20,6 +20,7 @@ package org.apache.cassandra.service.accord;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.Objects;
 
 import accord.local.Node;
 import com.google.common.collect.ImmutableMap;
@@ -106,6 +107,21 @@ public class AccordFastPath implements MetadataValue<AccordFastPath>
             this.updated = updated;
         }
 
+        @Override
+        public boolean equals(Object o)
+        {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            NodeInfo nodeInfo = (NodeInfo) o;
+            return updated == nodeInfo.updated && status == nodeInfo.status;
+        }
+
+        @Override
+        public int hashCode()
+        {
+            return Objects.hash(status, updated);
+        }
+
         private static final MetadataSerializer<NodeInfo> serializer = new MetadataSerializer<NodeInfo>()
         {
             @Override
@@ -137,6 +153,21 @@ public class AccordFastPath implements MetadataValue<AccordFastPath>
     {
         this.info = info;
         this.lastModified = lastModified;
+    }
+
+    @Override
+    public boolean equals(Object o)
+    {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        AccordFastPath that = (AccordFastPath) o;
+        return info.equals(that.info) && lastModified.equals(that.lastModified);
+    }
+
+    @Override
+    public int hashCode()
+    {
+        return Objects.hash(info, lastModified);
     }
 
     public AccordFastPath withoutNode(NodeId tcmId)
