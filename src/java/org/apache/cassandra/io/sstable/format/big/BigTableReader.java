@@ -31,6 +31,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
+import org.apache.cassandra.utils.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -74,9 +75,6 @@ import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.io.util.FileHandle;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.io.util.RandomAccessReader;
-import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.utils.IFilter;
-import org.apache.cassandra.utils.OutputHandler;
 
 import static org.apache.cassandra.utils.concurrent.SharedCloseable.sharedCopyOrNull;
 
@@ -149,6 +147,58 @@ public class BigTableReader extends SSTableReaderWithFilter implements IndexSumm
     public ISSTableScanner partitionIterator(ColumnFilter columns, DataRange dataRange, SSTableReadsListener listener)
     {
         return BigTableScanner.getScanner(this, columns, dataRange, listener);
+    }
+
+    @Override
+    public CloseableIterator<DecoratedKey> keyIterator(AbstractBounds<PartitionPosition> range, SSTableReadsListener listener)
+    {
+        return new AbstractIterator<>()
+        {
+            RandomAccessReader ifile = null;
+
+            @Override
+            protected DecoratedKey computeNext()
+            {
+                try
+                {
+                    if (ifile == null)
+                    {
+                        ifile = openIndexReader();
+                        ifile.seek(getIndexScanPosition(range.left));
+                    }
+
+                    while (!ifile.isEOF())
+                    {
+                        DecoratedKey indexDecoratedKey = decorateKey(ByteBufferUtil.readWithShortLength(ifile));
+                        RowIndexEntry.Serializer.skip(ifile, descriptor.version);
+                        if (range.contains(indexDecoratedKey))
+                            return indexDecoratedKey;
+
+                        if (indexDecoratedKey.compareTo(range.right) >= 0)
+                            break;
+                    }
+
+                    return endOfData();
+                }
+                catch (IOException e)
+                {
+                    throw new RuntimeException(e);
+                }
+            }
+
+            @Override
+            public void close()
+            {
+                try
+                {
+                    super.close();
+                }
+                finally
+                {
+                    ifile.close();
+                }
+            }
+        };
     }
 
     @Override

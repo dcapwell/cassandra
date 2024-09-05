@@ -200,8 +200,8 @@ public class AccordKeyspaceTest extends CQLTester.InMemory
                         // The memtable will allow the write, but it will be dropped when writing to the SSTable...
                         //TODO (now, correctness): since we store the user token + user key, if a key is close to the PK limits then we could tip over and loose our CFK
 //                        new Mutation(AccordKeyspace.getCommandsForKeyPartitionUpdate(store, pk, 42, ByteBufferUtil.EMPTY_BYTE_BUFFER)).apply();
-                        execute("INSERT INTO system_accord.commands_for_key (store_id, key_token, key) VALUES (?, ?, ?)",
-                                store, AccordKeyspace.serializeRoutingKey(pk.toUnseekable()), AccordKeyspace.serializeKey(pk));
+                        execute("INSERT INTO system_accord.commands_for_key (store_id, table_id, key_token, key) VALUES (?, ?, ?, ?)",
+                                store, pk.table().asUUID(), AccordKeyspace.serializeRoutingKeyNoTable(pk.toUnseekable()), pk.partitionKey().getKey());
                     }
                     catch (IllegalArgumentException | InvalidRequestException e)
                     {
@@ -235,17 +235,18 @@ public class AccordKeyspaceTest extends CQLTester.InMemory
                     for (var e : storesToKeys.entrySet())
                     {
                         int store = e.getKey();
-                        expectedCqlStoresToKeys.put(store, new TreeSet<>(e.getValue().stream().map(p -> AccordKeyspace.serializeRoutingKey(p.toUnseekable())).collect(Collectors.toList())));
+                        expectedCqlStoresToKeys.put(store, new TreeSet<>(e.getValue().stream().map(p -> AccordKeyspace.serializeRoutingKeyNoTable(p.toUnseekable())).collect(Collectors.toList())));
                     }
 
                     // make sure no data loss... when this test was written sstable had all the rows but the sstable didn't... this
                     // is mostly a santity check to detect that case early
-                    var resultSet = execute("SELECT store_id, key_token FROM system_accord.commands_for_key ALLOW FILTERING");
+                    var resultSet = execute("SELECT store_id, table_id, key_token FROM system_accord.commands_for_key ALLOW FILTERING");
                     TreeMap<Integer, SortedSet<ByteBuffer>> cqlStoresToKeys = new TreeMap<>();
                     for (var row : resultSet)
                     {
                         int storeId = row.getInt("store_id");
                         ByteBuffer bb = row.getBytes("key_token");
+                        // FIXME: include table_id
                         cqlStoresToKeys.computeIfAbsent(storeId, ignore -> new TreeSet<>()).add(bb);
                     }
                     Assertions.assertThat(cqlStoresToKeys).isEqualTo(expectedCqlStoresToKeys);

@@ -29,6 +29,8 @@ import java.util.concurrent.locks.ReentrantLock;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Iterators;
+import org.apache.cassandra.utils.AbstractIterator;
+import org.apache.cassandra.utils.CloseableIterator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -302,6 +304,41 @@ public class TrieMemtable extends AbstractShardedMemtable
                                                        columnFilter,
                                                        dataRange);
         // readsListener is ignored as it only accepts sstable signals
+    }
+
+    @Override
+    public CloseableIterator<DecoratedKey> keyIterator(AbstractBounds<PartitionPosition> range, SSTableReadsListener listener)
+    {
+        AbstractBounds<PartitionPosition> keyRange = range;
+
+        boolean isBound = keyRange instanceof Bounds;
+        boolean includeStart = isBound || keyRange instanceof IncludingExcludingBounds;
+
+        Trie<BTreePartitionData> subMap = mergedTrie.subtrie(range.left, includeStart, null, true);
+        Iterator<Map.Entry<ByteComparable, BTreePartitionData>> iter = subMap.entryIterator();
+
+        return new AbstractIterator<DecoratedKey>()
+        {
+            TableMetadata metadata = metadata();
+
+            @Override
+            protected DecoratedKey computeNext()
+            {
+                while (iter.hasNext())
+                {
+                    DecoratedKey dk = BufferDecoratedKey.fromByteComparable(iter.next().getKey(),
+                            BYTE_COMPARABLE_VERSION,
+                            metadata.partitioner);
+
+                    if (range.contains(dk))
+                        return dk;
+
+                    if (dk.compareTo(range.right) >= 0)
+                        break;
+                }
+                return endOfData();
+            }
+        };
     }
 
     private Partition getPartition(DecoratedKey key)

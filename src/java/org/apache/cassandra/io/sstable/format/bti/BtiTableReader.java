@@ -55,9 +55,7 @@ import org.apache.cassandra.io.sstable.format.SSTableReaderWithFilter;
 import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.io.util.FileHandle;
 import org.apache.cassandra.io.util.RandomAccessReader;
-import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.utils.IFilter;
-import org.apache.cassandra.utils.OutputHandler;
+import org.apache.cassandra.utils.*;
 
 import static org.apache.cassandra.io.sstable.format.SSTableReader.Operator.EQ;
 import static org.apache.cassandra.io.sstable.format.SSTableReader.Operator.GE;
@@ -485,6 +483,62 @@ public class BtiTableReader extends SSTableReaderWithFilter
     public UnfilteredPartitionIterator partitionIterator(ColumnFilter columnFilter, DataRange dataRange, SSTableReadsListener listener)
     {
         return BtiTableScanner.getScanner(this, columnFilter, dataRange, listener);
+    }
+
+    @Override
+    public CloseableIterator<DecoratedKey> keyIterator(AbstractBounds<PartitionPosition> range, SSTableReadsListener listener)
+    {
+
+        PartitionIterator iter;
+        try
+        {
+            iter = PartitionIterator.create(partitionIndex, metadata().partitioner, rowIndexFile, dfile,
+                                            range.left, bounds.inclusiveLeft() ? -1 : 0,
+                                            null, 0, descriptor.version);
+        }
+        catch (IOException e)
+        {
+            throw new RuntimeException(e);
+        }
+
+        return new AbstractIterator<>()
+        {
+            @Override
+            protected DecoratedKey computeNext()
+            {
+                try
+                {
+                    while (!iter.isExhausted())
+                    {
+                        DecoratedKey dk = iter.decoratedKey();
+                        iter.advance();
+                        if (range.contains(dk))
+                            return dk;
+
+                        if (dk.compareTo(range.right) >= 0)
+                            break;
+                    }
+                    return endOfData();
+                }
+                catch (IOException e)
+                {
+                    throw new RuntimeException(e);
+                }
+            }
+
+            @Override
+            public void close()
+            {
+                try
+                {
+                    super.close();
+                }
+                finally
+                {
+                    iter.close();
+                }
+            }
+        };
     }
 
     @Override

@@ -20,10 +20,15 @@ package org.apache.cassandra.db.rows;
 
 import org.apache.cassandra.db.DataRange;
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.Slices;
+import org.apache.cassandra.db.filter.ClusteringIndexSliceFilter;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
+import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.io.sstable.SSTableReadsListener;
+import org.apache.cassandra.utils.AbstractIterator;
+import org.apache.cassandra.utils.CloseableIterator;
 
 /**
  * Common data access interface for sstables and memtables.
@@ -60,6 +65,43 @@ public interface UnfilteredSource
     UnfilteredPartitionIterator partitionIterator(ColumnFilter columnFilter,
                                                   DataRange dataRange,
                                                   SSTableReadsListener listener);
+
+    /**
+     * Returns a DecoratedKey iterator for the given range. Skips reading data files for sstable formats with a partition index file
+     *
+     * @param range
+     * @param listener
+     * @return
+     */
+    default CloseableIterator<DecoratedKey> keyIterator(AbstractBounds<PartitionPosition> range, SSTableReadsListener listener)
+    {
+
+        DataRange dataRange = new DataRange(range, new ClusteringIndexSliceFilter(Slices.ALL, false));
+        UnfilteredPartitionIterator iter = partitionIterator(ColumnFilter.NONE, dataRange, listener);
+        return new AbstractIterator<>()
+        {
+            @Override
+            protected DecoratedKey computeNext()
+            {
+                if (iter.hasNext())
+                    return iter.next().partitionKey();
+                return endOfData();
+            }
+
+            @Override
+            public void close()
+            {
+                try
+                {
+                    super.close();
+                }
+                finally
+                {
+                    iter.close();
+                }
+            }
+        };
+    }
 
     /** Minimum timestamp of all stored data */
     long getMinTimestamp();

@@ -20,14 +20,9 @@ package org.apache.cassandra.service.accord;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.math.BigInteger;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.NavigableMap;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
@@ -44,6 +39,12 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.marshal.*;
+import org.apache.cassandra.dht.*;
+import org.apache.cassandra.utils.*;
+import org.apache.cassandra.utils.bytecomparable.ByteSource;
+import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -76,33 +77,11 @@ import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.cql3.statements.ModificationStatement;
 import org.apache.cassandra.cql3.statements.schema.CreateTableStatement;
-import org.apache.cassandra.db.Clustering;
-import org.apache.cassandra.db.ClusteringComparator;
-import org.apache.cassandra.db.ColumnFamilyStore;
-import org.apache.cassandra.db.Columns;
-import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.db.DeletionTime;
-import org.apache.cassandra.db.IMutation;
-import org.apache.cassandra.db.Keyspace;
-import org.apache.cassandra.db.LivenessInfo;
-import org.apache.cassandra.db.Mutation;
-import org.apache.cassandra.db.ReadExecutionController;
-import org.apache.cassandra.db.RegularAndStaticColumns;
-import org.apache.cassandra.db.SinglePartitionReadCommand;
 import org.apache.cassandra.db.filter.ClusteringIndexFilter;
 import org.apache.cassandra.db.filter.ClusteringIndexNamesFilter;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.filter.DataLimits;
 import org.apache.cassandra.db.filter.RowFilter;
-import org.apache.cassandra.db.marshal.ByteArrayAccessor;
-import org.apache.cassandra.db.marshal.ByteBufferAccessor;
-import org.apache.cassandra.db.marshal.BytesType;
-import org.apache.cassandra.db.marshal.CompositeType;
-import org.apache.cassandra.db.marshal.Int32Type;
-import org.apache.cassandra.db.marshal.LongType;
-import org.apache.cassandra.db.marshal.TupleType;
-import org.apache.cassandra.db.marshal.UUIDType;
-import org.apache.cassandra.db.marshal.ValueAccessor;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.rows.BTreeRow;
 import org.apache.cassandra.db.rows.BufferCell;
@@ -111,11 +90,6 @@ import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.Row.Deletion;
 import org.apache.cassandra.db.rows.RowIterator;
 import org.apache.cassandra.db.transform.FilteredPartitions;
-import org.apache.cassandra.dht.ByteOrderedPartitioner;
-import org.apache.cassandra.dht.IPartitioner;
-import org.apache.cassandra.dht.LocalPartitioner;
-import org.apache.cassandra.dht.Murmur3Partitioner;
-import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.index.accord.RouteIndex;
 import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.LocalVersionedSerializer;
@@ -186,14 +160,25 @@ public class AccordKeyspace
     private static final TupleType KEY_TYPE = new TupleType(Arrays.asList(UUIDType.instance, BytesType.instance));
     private static final String KEY_TUPLE = KEY_TYPE.asCQL3Type().toString();
 
-    // shared LocalPartitioner for all *_for_key Accord tables with (store_id, key_token, key) partition key
-    private static final LocalPartitioner FOR_KEYS_LOCAL_PARTITIONER =
-        new LocalPartitioner(CompositeType.getInstance(Int32Type.instance, BytesType.instance, KEY_TYPE));
-
     private static final ClusteringIndexFilter FULL_PARTITION = new ClusteringIndexNamesFilter(BTreeSet.of(new ClusteringComparator(), Clustering.EMPTY), false);
 
     //TODO (now, performance): should this be partitioner rather than TableId?  As of this patch distributed tables should only have 1 partitioner...
     private static final ConcurrentMap<TableId, AccordRoutingKeyByteSource.Serializer> TABLE_SERIALIZERS = new ConcurrentHashMap<>();
+
+    private static AccordRoutingKeyByteSource.Serializer getRoutingKeySerializer(AccordRoutingKey key)
+    {
+        return TABLE_SERIALIZERS.computeIfAbsent(key.table(), ignore -> {
+            IPartitioner partitioner;
+            if (key.kindOfRoutingKey() == AccordRoutingKey.RoutingKeyKind.TOKEN)
+                partitioner = key.asTokenKey().token().getPartitioner();
+            else
+                partitioner = SchemaHolder.schema.getTablePartitioner(key.table());
+            return AccordRoutingKeyByteSource.variableLength(partitioner);
+        });
+    }
+
+
+    private static final BigInteger ONE = BigInteger.valueOf(1);
 
     // Schema needs all system keyspace, and this is a system keyspace!  So can not touch schema in init
     private static class SchemaHolder
@@ -473,7 +458,7 @@ public class AccordKeyspace
               + format("last_write_timestamp %s, ", TIMESTAMP_TUPLE)
               + "PRIMARY KEY((store_id, key_token, key))"
               + ')')
-        .partitioner(FOR_KEYS_LOCAL_PARTITIONER)
+        .partitioner(new LocalPartitioner(CompositeType.getInstance(Int32Type.instance, BytesType.instance, KEY_TYPE)))
         .build();
 
     public static class TimestampsForKeyColumns
@@ -577,6 +562,275 @@ public class AccordKeyspace
         }
     }
 
+    private static class PrefixKeyBound implements PartitionPosition
+    {
+        private final CFKPartitioner.PrefixToken token;
+
+        public final boolean isMinimumBound;
+
+        public PrefixKeyBound(CFKPartitioner.PrefixToken token, boolean isMinimumBound)
+        {
+            this.token = token;
+            this.isMinimumBound = isMinimumBound;
+        }
+
+        @Override
+        public boolean equals(Object obj)
+        {
+            if (!(obj instanceof PartitionPosition))
+                return false;
+            return compareTo((PartitionPosition) obj) == 0;
+        }
+
+        @Override
+        public boolean isMinimum()
+        {
+            return false;
+        }
+
+        @Override
+        public Token getToken()
+        {
+            return token;
+        }
+
+        @Override
+        public IPartitioner getPartitioner()
+        {
+            return token.getPartitioner();
+        }
+
+        @Override
+        public int compareTo(PartitionPosition o)
+        {
+            return token.compareTo(o.getToken());
+        }
+
+        @Override
+        public int hashCode()
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Kind kind()
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public ByteSource asComparableBytes(Version version)
+        {
+//            throw new UnsupportedOperationException();
+//            return ByteSource.withTerminator(ByteSource.LT_NEXT_COMPONENT, token.asComparableBytes(version));
+            int terminator = isMinimumBound ? ByteSource.LT_NEXT_COMPONENT : ByteSource.GT_NEXT_COMPONENT;
+            return ByteSource.withTerminator(terminator, token.asComparableBytes(version));
+        }
+
+        @Override
+        public ByteComparable asComparableBound(boolean before)
+        {
+            return this;
+        }
+
+        @Override
+        public PartitionPosition minValue()
+        {
+            throw new UnsupportedOperationException();
+        }
+    }
+
+    private static class PrefixCompositeType extends CompositeType
+    {
+        public PrefixCompositeType(AbstractType<?>... types)
+        {
+            super(List.of(types));
+        }
+
+        @Override
+        public <VL, VR> int compareCustomRemainder(VL left, ValueAccessor<VL> accessorL, int offsetL, VR right, ValueAccessor<VR> accessorR, int offsetR)
+        {
+            return 0;
+        }
+    }
+
+    public static class CFKPartitioner extends LocalPartitioner
+    {
+        public static final CFKPartitioner instance = new CFKPartitioner();
+
+        enum TokenKind
+        {
+            FULL(CompositeType.getInstance(Int32Type.instance, UUIDType.instance, BytesType.instance, BytesType.instance)),
+//            TOKEN(CompositeType.getInstance(Int32Type.instance, UUIDType.instance, BytesType.instance)),
+//            TABLE(CompositeType.getInstance(Int32Type.instance, UUIDType.instance));
+            TOKEN(new PrefixCompositeType(Int32Type.instance, UUIDType.instance, BytesType.instance)),
+            TABLE(new PrefixCompositeType(Int32Type.instance, UUIDType.instance));
+
+            private final int selectivity;
+            private final CompositeType comparator;
+
+            TokenKind(CompositeType comparator)
+            {
+                this.selectivity = comparator.subTypes().size();
+                this.comparator = comparator;
+            }
+
+            static TokenKind leastSelective(TokenKind left, TokenKind right)
+            {
+                return left.selectivity <= right.selectivity ? left : right;
+            }
+        }
+
+        private CFKPartitioner()
+        {
+            super(TokenKind.FULL.comparator);
+        }
+
+        @Override
+        public LocalToken getToken(ByteBuffer key)
+        {
+            return new FullToken(key);
+        }
+
+        @Override
+        public LocalToken getMinimumToken()
+        {
+            return new FullToken(ByteBufferUtil.EMPTY_BYTE_BUFFER);
+        }
+
+        @Override
+        public Token.TokenFactory getTokenFactory()
+        {
+            return tokenFactory;
+        }
+
+        public abstract class CFKToken extends LocalToken
+        {
+            public CFKToken(ByteBuffer token)
+            {
+                super(token);
+            }
+
+            @Override
+            public int compareTo(Token o)
+            {
+                Invariants.checkArgument(o instanceof CFKToken);
+                CFKToken that = (CFKToken) o;
+                TokenKind kind = TokenKind.leastSelective(this.kind(), that.kind());
+                return kind.comparator.compare(this.token, that.token);
+            }
+
+            @Override
+            public int hashCode()
+            {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public boolean equals(Object obj)
+            {
+                if (!(obj instanceof CFKToken))
+                    return false;
+                return compareTo((CFKToken) obj) == 0;
+            }
+
+            @Override
+            public ByteSource asComparableBytes(ByteComparable.Version version)
+            {
+                return kind().comparator.asComparableBytes(ByteBufferAccessor.instance, token, version);
+            }
+
+            ByteBuffer token()
+            {
+                return token;
+            }
+
+            abstract TokenKind kind();
+        }
+
+        public class FullToken extends CFKToken
+        {
+
+            public FullToken(ByteBuffer token)
+            {
+                super(token);
+            }
+
+            @Override
+            TokenKind kind()
+            {
+                return TokenKind.FULL;
+            }
+        }
+
+        public class PrefixToken extends CFKToken
+        {
+            final TokenKind kind;
+            public PrefixToken(ByteBuffer token, TokenKind kind)
+            {
+                super(token);
+                this.kind = kind;
+            }
+
+            @Override
+            TokenKind kind()
+            {
+                return kind;
+            }
+        }
+
+        public PrefixToken getPrefixToken(int commandStore, AccordRoutingKey key)
+        {
+            if (key.kindOfRoutingKey() == AccordRoutingKey.RoutingKeyKind.TOKEN)
+            {
+                ByteBuffer bytes = TokenKind.TOKEN.comparator.decompose(commandStore,
+                                                                        key.table().asUUID(),
+                                                                        ByteBuffer.wrap(getRoutingKeySerializer(key).serializeNoTable(key)));
+                return new PrefixToken(bytes, TokenKind.TOKEN);
+            }
+            else
+            {
+                Invariants.checkArgument(key.kindOfRoutingKey() == AccordRoutingKey.RoutingKeyKind.SENTINEL);
+                ByteBuffer bytes = TokenKind.TABLE.comparator.decompose(commandStore, key.table().asUUID());
+                return new PrefixToken(bytes, TokenKind.TABLE);
+            }
+        }
+
+        private final Token.TokenFactory tokenFactory = new Token.TokenFactory()
+        {
+            public Token fromComparableBytes(ByteSource.Peekable comparableBytes, ByteComparable.Version version)
+            {
+                ByteBuffer tokenData = comparator.fromComparableBytes(ByteBufferAccessor.instance, comparableBytes, version);
+                return new FullToken(tokenData);
+            }
+
+            public ByteBuffer toByteArray(Token token)
+            {
+                return ((FullToken)token).token();
+            }
+
+            public Token fromByteArray(ByteBuffer bytes)
+            {
+                return new FullToken(bytes);
+            }
+
+            public String toString(Token token)
+            {
+                return comparator.getString(((FullToken)token).token());
+            }
+
+            public void validate(String token)
+            {
+                comparator.validate(comparator.fromString(token));
+            }
+
+            public Token fromString(String string)
+            {
+                return new FullToken(comparator.fromString(string));
+            }
+        };
+    }
+
     private static final TableMetadata CommandsForKeys = commandsForKeysTable(COMMANDS_FOR_KEY);
 
     private static TableMetadata commandsForKeysTable(String tableName)
@@ -585,13 +839,14 @@ public class AccordKeyspace
               "accord commands per key",
               "CREATE TABLE %s ("
               + "store_id int, "
+              + "table_id uuid, "
               + "key_token blob, " // can't use "token" as this is restricted word in CQL
-              + format("key %s, ", KEY_TUPLE)
+              + "key blob, "
               + "data blob, "
-              + "PRIMARY KEY((store_id, key_token, key))"
+              + "PRIMARY KEY((store_id, table_id, key_token, key))"
               + ')'
                + " WITH compression = {'class':'NoopCompressor'};")
-        .partitioner(FOR_KEYS_LOCAL_PARTITIONER)
+        .partitioner(CFKPartitioner.instance)
         .build();
     }
 
@@ -602,6 +857,7 @@ public class AccordKeyspace
         final CompositeType partitionKeyType;
         final ColumnFilter allColumns;
         final ColumnMetadata store_id;
+        final ColumnMetadata table_id;
         final ColumnMetadata key_token;
         final ColumnMetadata key;
         final ColumnMetadata data;
@@ -615,6 +871,7 @@ public class AccordKeyspace
             this.partitionKeyType = (CompositeType) table.partitionKeyType;
             this.allColumns = ColumnFilter.all(table);
             this.store_id = getColumn(table, "store_id");
+            this.table_id = getColumn(table, "table_id");
             this.key_token = getColumn(table, "key_token");
             this.key = getColumn(table, "key");
             this.data = getColumn(table, "data");
@@ -631,6 +888,11 @@ public class AccordKeyspace
             return Int32Type.instance.compose(partitionKeyComponents[store_id.position()]);
         }
 
+        public TableId getTableId(ByteBuffer[] partitionKeyComponents)
+        {
+            return TableId.fromUUID(UUIDType.instance.compose(partitionKeyComponents[table_id.position()]));
+        }
+
         public PartitionKey getKey(DecoratedKey key)
         {
             return getKey(splitPartitionKey(key));
@@ -638,7 +900,12 @@ public class AccordKeyspace
 
         public PartitionKey getKey(ByteBuffer[] partitionKeyComponents)
         {
-            return deserializeKey(partitionKeyComponents[key.position()]);
+            TableId tableId = TableId.fromUUID(UUIDSerializer.instance.deserialize(partitionKeyComponents[table_id.position()]));
+            ByteBuffer keyBytes = partitionKeyComponents[key.position()];
+            IPartitioner partitioner = SchemaHolder.schema.getTablePartitioner(tableId);
+            if (partitioner == null)
+                throw new IllegalStateException("Table with id " + tableId + " could not be found; was it deleted?");
+            return new PartitionKey(tableId, partitioner.decorateKey(keyBytes));
         }
 
         public CommandsForKey getCommandsForKey(PartitionKey key, Row row)
@@ -648,6 +915,42 @@ public class AccordKeyspace
                 return null;
 
             return CommandsForKeySerializer.fromBytes(key, cell.buffer());
+        }
+
+        @VisibleForTesting
+        public ByteBuffer serializeKey(CommandStore store, AccordRoutingKey key)
+        {
+            AccordRoutingKeyByteSource.Serializer serializer = TABLE_SERIALIZERS.computeIfAbsent(key.table(), ignore -> {
+                IPartitioner partitioner;
+                if (key.kindOfRoutingKey() == AccordRoutingKey.RoutingKeyKind.TOKEN)
+                    partitioner = key.asTokenKey().token().getPartitioner();
+                else
+                    partitioner = SchemaHolder.schema.getTablePartitioner(key.table());
+                return AccordRoutingKeyByteSource.variableLength(partitioner);
+            });
+            ByteSource[] srcs = {
+                    Int32Type.instance.asComparableBytes(Int32Type.instance.decompose(store.id()), ByteComparable.Version.OSS50),
+
+
+            };
+
+            byte[] bytes = serializer.serializeNoTable(key);
+            return ByteBuffer.wrap(bytes);
+        }
+
+        @VisibleForTesting
+        public ByteBuffer serializeKeyNoTable(AccordRoutingKey key)
+        {
+            AccordRoutingKeyByteSource.Serializer serializer = TABLE_SERIALIZERS.computeIfAbsent(key.table(), ignore -> {
+                IPartitioner partitioner;
+                if (key.kindOfRoutingKey() == AccordRoutingKey.RoutingKeyKind.TOKEN)
+                    partitioner = key.asTokenKey().token().getPartitioner();
+                else
+                    partitioner = SchemaHolder.schema.getTablePartitioner(key.table());
+                return AccordRoutingKeyByteSource.variableLength(partitioner);
+            });
+            byte[] bytes = serializer.serializeNoTable(key);
+            return ByteBuffer.wrap(bytes);
         }
 
         // TODO (expected): garbage-free filtering, reusing encoding
@@ -1066,73 +1369,50 @@ public class AccordKeyspace
         }
     }
 
+    /**
+     * Calculates token bounds based on key prefixes.
+     */
     public static void findAllKeysBetween(int commandStore,
                                           AccordRoutingKey start, boolean startInclusive,
                                           AccordRoutingKey end, boolean endInclusive,
                                           Observable<PartitionKey> callback)
     {
-        //TODO (optimize) : CQL doesn't look smart enough to only walk Index.db, and ends up walking the Data.db file for each row in the partitions found (for frequent keys, this cost adds up)
-        // it would be possible to find all SSTables that "could" intersect this range, then have a merge iterator over the Index.db (filtered to the range; index stores partition liveness)...
-        KeysBetween work = new KeysBetween(commandStore,
-                                           AccordKeyspace.serializeRoutingKey(start), startInclusive,
-                                           AccordKeyspace.serializeRoutingKey(end), endInclusive,
-                                           ImmutableSet.of("key"),
-                                           Stage.READ.executor(), Observable.distinct(callback).map(AccordKeyspace::deserializeKey));
-        work.schedule();
-    }
 
-    private static class KeysBetween extends TableWalk
-    {
-        private static final Set<String> COLUMNS_FOR_ITERATION = ImmutableSet.of("store_id", "key_token");
+        CFKPartitioner.PrefixToken startToken = CFKPartitioner.instance.getPrefixToken(commandStore, start);
+        CFKPartitioner.PrefixToken endToken = CFKPartitioner.instance.getPrefixToken(commandStore, end);
+        PartitionPosition startPosition = new PrefixKeyBound(startToken, startInclusive);
+        PartitionPosition endPosition = new PrefixKeyBound(endToken, !endInclusive);
+        AbstractBounds<PartitionPosition> bounds;
+        if (startInclusive && endInclusive)
+            bounds = new Bounds<>(startPosition, endPosition);
+        else if (endInclusive)
+            bounds = new Range<>(startPosition, endPosition);
+        else if (startInclusive)
+            bounds = new IncludingExcludingBounds<>(startPosition, endPosition);
+        else
+            bounds = new ExcludingBounds<>(startPosition, endPosition);
 
-        private final int storeId;
-        private final ByteBuffer start, end;
-        private final String cqlFirst;
-        private final String cqlContinue;
-
-        private KeysBetween(int storeId,
-                            ByteBuffer start, boolean startInclusive,
-                            ByteBuffer end, boolean endInclusive,
-                            Set<String> requiredColumns,
-                            Executor executor, Observable<UntypedResultSet.Row> callback)
-        {
-            super(executor, callback);
-            this.storeId = storeId;
-            this.start = start;
-            this.end = end;
-
-            String selection = selection(CommandsForKeys, requiredColumns, COLUMNS_FOR_ITERATION);
-            this.cqlFirst = format("SELECT DISTINCT %s\n" +
-                                          "FROM %s\n" +
-                                          "WHERE store_id = ?\n" +
-                                          (startInclusive ? "  AND key_token >= ?\n" : "  AND key_token > ?\n") +
-                                          (endInclusive ? "  AND key_token <= ?\n" : "  AND key_token < ?\n") +
-                                          "ALLOW FILTERING",
-                                          selection, CommandsForKeys);
-            this.cqlContinue = format("SELECT DISTINCT %s\n" +
-                                             "FROM %s\n" +
-                                             "WHERE store_id = ?\n" +
-                                             "  AND key_token > ?\n" +
-                                             "  AND key > ?\n" +
-                                             (endInclusive ? "  AND key_token <= ?\n" : "  AND key_token < ?\n") +
-                                             "ALLOW FILTERING",
-                                             selection, CommandsForKeys);
-        }
-
-        @Override
-        protected UntypedResultSet query(UntypedResultSet.Row lastSeen)
-        {
-            if (lastSeen == null)
+        Stage.READ.executor().submit(() -> {
+            ColumnFamilyStore baseCfs = Keyspace.openAndGetStore(CommandsForKeys);
+            try (OpOrder.Group baseOp = baseCfs.readOrdering.start();
+                 WriteContext writeContext = baseCfs.keyspace.getWriteHandler().createContextForRead();
+                 CloseableIterator<DecoratedKey> iter = KeyIterators.keyIterator(CommandsForKeys, bounds))
             {
-                return executeInternal(cqlFirst, storeId, start, end);
+                try
+                {
+                    while (iter.hasNext())
+                    {
+                        PartitionKey pk = CommandsForKeysAccessor.getKey(iter.next());
+                        callback.onNext(pk);
+                    }
+                    callback.onCompleted();
+                }
+                catch (Exception e)
+                {
+                    callback.onError(e);
+                }
             }
-            else
-            {
-                ByteBuffer previousToken = lastSeen.getBytes("key_token");
-                ByteBuffer previousKey = lastSeen.getBytes("key");
-                return executeInternal(cqlContinue, storeId, previousToken, previousKey, end);
-            }
-        }
+        });
     }
 
     public static TxnId deserializeTxnId(UntypedResultSet.Row row)
@@ -1270,8 +1550,9 @@ public class AccordKeyspace
     private static DecoratedKey makeKey(CommandsForKeyAccessor accessor, int storeId, PartitionKey key)
     {
         ByteBuffer pk = accessor.keyComparator.make(storeId,
+                                                    UUIDSerializer.instance.serialize(key.table().asUUID()),
                                                     serializeRoutingKey(key.toUnseekable()),
-                                                    serializeKey(key)).serializeAsPartitionKey();
+                                                    key.partitionKey().getKey()).serializeAsPartitionKey();
         return accessor.table.partitioner.decorateKey(pk);
     }
 
@@ -1288,6 +1569,11 @@ public class AccordKeyspace
         });
         byte[] bytes = serializer.serialize(routingKey);
         return ByteBuffer.wrap(bytes);
+    }
+
+    public static ByteBuffer serializeRoutingKeyNoTable(AccordRoutingKey key)
+    {
+        return CommandsForKeysAccessor.serializeKeyNoTable(key);
     }
 
     private static PartitionUpdate getCommandsForKeyPartitionUpdate(int storeId, PartitionKey key, CommandsForKey commandsForKey, long timestampMicros)
