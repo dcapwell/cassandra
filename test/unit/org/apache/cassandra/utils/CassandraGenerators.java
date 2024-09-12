@@ -37,6 +37,7 @@ import javax.annotation.Nullable;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.apache.cassandra.dht.*;
 import org.apache.commons.lang3.builder.MultilineRecursiveToStringStyle;
 import org.apache.commons.lang3.builder.ReflectionToStringBuilder;
 
@@ -56,14 +57,6 @@ import org.apache.cassandra.db.marshal.EmptyType;
 import org.apache.cassandra.db.marshal.TimeUUIDType;
 import org.apache.cassandra.db.marshal.UserType;
 import org.apache.cassandra.db.rows.Cell;
-import org.apache.cassandra.dht.ByteOrderedPartitioner;
-import org.apache.cassandra.dht.IPartitioner;
-import org.apache.cassandra.dht.LocalPartitioner;
-import org.apache.cassandra.dht.Murmur3Partitioner;
-import org.apache.cassandra.dht.OrderPreservingPartitioner;
-import org.apache.cassandra.dht.RandomPartitioner;
-import org.apache.cassandra.dht.Range;
-import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.gms.ApplicationState;
 import org.apache.cassandra.gms.EndpointState;
 import org.apache.cassandra.gms.HeartBeatState;
@@ -605,9 +598,29 @@ public final class CassandraGenerators
         return AbstractTypeGenerators.safeTypeGen().map(LocalPartitioner::new);
     }
 
+    public static Gen<IPartitioner> localCompositePrefixPartitioner()
+    {
+        return AbstractTypeGenerators.safeTypeGen().map(type -> {
+            if (type instanceof CompositeType)
+                return new LocalCompositePrefixPartitioner((CompositeType) type);
+            else
+                return new LocalCompositePrefixPartitioner(type);
+        });
+    }
+
     public static Gen<Token> localPartitionerToken()
     {
         var lpGen = localPartitioner();
+        return rs -> {
+            var lp = lpGen.generate(rs);
+            var bytes = AbstractTypeGenerators.getTypeSupport(lp.getTokenValidator()).bytesGen();
+            return lp.getToken(bytes.generate(rs));
+        };
+    }
+
+    public static Gen<Token> localCompositePrefixPartitionerToken()
+    {
+        var lpGen = localCompositePrefixPartitioner();
         return rs -> {
             var lp = lpGen.generate(rs);
             var bytes = AbstractTypeGenerators.getTypeSupport(lp.getTokenValidator()).bytesGen();
@@ -629,7 +642,7 @@ public final class CassandraGenerators
         throw new UnsupportedOperationException("Unsupported partitioner: " + partitioner.getClass());
     }
 
-    private enum SupportedPartitioners { Murmur, ByteOrdered, Random, Local, OrderPreserving}
+    private enum SupportedPartitioners { Murmur, ByteOrdered, Random, Local, OrderPreserving, LocalCompositePrefix }
 
     public static Gen<IPartitioner> partitioners()
     {
@@ -642,6 +655,7 @@ public final class CassandraGenerators
                 case Random: return ignore -> RandomPartitioner.instance;
                 case OrderPreserving: return ignore -> OrderPreservingPartitioner.instance;
                 case Local: return localPartitioner();
+                case LocalCompositePrefix: return localCompositePrefixPartitioner();
                 default: throw new AssertionError("Unknown partition: " + p);
             }
         });
@@ -662,6 +676,7 @@ public final class CassandraGenerators
             case Random: return randomPartitionerToken();
             case ByteOrdered: return byteOrderToken();
             case OrderPreserving: return orderPreservingToken();
+            case LocalCompositePrefix: return localCompositePrefixPartitionerToken();
             default: throw new AssertionError("Unknown partitioner: " + p);
         }
     }
