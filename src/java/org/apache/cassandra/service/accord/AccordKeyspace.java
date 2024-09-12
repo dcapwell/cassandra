@@ -38,10 +38,15 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.filter.*;
+import org.apache.cassandra.db.lifecycle.View;
 import org.apache.cassandra.db.marshal.*;
+import org.apache.cassandra.db.memtable.Memtable;
+import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.dht.*;
+import org.apache.cassandra.io.sstable.SSTableReadsListener;
+import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.utils.*;
-import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,11 +77,6 @@ import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.cql3.statements.ModificationStatement;
 import org.apache.cassandra.cql3.statements.schema.CreateTableStatement;
-import org.apache.cassandra.db.filter.ClusteringIndexFilter;
-import org.apache.cassandra.db.filter.ClusteringIndexNamesFilter;
-import org.apache.cassandra.db.filter.ColumnFilter;
-import org.apache.cassandra.db.filter.DataLimits;
-import org.apache.cassandra.db.filter.RowFilter;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.rows.BTreeRow;
 import org.apache.cassandra.db.rows.BufferCell;
@@ -557,271 +557,7 @@ public class AccordKeyspace
         }
     }
 
-    private static class PrefixKeyBound implements PartitionPosition
-    {
-        private final CFKPartitioner.PrefixToken token;
-
-        public final boolean isMinimumBound;
-
-        public PrefixKeyBound(CFKPartitioner.PrefixToken token, boolean isMinimumBound)
-        {
-            this.token = token;
-            this.isMinimumBound = isMinimumBound;
-        }
-
-        @Override
-        public boolean equals(Object obj)
-        {
-            if (!(obj instanceof PartitionPosition))
-                return false;
-            return compareTo((PartitionPosition) obj) == 0;
-        }
-
-        @Override
-        public boolean isMinimum()
-        {
-            return false;
-        }
-
-        @Override
-        public Token getToken()
-        {
-            return token;
-        }
-
-        @Override
-        public IPartitioner getPartitioner()
-        {
-            return token.getPartitioner();
-        }
-
-        @Override
-        public int compareTo(PartitionPosition o)
-        {
-            return token.compareTo(o.getToken());
-        }
-
-        @Override
-        public int hashCode()
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public Kind kind()
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public ByteSource asComparableBytes(Version version)
-        {
-            int terminator = isMinimumBound ? ByteSource.LT_NEXT_COMPONENT : ByteSource.GT_NEXT_COMPONENT;
-            return ByteSource.withTerminator(terminator, token.asComparableBytes(version));
-        }
-
-        @Override
-        public ByteComparable asComparableBound(boolean before)
-        {
-            return this;
-        }
-
-        @Override
-        public PartitionPosition minValue()
-        {
-            throw new UnsupportedOperationException();
-        }
-    }
-
-    private static class PrefixCompositeType extends CompositeType
-    {
-        public PrefixCompositeType(AbstractType<?>... types)
-        {
-            super(List.of(types));
-        }
-
-        @Override
-        public <VL, VR> int compareCustomRemainder(VL left, ValueAccessor<VL> accessorL, int offsetL, VR right, ValueAccessor<VR> accessorR, int offsetR)
-        {
-            return 0;
-        }
-    }
-
-    public static class CFKPartitioner extends LocalPartitioner
-    {
-        public static final CFKPartitioner instance = new CFKPartitioner();
-
-        enum TokenKind
-        {
-            FULL(CompositeType.getInstance(Int32Type.instance, UUIDType.instance, BytesType.instance, BytesType.instance)),
-            TOKEN(new PrefixCompositeType(Int32Type.instance, UUIDType.instance, BytesType.instance)),
-            TABLE(new PrefixCompositeType(Int32Type.instance, UUIDType.instance));
-
-            private final int selectivity;
-            private final CompositeType comparator;
-
-            TokenKind(CompositeType comparator)
-            {
-                this.selectivity = comparator.subTypes().size();
-                this.comparator = comparator;
-            }
-
-            static TokenKind leastSelective(TokenKind left, TokenKind right)
-            {
-                return left.selectivity <= right.selectivity ? left : right;
-            }
-        }
-
-        private CFKPartitioner()
-        {
-            super(TokenKind.FULL.comparator);
-        }
-
-        @Override
-        public LocalToken getToken(ByteBuffer key)
-        {
-            return new FullToken(key);
-        }
-
-        @Override
-        public LocalToken getMinimumToken()
-        {
-            return new FullToken(ByteBufferUtil.EMPTY_BYTE_BUFFER);
-        }
-
-        @Override
-        public Token.TokenFactory getTokenFactory()
-        {
-            return tokenFactory;
-        }
-
-        public abstract class CFKToken extends LocalToken
-        {
-            public CFKToken(ByteBuffer token)
-            {
-                super(token);
-            }
-
-            @Override
-            public int compareTo(Token o)
-            {
-                Invariants.checkArgument(o instanceof CFKToken);
-                CFKToken that = (CFKToken) o;
-                TokenKind kind = TokenKind.leastSelective(this.kind(), that.kind());
-                return kind.comparator.compare(this.token, that.token);
-            }
-
-            @Override
-            public int hashCode()
-            {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public boolean equals(Object obj)
-            {
-                if (!(obj instanceof CFKToken))
-                    return false;
-                return compareTo((CFKToken) obj) == 0;
-            }
-
-            @Override
-            public ByteSource asComparableBytes(ByteComparable.Version version)
-            {
-                return kind().comparator.asComparableBytes(ByteBufferAccessor.instance, token, version);
-            }
-
-            ByteBuffer token()
-            {
-                return token;
-            }
-
-            abstract TokenKind kind();
-        }
-
-        public class FullToken extends CFKToken
-        {
-
-            public FullToken(ByteBuffer token)
-            {
-                super(token);
-            }
-
-            @Override
-            TokenKind kind()
-            {
-                return TokenKind.FULL;
-            }
-        }
-
-        public class PrefixToken extends CFKToken
-        {
-            final TokenKind kind;
-            public PrefixToken(ByteBuffer token, TokenKind kind)
-            {
-                super(token);
-                this.kind = kind;
-            }
-
-            @Override
-            TokenKind kind()
-            {
-                return kind;
-            }
-        }
-
-        public PrefixToken getPrefixToken(int commandStore, AccordRoutingKey key)
-        {
-            if (key.kindOfRoutingKey() == AccordRoutingKey.RoutingKeyKind.TOKEN)
-            {
-                ByteBuffer bytes = TokenKind.TOKEN.comparator.decompose(commandStore,
-                                                                        key.table().asUUID(),
-                                                                        ByteBuffer.wrap(getRoutingKeySerializer(key).serializeNoTable(key)));
-                return new PrefixToken(bytes, TokenKind.TOKEN);
-            }
-            else
-            {
-                Invariants.checkArgument(key.kindOfRoutingKey() == AccordRoutingKey.RoutingKeyKind.SENTINEL);
-                ByteBuffer bytes = TokenKind.TABLE.comparator.decompose(commandStore, key.table().asUUID());
-                return new PrefixToken(bytes, TokenKind.TABLE);
-            }
-        }
-
-        private final Token.TokenFactory tokenFactory = new Token.TokenFactory()
-        {
-            public Token fromComparableBytes(ByteSource.Peekable comparableBytes, ByteComparable.Version version)
-            {
-                ByteBuffer tokenData = comparator.fromComparableBytes(ByteBufferAccessor.instance, comparableBytes, version);
-                return new FullToken(tokenData);
-            }
-
-            public ByteBuffer toByteArray(Token token)
-            {
-                return ((FullToken)token).token();
-            }
-
-            public Token fromByteArray(ByteBuffer bytes)
-            {
-                return new FullToken(bytes);
-            }
-
-            public String toString(Token token)
-            {
-                return comparator.getString(((FullToken)token).token());
-            }
-
-            public void validate(String token)
-            {
-                comparator.validate(comparator.fromString(token));
-            }
-
-            public Token fromString(String string)
-            {
-                return new FullToken(comparator.fromString(string));
-            }
-        };
-    }
-
+    private static final LocalCompositePrefixPartitioner CFKPartitioner = new LocalCompositePrefixPartitioner(Int32Type.instance, UUIDType.instance, BytesType.instance, BytesType.instance);
     private static final TableMetadata CommandsForKeys = commandsForKeysTable(COMMANDS_FOR_KEY);
 
     private static TableMetadata commandsForKeysTable(String tableName)
@@ -837,7 +573,7 @@ public class AccordKeyspace
               + "PRIMARY KEY((store_id, table_id, key_token, key))"
               + ')'
                + " WITH compression = {'class':'NoopCompressor'};")
-        .partitioner(CFKPartitioner.instance)
+        .partitioner(CFKPartitioner)
         .build();
     }
 
@@ -936,6 +672,19 @@ public class AccordKeyspace
 
             ByteBuffer buffer = CommandsForKeySerializer.toBytesWithoutKey(updated);
             return BTreeRow.singleCellRow(Clustering.EMPTY, BufferCell.live(data, cell.timestamp(), buffer));
+        }
+
+        public LocalCompositePrefixPartitioner.AbstractCompositePrefixToken getPrefixToken(int commandStore, AccordRoutingKey key)
+        {
+            if (key.kindOfRoutingKey() == AccordRoutingKey.RoutingKeyKind.TOKEN)
+            {
+                ByteBuffer tokenBytes = ByteBuffer.wrap(getRoutingKeySerializer(key).serializeNoTable(key));
+                return CFKPartitioner.createPrefixToken(commandStore, key.table().asUUID(), tokenBytes);
+            }
+            else
+            {
+                return CFKPartitioner.createPrefixToken(commandStore, key.table().asUUID());
+            }
         }
     }
 
@@ -1203,6 +952,137 @@ public class AccordKeyspace
                                txnId.msb, txnId.lsb, txnId.node.id);
     }
 
+    static class CFKScanner
+    {
+        private CFKScanner() {}
+
+
+        protected static class Reducer extends MergeIterator.Reducer<DecoratedKey, DecoratedKey>
+        {
+            DecoratedKey merged = null;
+            @Override
+            public void reduce(int idx, DecoratedKey current)
+            {
+                merged = current;
+            }
+
+            @Override
+            protected DecoratedKey getReduced()
+            {
+                return merged;
+            }
+
+            @Override
+            protected void onKeyChange()
+            {
+                merged = null;
+            }
+        }
+
+        /**
+         * Returns a DecoratedKey iterator for the given range. Skips reading data files for sstable formats with a partition index file
+         *
+         * @param range
+         * @return
+         */
+        private static CloseableIterator<DecoratedKey> keyIterator(Memtable memtable, AbstractBounds<PartitionPosition> range)
+        {
+
+            AbstractBounds<PartitionPosition> memtableRange = range.withNewRight(memtable.metadata().partitioner.getMinimumToken().maxKeyBound());
+            DataRange dataRange = new DataRange(memtableRange, new ClusteringIndexSliceFilter(Slices.ALL, false));
+            UnfilteredPartitionIterator iter = memtable.partitionIterator(ColumnFilter.NONE, dataRange, SSTableReadsListener.NOOP_LISTENER);
+            return new AbstractIterator<>()
+            {
+                @Override
+                protected DecoratedKey computeNext()
+                {
+                    while (iter.hasNext())
+                    {
+                        DecoratedKey key = iter.next().partitionKey();
+                        if (range.contains(key))
+                            return key;
+
+                        if (key.compareTo(range.right) >= 0)
+                            break;
+
+                        return key;
+                    }
+                    return endOfData();
+                }
+
+                @Override
+                public void close()
+                {
+                    try
+                    {
+                        super.close();
+                    }
+                    finally
+                    {
+                        iter.close();
+                    }
+                }
+            };
+        }
+
+        public static CloseableIterator<DecoratedKey> keyIterator(TableMetadata metadata, AbstractBounds<PartitionPosition> range) throws IOException
+        {
+            ColumnFamilyStore cfs = Keyspace.openAndGetStore(metadata);
+            ColumnFamilyStore.ViewFragment view = cfs.select(View.selectLive(range));
+
+            List<CloseableIterator<?>> closeableIterators = new ArrayList<>();
+            List<Iterator<DecoratedKey>> iterators = new ArrayList<>();
+
+            try
+            {
+                for (Memtable memtable : view.memtables)
+                {
+                    CloseableIterator<DecoratedKey> iter = keyIterator(memtable, range);
+                    iterators.add(iter);
+                    closeableIterators.add(iter);
+                }
+
+                for (SSTableReader sstable : view.sstables)
+                {
+                    CloseableIterator<DecoratedKey> iter = sstable.keyIterator(range);
+                    iterators.add(iter);
+                    closeableIterators.add(iter);
+                }
+            }
+            catch (Throwable e)
+            {
+                for (CloseableIterator<?> iter: closeableIterators)
+                {
+                    try
+                    {
+                        iter.close();
+                    }
+                    catch (Throwable e2)
+                    {
+                        e.addSuppressed(e2);
+                    }
+                }
+                throw e;
+            }
+
+            return MergeIterator.get(iterators, DecoratedKey::compareTo, new Reducer());
+        }
+    }
+
+
+    public Token getPrefixToken(int commandStore, AccordRoutingKey key)
+    {
+        if (key.kindOfRoutingKey() == AccordRoutingKey.RoutingKeyKind.TOKEN)
+        {
+            ByteBuffer tokenBytes = ByteBuffer.wrap(getRoutingKeySerializer(key).serializeNoTable(key));
+            return CFKPartitioner.createPrefixToken(commandStore, key.table().asUUID(), tokenBytes);
+        }
+        else
+        {
+            return CFKPartitioner.createPrefixToken(commandStore, key.table().asUUID());
+        }
+    }
+
     /**
      * Calculates token bounds based on key prefixes.
      */
@@ -1212,10 +1092,10 @@ public class AccordKeyspace
                                           Observable<PartitionKey> callback)
     {
 
-        CFKPartitioner.PrefixToken startToken = CFKPartitioner.instance.getPrefixToken(commandStore, start);
-        CFKPartitioner.PrefixToken endToken = CFKPartitioner.instance.getPrefixToken(commandStore, end);
-        PartitionPosition startPosition = new PrefixKeyBound(startToken, startInclusive);
-        PartitionPosition endPosition = new PrefixKeyBound(endToken, !endInclusive);
+        Token startToken = CommandsForKeysAccessor.getPrefixToken(commandStore, start);
+        Token endToken = CommandsForKeysAccessor.getPrefixToken(commandStore, end);
+        PartitionPosition startPosition = startInclusive ? startToken.minKeyBound() : startToken.maxKeyBound();
+        PartitionPosition endPosition = endInclusive ? endToken.maxKeyBound() : endToken.minKeyBound();
         AbstractBounds<PartitionPosition> bounds;
         if (startInclusive && endInclusive)
             bounds = new Bounds<>(startPosition, endPosition);
@@ -1230,7 +1110,7 @@ public class AccordKeyspace
             ColumnFamilyStore baseCfs = Keyspace.openAndGetStore(CommandsForKeys);
             try (OpOrder.Group baseOp = baseCfs.readOrdering.start();
                  WriteContext writeContext = baseCfs.keyspace.getWriteHandler().createContextForRead();
-                 CloseableIterator<DecoratedKey> iter = KeyIterators.keyIterator(CommandsForKeys, bounds))
+                 CloseableIterator<DecoratedKey> iter = CFKPartitioner.keyIterator(CommandsForKeys, bounds))
             {
                 try
                 {
