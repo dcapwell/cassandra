@@ -26,11 +26,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
+import org.apache.cassandra.io.sstable.*;
 import org.apache.cassandra.utils.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,16 +52,6 @@ import org.apache.cassandra.db.rows.UnfilteredRowIterators;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.io.sstable.AbstractRowIndexEntry;
-import org.apache.cassandra.io.sstable.CorruptSSTableException;
-import org.apache.cassandra.io.sstable.Descriptor;
-import org.apache.cassandra.io.sstable.Downsampling;
-import org.apache.cassandra.io.sstable.ISSTableScanner;
-import org.apache.cassandra.io.sstable.IVerifier;
-import org.apache.cassandra.io.sstable.IndexInfo;
-import org.apache.cassandra.io.sstable.KeyReader;
-import org.apache.cassandra.io.sstable.SSTable;
-import org.apache.cassandra.io.sstable.SSTableReadsListener;
 import org.apache.cassandra.io.sstable.SSTableReadsListener.SelectionReason;
 import org.apache.cassandra.io.sstable.SSTableReadsListener.SkippingReason;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
@@ -150,61 +142,19 @@ public class BigTableReader extends SSTableReaderWithFilter implements IndexSumm
     }
 
     @Override
-    public CloseableIterator<DecoratedKey> keyIterator(AbstractBounds<PartitionPosition> range, SSTableReadsListener listener)
-    {
-        return new AbstractIterator<>()
-        {
-            RandomAccessReader ifile = null;
-
-            @Override
-            protected DecoratedKey computeNext()
-            {
-                try
-                {
-                    if (ifile == null)
-                    {
-                        ifile = openIndexReader();
-                        ifile.seek(getIndexScanPosition(range.left));
-                    }
-
-                    while (!ifile.isEOF())
-                    {
-                        DecoratedKey indexDecoratedKey = decorateKey(ByteBufferUtil.readWithShortLength(ifile));
-                        RowIndexEntry.Serializer.skip(ifile, descriptor.version);
-                        if (range.contains(indexDecoratedKey))
-                            return indexDecoratedKey;
-
-                        if (indexDecoratedKey.compareTo(range.right) >= 0)
-                            break;
-                    }
-
-                    return endOfData();
-                }
-                catch (IOException e)
-                {
-                    throw new RuntimeException(e);
-                }
-            }
-
-            @Override
-            public void close()
-            {
-                try
-                {
-                    super.close();
-                }
-                finally
-                {
-                    ifile.close();
-                }
-            }
-        };
-    }
-
-    @Override
     public KeyReader keyReader() throws IOException
     {
         return BigTableKeyReader.create(ifile, rowIndexEntrySerializer);
+    }
+
+    @Override
+    public KeyIterator keyIterator(AbstractBounds<PartitionPosition> range) throws IOException
+    {
+
+        RandomAccessReader ifileReader = ifile.createReader();
+        ifileReader.seek(getIndexScanPosition(range.left));
+        BigTableKeyReader keyReader = BigTableKeyReader.create(ifileReader, rowIndexEntrySerializer);
+        return new KeyIterator(range, keyReader, getPartitioner(), uncompressedLength(), new ReentrantReadWriteLock());
     }
 
     /**

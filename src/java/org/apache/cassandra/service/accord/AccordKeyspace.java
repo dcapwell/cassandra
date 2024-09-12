@@ -25,7 +25,6 @@ import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -38,7 +37,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.*;
 import org.apache.cassandra.dht.*;
@@ -60,16 +58,13 @@ import accord.local.SaveStatus;
 import accord.local.Status;
 import accord.local.Status.Durability;
 import accord.primitives.Ranges;
-import accord.primitives.Routable;
 import accord.primitives.Route;
 import accord.primitives.Timestamp;
-import accord.primitives.Txn;
 import accord.primitives.TxnId;
 import accord.topology.Topology;
 import accord.utils.Invariants;
 import accord.utils.ReducingRangeMap;
 import accord.utils.async.Observable;
-import org.apache.cassandra.concurrent.DebuggableTask;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.cql3.QueryOptions;
@@ -621,8 +616,6 @@ public class AccordKeyspace
         @Override
         public ByteSource asComparableBytes(Version version)
         {
-//            throw new UnsupportedOperationException();
-//            return ByteSource.withTerminator(ByteSource.LT_NEXT_COMPONENT, token.asComparableBytes(version));
             int terminator = isMinimumBound ? ByteSource.LT_NEXT_COMPONENT : ByteSource.GT_NEXT_COMPONENT;
             return ByteSource.withTerminator(terminator, token.asComparableBytes(version));
         }
@@ -661,8 +654,6 @@ public class AccordKeyspace
         enum TokenKind
         {
             FULL(CompositeType.getInstance(Int32Type.instance, UUIDType.instance, BytesType.instance, BytesType.instance)),
-//            TOKEN(CompositeType.getInstance(Int32Type.instance, UUIDType.instance, BytesType.instance)),
-//            TABLE(CompositeType.getInstance(Int32Type.instance, UUIDType.instance));
             TOKEN(new PrefixCompositeType(Int32Type.instance, UUIDType.instance, BytesType.instance)),
             TABLE(new PrefixCompositeType(Int32Type.instance, UUIDType.instance));
 
@@ -1212,134 +1203,6 @@ public class AccordKeyspace
                                txnId.msb, txnId.lsb, txnId.node.id);
     }
 
-    private static abstract class TableWalk implements Runnable, DebuggableTask
-    {
-        private final long creationTimeNanos = Global.nanoTime();
-        private final Executor executor;
-        private final Observable<UntypedResultSet.Row> callback;
-        private long startTimeNanos = -1;
-        private int numQueries = 0;
-        private UntypedResultSet.Row lastSeen = null;
-
-        private TableWalk(Executor executor, Observable<UntypedResultSet.Row> callback)
-        {
-            this.executor = executor;
-            this.callback = callback;
-        }
-
-        protected abstract UntypedResultSet query(UntypedResultSet.Row lastSeen);
-
-        public final void schedule()
-        {
-            executor.execute(this);
-        }
-
-        @Override
-        public final void run()
-        {
-            try
-            {
-                if (startTimeNanos == -1)
-                    startTimeNanos = Global.nanoTime();
-                numQueries++;
-                UntypedResultSet result = query(lastSeen);
-                if (result.isEmpty())
-                {
-                    callback.onCompleted();
-                    return;
-                }
-                UntypedResultSet.Row lastRow = null;
-                for (UntypedResultSet.Row row : result)
-                {
-                    callback.onNext(row);
-                    lastRow = row;
-                }
-                lastSeen = lastRow;
-                schedule();
-            }
-            catch (Throwable t)
-            {
-                callback.onError(t);
-            }
-        }
-
-        @Override
-        public long creationTimeNanos()
-        {
-            return creationTimeNanos;
-        }
-
-        @Override
-        public long startTimeNanos()
-        {
-            return startTimeNanos;
-        }
-
-        @Override
-        public String description()
-        {
-            return format("Table Walker for %s; queries = %d", getClass().getSimpleName(), numQueries);
-        }
-    }
-
-    private static String selection(TableMetadata metadata, Set<String> requiredColumns, Set<String> forIteration)
-    {
-        StringBuilder selection = new StringBuilder();
-        if (requiredColumns.isEmpty())
-            selection.append("*");
-        else
-        {
-            Sets.SetView<String> other = Sets.difference(requiredColumns, forIteration);
-            for (String name : other)
-            {
-                ColumnMetadata meta = metadata.getColumn(new ColumnIdentifier(name, true));
-                if (meta == null)
-                    throw new IllegalArgumentException("Unknown column: " + name);
-            }
-            List<String> names = new ArrayList<>(forIteration.size() + other.size());
-            names.addAll(forIteration);
-            names.addAll(other);
-            // this sort is to make sure the CQL is determanistic
-            Collections.sort(names);
-            for (int i = 0; i < names.size(); i++)
-            {
-                if (i > 0)
-                    selection.append(", ");
-                selection.append(names.get(i));
-            }
-        }
-        return selection.toString();
-    }
-
-    private static class WalkCommandsForDomain extends TableWalk
-    {
-        private static final Set<String> COLUMNS_FOR_ITERATION = ImmutableSet.of("txn_id", "store_id", "domain");
-        private final String cql;
-        private final int storeId, domain;
-
-        private WalkCommandsForDomain(int commandStore, Routable.Domain domain, Set<String> requiredColumns, Executor executor, Observable<UntypedResultSet.Row> callback)
-        {
-            super(executor, callback);
-            this.storeId = commandStore;
-            this.domain = domain.ordinal();
-            cql = format("SELECT %s " +
-                                "FROM %s " +
-                                "WHERE store_id = ? " +
-                                "      AND domain = ? " +
-                                "      AND token(store_id, domain, txn_id) > token(?, ?, (?, ?, ?)) " +
-                                "ALLOW FILTERING", selection(Commands, requiredColumns, COLUMNS_FOR_ITERATION), Commands);
-        }
-
-        @Override
-        protected UntypedResultSet query(UntypedResultSet.Row lastSeen)
-        {
-            TxnId lastTxnId = lastSeen == null ?
-                              new TxnId(0, 0, Txn.Kind.Read, Routable.Domain.Key, Node.Id.NONE)
-                              : deserializeTxnId(lastSeen);
-            return executeInternal(cql, storeId, domain, storeId, domain, lastTxnId.msb, lastTxnId.lsb, lastTxnId.node.id);
-        }
-    }
-
     /**
      * Calculates token bounds based on key prefixes.
      */
@@ -1382,6 +1245,11 @@ public class AccordKeyspace
                 {
                     callback.onError(e);
                 }
+            }
+            catch (IOException e)
+            {
+                callback.onError(e);
+                throw new RuntimeException(e);
             }
         });
     }

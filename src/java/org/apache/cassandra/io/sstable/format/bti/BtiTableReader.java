@@ -24,6 +24,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -43,12 +44,7 @@ import org.apache.cassandra.db.rows.UnfilteredRowIterators;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.io.sstable.CorruptSSTableException;
-import org.apache.cassandra.io.sstable.Descriptor;
-import org.apache.cassandra.io.sstable.ISSTableScanner;
-import org.apache.cassandra.io.sstable.IVerifier;
-import org.apache.cassandra.io.sstable.SSTable;
-import org.apache.cassandra.io.sstable.SSTableReadsListener;
+import org.apache.cassandra.io.sstable.*;
 import org.apache.cassandra.io.sstable.SSTableReadsListener.SelectionReason;
 import org.apache.cassandra.io.sstable.SSTableReadsListener.SkippingReason;
 import org.apache.cassandra.io.sstable.format.SSTableReaderWithFilter;
@@ -486,9 +482,8 @@ public class BtiTableReader extends SSTableReaderWithFilter
     }
 
     @Override
-    public CloseableIterator<DecoratedKey> keyIterator(AbstractBounds<PartitionPosition> range, SSTableReadsListener listener)
+    public KeyIterator keyIterator(AbstractBounds<PartitionPosition> range)
     {
-
         PartitionIterator iter;
         try
         {
@@ -501,44 +496,7 @@ public class BtiTableReader extends SSTableReaderWithFilter
             throw new RuntimeException(e);
         }
 
-        return new AbstractIterator<>()
-        {
-            @Override
-            protected DecoratedKey computeNext()
-            {
-                try
-                {
-                    while (!iter.isExhausted())
-                    {
-                        DecoratedKey dk = iter.decoratedKey();
-                        iter.advance();
-                        if (range.contains(dk))
-                            return dk;
-
-                        if (dk.compareTo(range.right) >= 0)
-                            break;
-                    }
-                    return endOfData();
-                }
-                catch (IOException e)
-                {
-                    throw new RuntimeException(e);
-                }
-            }
-
-            @Override
-            public void close()
-            {
-                try
-                {
-                    super.close();
-                }
-                finally
-                {
-                    iter.close();
-                }
-            }
-        };
+        return new KeyIterator(range, iter, metadata().partitioner, uncompressedLength(), new ReentrantReadWriteLock());
     }
 
     @Override
