@@ -261,6 +261,10 @@ public class LocalCompositePrefixPartitioner extends LocalPartitioner
         AbstractBounds<PartitionPosition> memtableRange = range.withNewRight(memtable.metadata().partitioner.getMinimumToken().maxKeyBound());
         DataRange dataRange = new DataRange(memtableRange, new ClusteringIndexSliceFilter(Slices.ALL, false));
         UnfilteredPartitionIterator iter = memtable.partitionIterator(ColumnFilter.NONE, dataRange, SSTableReadsListener.NOOP_LISTENER);
+
+        int rangeStartCmpMin = range.isStartInclusive() ? 0 : 1;
+        int rangeEndCmpMax = range.isEndInclusive() ? 0 : -1;
+
         return new AbstractIterator<>()
         {
             @Override
@@ -269,10 +273,10 @@ public class LocalCompositePrefixPartitioner extends LocalPartitioner
                 while (iter.hasNext())
                 {
                     DecoratedKey key = iter.next().partitionKey();
-                    if (range.contains(key))
-                        return key;
+                    if (key.compareTo(range.left) < rangeStartCmpMin)
+                        continue;
 
-                    if (key.compareTo(range.right) >= 0)
+                    if (key.compareTo(range.right) > rangeEndCmpMax)
                         break;
 
                     return key;
