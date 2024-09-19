@@ -28,28 +28,37 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import accord.api.Key;
 import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import accord.api.Agent;
 import accord.api.DataStore;
+import accord.api.Key;
 import accord.api.LocalListeners;
 import accord.api.ProgressLog;
 import accord.local.cfk.CommandsForKey;
 import accord.impl.TimestampsForKey;
 import accord.local.Command;
 import accord.local.CommandStore;
+import accord.local.CommandStores;
 import accord.local.DurableBefore;
+import accord.local.KeyHistory;
 import accord.local.NodeTimeService;
 import accord.local.PreLoadContext;
 import accord.local.RedundantBefore;
 import accord.local.SafeCommandStore;
+import accord.local.Status;
+import accord.local.cfk.CommandsForKey;
+import accord.primitives.Deps;
 import accord.primitives.Keys;
 import accord.primitives.Ranges;
 import accord.primitives.RoutableKey;
@@ -59,6 +68,8 @@ import accord.utils.Invariants;
 import accord.utils.ReducingRangeMap;
 import accord.utils.async.AsyncChain;
 import accord.utils.async.AsyncChains;
+import accord.utils.async.AsyncResult;
+import accord.utils.async.AsyncResults;
 import org.apache.cassandra.cache.CacheSize;
 import org.apache.cassandra.concurrent.ExecutorPlus;
 import org.apache.cassandra.concurrent.Stage;
@@ -70,8 +81,11 @@ import org.apache.cassandra.service.accord.api.PartitionKey;
 import org.apache.cassandra.service.accord.async.AsyncOperation;
 import org.apache.cassandra.service.accord.events.CacheEvents;
 import org.apache.cassandra.utils.Clock;
+import org.apache.cassandra.utils.concurrent.AsyncPromise;
+import org.apache.cassandra.utils.concurrent.Future;
 import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
 
+import static com.google.common.base.Preconditions.checkNotNull;
 import static org.apache.cassandra.concurrent.ExecutorFactory.Global.executorFactory;
 
 public class AccordCommandStore extends CommandStore implements CacheSize
@@ -109,6 +123,88 @@ public class AccordCommandStore extends CommandStore implements CacheSize
     private AccordSafeCommandStore current = null;
     private long lastSystemTimestampMicros = Long.MIN_VALUE;
     private final CommandsForRangesLoader commandsForRangesLoader;
+
+    private final PersistentField<DurableBefore, DurableBefore> durableBeforePersistentField = new PersistentField<>(this::durableBefore, DurableBefore::merge, AccordKeyspace::updateDurableBefore, durableBefore -> setDurableBefore(durableBefore));
+    private final PersistentField<RedundantBefore, RedundantBefore> redundantBeforePersistentField = new PersistentField<>(this::redundantBefore, RedundantBefore::merge, AccordKeyspace::updateRedundantBefore, redundantBefore -> setRedundantBefore(redundantBefore));
+    private final PersistentField<BootstrapSyncPoint, NavigableMap<TxnId, Ranges>> bootstrapBeganAtPersistentField = new PersistentField<>(this::bootstrapBeganAt, CommandStore::bootstrap, AccordKeyspace::updateBootstrapBeganAt, bootstrapBeganAt -> setBootstrapBeganAt(bootstrapBeganAt));
+    private final PersistentField<NavigableMap<Timestamp, Ranges>, NavigableMap<Timestamp, Ranges>> safeToReadPersistentField = new PersistentField<>(this::safeToRead, null, AccordKeyspace::updateSafeToRead, safeToRead -> setSafeToRead(safeToRead));
+
+    private class PersistentField<I, T>
+    {
+        @Nonnull
+        private final Supplier<T> currentValue;
+        // The update can be bound into the merge function in which case it will be null
+        // Useful when the merge/update function takes multiple types of input arguments
+        @Nullable
+        private final BiFunction<I, T, T> merge;
+        @Nonnull
+        private final BiFunction<CommandStore, T, Future<?>> persist;
+        @Nonnull
+        private final Consumer<T> set;
+
+        private T pendingValue;
+        private AsyncResult<?> pendingResult;
+
+        private PersistentField(@Nonnull Supplier<T> currentValue, @Nonnull BiFunction<I, T, T> merge, @Nonnull BiFunction<CommandStore, T, Future<?>> persist, @Nullable Consumer<T> set)
+        {
+            checkNotNull(currentValue, "currentValue cannot be null");
+            checkNotNull(persist, "persist cannot be null");
+            checkNotNull(set, "set cannot be null");
+            this.currentValue = currentValue;
+            this.merge = merge;
+            this.persist = persist;
+            this.set = set;
+        }
+
+        private AsyncResult<?> mergeAndUpdate(@Nonnull I inputValue)
+        {
+            checkNotNull(merge, "merge cannot be null");
+            checkNotNull(inputValue, "inputValue cannot be null");
+            return mergeAndUpdate(inputValue, merge);
+        }
+
+        private AsyncResult<?> mergeAndUpdate(@Nonnull Function<T, T> update)
+        {
+            checkNotNull(update, "merge cannot be null");
+            return mergeAndUpdate(null, (ignored, existingValue) -> update.apply(existingValue));
+        }
+
+        private AsyncResult<?> mergeAndUpdate(@Nullable I inputValue, @Nonnull BiFunction<I, T, T> merge)
+        {
+            checkNotNull(merge, "merge cannot be null");
+            AsyncResult.Settable<Void> result = AsyncResults.settable();
+            AsyncResult<?> oldPendingResult = pendingResult;
+            T newValue = pendingValue != null ? merge.apply(inputValue, pendingValue) : merge.apply(inputValue, currentValue.get());
+            this.pendingResult = result;
+            this.pendingValue= newValue;
+
+            Future<?> pendingWrite = persist.apply(AccordCommandStore.this, newValue);
+
+            final T newValueFinal = newValue;
+            BiConsumer<Object, Throwable> callback = (ignored, failure) -> {
+                if (PersistentField.this.pendingResult == result)
+                {
+                    PersistentField.this.pendingResult = null;
+                    PersistentField.this.pendingValue = null;
+                }
+                if (failure != null)
+                    result.tryFailure(failure);
+                else
+                {
+                    set.accept(newValueFinal);
+                    result.trySuccess(null);
+                }
+            };
+
+            // Order completion after previous updates, this is probably stricter than necessary but easy to implement
+            if (oldPendingResult != null)
+                oldPendingResult.addCallback(() -> pendingWrite.addCallback(callback, executor));
+            else
+                pendingWrite.addCallback(callback, executor);
+
+            return result;
+        }
+    }
 
     public AccordCommandStore(int id,
                               NodeTimeService time,
@@ -245,9 +341,9 @@ public class AccordCommandStore extends CommandStore implements CacheSize
                 if (rejectBefore != null)
                     super.setRejectBefore(rejectBefore);
                 if (durableBefore != null)
-                    super.setDurableBefore(durableBefore);
+                    super.setDurableBefore(DurableBefore.merge(durableBefore, durableBefore()));
                 if (redundantBefore != null)
-                    super.setRedundantBefore(redundantBefore);
+                    super.setRedundantBefore(RedundantBefore.merge(redundantBefore, redundantBefore));
                 if (bootstrapBeganAt != null)
                     super.setBootstrapBeganAt(bootstrapBeganAt);
                 if (safeToRead != null)
@@ -547,36 +643,32 @@ public class AccordCommandStore extends CommandStore implements CacheSize
         AccordKeyspace.updateRejectBefore(this, newRejectBefore);
     }
 
-    protected void setBootstrapBeganAt(NavigableMap<TxnId, Ranges> newBootstrapBeganAt)
+    @Override
+    protected AsyncResult<?> mergeAndUpdateBootstrapBeganAt(BootstrapSyncPoint globalSyncPoint)
     {
-        super.setBootstrapBeganAt(newBootstrapBeganAt);
-        // TODO (required, correctness): rework to persist via journal once available, this can lose updates in some edge cases
-        AccordKeyspace.updateBootstrapBeganAt(this, newBootstrapBeganAt);
-    }
-
-    protected void setSafeToRead(NavigableMap<Timestamp, Ranges> newSafeToRead)
-    {
-        super.setSafeToRead(newSafeToRead);
-        // TODO (required, correctness): rework to persist via journal once available, this can lose updates in some edge cases
-        AccordKeyspace.updateSafeToRead(this, newSafeToRead);
+        return bootstrapBeganAtPersistentField.mergeAndUpdate(globalSyncPoint);
     }
 
     @Override
-    public void setDurableBefore(DurableBefore newDurableBefore)
+    protected AsyncResult<?> mergeAndUpdateSafeToRead(Function<NavigableMap<Timestamp, Ranges>, NavigableMap<Timestamp, Ranges>> computeNewValue)
     {
-        super.setDurableBefore(newDurableBefore);
-        AccordKeyspace.updateDurableBefore(this, newDurableBefore);
+        // The input values are bound into the merge function to satisfy the fact that there are two different sets of inputs types to the merge function
+        // depending on whether it is purgeHistory or purgeAndInsert
+        return safeToReadPersistentField.mergeAndUpdate(computeNewValue);
     }
 
     @Override
-    protected void setRedundantBefore(RedundantBefore newRedundantBefore)
+    public AsyncResult<?> mergeAndUpdateDurableBefore(DurableBefore newDurableBefore)
     {
-        super.setRedundantBefore(newRedundantBefore);
-        // TODO (required): this needs to be synchronous, or at least needs to take effect before we rely upon it
-        AccordKeyspace.updateRedundantBefore(this, newRedundantBefore);
+        return durableBeforePersistentField.mergeAndUpdate(newDurableBefore);
     }
 
-    public NavigableMap<TxnId, Ranges> bootstrapBeganAt() { return super.bootstrapBeganAt(); }
+    @Override
+    protected AsyncResult<?> mergeAndUpdateRedundantBefore(RedundantBefore newRedundantBefore)
+    {
+        return redundantBeforePersistentField.mergeAndUpdate(newRedundantBefore);
+    }
+
     public NavigableMap<Timestamp, Ranges> safeToRead() { return super.safeToRead(); }
 
     public void appendCommands(List<SavedCommand.Writer<TxnId>> commands, List<Command> sanityCheck, Runnable onFlush)
