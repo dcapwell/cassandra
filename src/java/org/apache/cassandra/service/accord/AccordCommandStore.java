@@ -26,22 +26,23 @@ import java.util.NavigableMap;
 import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 
-import accord.api.Key;
 import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import accord.api.Agent;
 import accord.api.DataStore;
+import accord.api.Key;
 import accord.api.LocalListeners;
 import accord.api.ProgressLog;
-import accord.local.cfk.CommandsForKey;
 import accord.impl.TimestampsForKey;
 import accord.local.Command;
 import accord.local.CommandStore;
@@ -50,6 +51,7 @@ import accord.local.NodeTimeService;
 import accord.local.PreLoadContext;
 import accord.local.RedundantBefore;
 import accord.local.SafeCommandStore;
+import accord.local.cfk.CommandsForKey;
 import accord.primitives.Keys;
 import accord.primitives.Ranges;
 import accord.primitives.RoutableKey;
@@ -57,6 +59,7 @@ import accord.primitives.Timestamp;
 import accord.primitives.TxnId;
 import accord.utils.Invariants;
 import accord.utils.ReducingRangeMap;
+import accord.utils.TriConsumer;
 import accord.utils.async.AsyncChain;
 import accord.utils.async.AsyncChains;
 import org.apache.cassandra.cache.CacheSize;
@@ -110,6 +113,8 @@ public class AccordCommandStore extends CommandStore implements CacheSize
     private long lastSystemTimestampMicros = Long.MIN_VALUE;
     private final CommandsForRangesLoader commandsForRangesLoader;
 
+    private static final TriConsumer<Object, BiConsumer<Object, Throwable>, Executor> addCallbackAdapter = (future, callback, executor) -> ((org.apache.cassandra.utils.concurrent.Future<?>)future).addCallback(callback, executor);
+
     public AccordCommandStore(int id,
                               NodeTimeService time,
                               Agent agent,
@@ -120,7 +125,17 @@ public class AccordCommandStore extends CommandStore implements CacheSize
                               IJournal journal,
                               AccordStateCacheMetrics cacheMetrics)
     {
-        this(id, time, agent, dataStore, progressLogFactory, listenerFactory, epochUpdateHolder, journal, Stage.READ.executor(), Stage.MUTATION.executor(), cacheMetrics);
+        this(id,
+             time,
+             agent,
+             dataStore,
+             progressLogFactory,
+             listenerFactory,
+             epochUpdateHolder,
+             journal,
+             Stage.READ.executor(),
+             Stage.MUTATION.executor(),
+             cacheMetrics);
     }
 
     private static <K, V> void registerJfrListener(int id, AccordStateCache.Instance<K, V, ?> instance, String name)
@@ -203,7 +218,7 @@ public class AccordCommandStore extends CommandStore implements CacheSize
                               ExecutorPlus saveExecutor,
                               AccordStateCacheMetrics cacheMetrics)
     {
-        super(id, time, agent, dataStore, progressLogFactory, listenerFactory, epochUpdateHolder);
+        super(id, time, agent, dataStore, progressLogFactory, listenerFactory, epochUpdateHolder, addCallbackAdapter, AccordKeyspace::updateDurableBefore, AccordKeyspace::updateRedundantBefore, AccordKeyspace::updateBootstrapBeganAt, AccordKeyspace::updateSafeToRead);
         this.journal = journal;
         loggingId = String.format("[%s]", id);
         executor = executorFactory().sequential(CommandStore.class.getSimpleName() + '[' + id + ']');
@@ -245,9 +260,9 @@ public class AccordCommandStore extends CommandStore implements CacheSize
                 if (rejectBefore != null)
                     super.setRejectBefore(rejectBefore);
                 if (durableBefore != null)
-                    super.setDurableBefore(durableBefore);
+                    super.setDurableBefore(DurableBefore.merge(durableBefore, durableBefore()));
                 if (redundantBefore != null)
-                    super.setRedundantBefore(redundantBefore);
+                    super.setRedundantBefore(RedundantBefore.merge(redundantBefore, redundantBefore));
                 if (bootstrapBeganAt != null)
                     super.setBootstrapBeganAt(bootstrapBeganAt);
                 if (safeToRead != null)
@@ -260,7 +275,7 @@ public class AccordCommandStore extends CommandStore implements CacheSize
 
     static Factory factory(AccordJournal journal, AccordStateCacheMetrics cacheMetrics)
     {
-        return (id, time, agent, dataStore, progressLogFactory, listenerFactory, rangesForEpoch) ->
+        return (id, time, agent, dataStore, progressLogFactory, listenerFactory, rangesForEpoch, scheduler) ->
                new AccordCommandStore(id, time, agent, dataStore, progressLogFactory, listenerFactory, rangesForEpoch, journal, cacheMetrics);
     }
 
@@ -547,36 +562,6 @@ public class AccordCommandStore extends CommandStore implements CacheSize
         AccordKeyspace.updateRejectBefore(this, newRejectBefore);
     }
 
-    protected void setBootstrapBeganAt(NavigableMap<TxnId, Ranges> newBootstrapBeganAt)
-    {
-        super.setBootstrapBeganAt(newBootstrapBeganAt);
-        // TODO (required, correctness): rework to persist via journal once available, this can lose updates in some edge cases
-        AccordKeyspace.updateBootstrapBeganAt(this, newBootstrapBeganAt);
-    }
-
-    protected void setSafeToRead(NavigableMap<Timestamp, Ranges> newSafeToRead)
-    {
-        super.setSafeToRead(newSafeToRead);
-        // TODO (required, correctness): rework to persist via journal once available, this can lose updates in some edge cases
-        AccordKeyspace.updateSafeToRead(this, newSafeToRead);
-    }
-
-    @Override
-    public void setDurableBefore(DurableBefore newDurableBefore)
-    {
-        super.setDurableBefore(newDurableBefore);
-        AccordKeyspace.updateDurableBefore(this, newDurableBefore);
-    }
-
-    @Override
-    protected void setRedundantBefore(RedundantBefore newRedundantBefore)
-    {
-        super.setRedundantBefore(newRedundantBefore);
-        // TODO (required): this needs to be synchronous, or at least needs to take effect before we rely upon it
-        AccordKeyspace.updateRedundantBefore(this, newRedundantBefore);
-    }
-
-    public NavigableMap<TxnId, Ranges> bootstrapBeganAt() { return super.bootstrapBeganAt(); }
     public NavigableMap<Timestamp, Ranges> safeToRead() { return super.safeToRead(); }
 
     public void appendCommands(List<SavedCommand.Writer<TxnId>> commands, List<Command> sanityCheck, Runnable onFlush)
