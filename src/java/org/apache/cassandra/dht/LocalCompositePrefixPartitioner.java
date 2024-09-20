@@ -65,7 +65,7 @@ public class LocalCompositePrefixPartitioner extends LocalPartitioner
         }
 
         @Override
-        public <VL, VR> int compareCustomRemainder(VL left, ValueAccessor<VL> accessorL, int offsetL, VR right, ValueAccessor<VR> accessorR, int offsetR)
+        protected  <VL, VR> int compareCustomRemainder(VL left, ValueAccessor<VL> accessorL, int offsetL, VR right, ValueAccessor<VR> accessorR, int offsetR)
         {
             return 0;
         }
