@@ -259,7 +259,7 @@ public class LocalCompositePrefixPartitioner extends LocalPartitioner
     /**
      * Returns a DecoratedKey iterator for the given range. Skips reading data files for sstable formats with a partition index file
      */
-    private CloseableIterator<DecoratedKey> keyIterator(Memtable memtable, AbstractBounds<PartitionPosition> range)
+    private static CloseableIterator<DecoratedKey> keyIterator(Memtable memtable, AbstractBounds<PartitionPosition> range)
     {
 
         AbstractBounds<PartitionPosition> memtableRange = range.withNewRight(memtable.metadata().partitioner.getMinimumToken().maxKeyBound());
@@ -296,7 +296,7 @@ public class LocalCompositePrefixPartitioner extends LocalPartitioner
         };
     }
 
-    public CloseableIterator<DecoratedKey> keyIterator(TableMetadata metadata, AbstractBounds<PartitionPosition> range) throws IOException
+    public static CloseableIterator<DecoratedKey> keyIterator(TableMetadata metadata, AbstractBounds<PartitionPosition> range) throws IOException
     {
         ColumnFamilyStore cfs = Keyspace.openAndGetStore(metadata);
         ColumnFamilyStore.ViewFragment view = cfs.select(View.selectLive(range));
