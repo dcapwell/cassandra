@@ -207,6 +207,7 @@ public class LocalCompositePrefixPartitioner extends LocalPartitioner
     }
 
 
+    @SuppressWarnings("rawtypes")
     public LocalCompositePrefixPartitioner(AbstractType... types)
     {
         this(CompositeType.getInstance(types));
@@ -257,9 +258,6 @@ public class LocalCompositePrefixPartitioner extends LocalPartitioner
 
     /**
      * Returns a DecoratedKey iterator for the given range. Skips reading data files for sstable formats with a partition index file
-     *
-     * @param range
-     * @return
      */
     private CloseableIterator<DecoratedKey> keyIterator(Memtable memtable, AbstractBounds<PartitionPosition> range)
     {
@@ -293,14 +291,7 @@ public class LocalCompositePrefixPartitioner extends LocalPartitioner
             @Override
             public void close()
             {
-                try
-                {
-                    super.close();
-                }
-                finally
-                {
-                    iter.close();
-                }
+                iter.close();
             }
         };
     }
