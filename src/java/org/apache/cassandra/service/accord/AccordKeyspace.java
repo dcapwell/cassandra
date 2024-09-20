@@ -20,9 +20,13 @@ package org.apache.cassandra.service.accord;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.math.BigInteger;
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.NavigableMap;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Future;
@@ -37,22 +41,10 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
-import org.apache.cassandra.db.*;
-import org.apache.cassandra.db.filter.*;
-import org.apache.cassandra.db.lifecycle.View;
-import org.apache.cassandra.db.marshal.*;
-import org.apache.cassandra.db.memtable.Memtable;
-import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
-import org.apache.cassandra.dht.*;
-import org.apache.cassandra.io.sstable.SSTableReadsListener;
-import org.apache.cassandra.io.sstable.format.SSTableReader;
-import org.apache.cassandra.utils.*;
-import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import accord.api.Key;
-import accord.local.cfk.CommandsForKey;
 import accord.impl.TimestampsForKey;
 import accord.local.Command;
 import accord.local.CommandStore;
@@ -62,6 +54,7 @@ import accord.local.RedundantBefore;
 import accord.local.SaveStatus;
 import accord.local.Status;
 import accord.local.Status.Durability;
+import accord.local.cfk.CommandsForKey;
 import accord.primitives.Ranges;
 import accord.primitives.Route;
 import accord.primitives.Timestamp;
@@ -77,6 +70,35 @@ import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.cql3.statements.ModificationStatement;
 import org.apache.cassandra.cql3.statements.schema.CreateTableStatement;
+import org.apache.cassandra.db.Clustering;
+import org.apache.cassandra.db.ClusteringComparator;
+import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.Columns;
+import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.DeletionTime;
+import org.apache.cassandra.db.IMutation;
+import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.LivenessInfo;
+import org.apache.cassandra.db.Mutation;
+import org.apache.cassandra.db.PartitionPosition;
+import org.apache.cassandra.db.ReadExecutionController;
+import org.apache.cassandra.db.RegularAndStaticColumns;
+import org.apache.cassandra.db.SinglePartitionReadCommand;
+import org.apache.cassandra.db.WriteContext;
+import org.apache.cassandra.db.filter.ClusteringIndexFilter;
+import org.apache.cassandra.db.filter.ClusteringIndexNamesFilter;
+import org.apache.cassandra.db.filter.ColumnFilter;
+import org.apache.cassandra.db.filter.DataLimits;
+import org.apache.cassandra.db.filter.RowFilter;
+import org.apache.cassandra.db.marshal.ByteArrayAccessor;
+import org.apache.cassandra.db.marshal.ByteBufferAccessor;
+import org.apache.cassandra.db.marshal.BytesType;
+import org.apache.cassandra.db.marshal.CompositeType;
+import org.apache.cassandra.db.marshal.Int32Type;
+import org.apache.cassandra.db.marshal.LongType;
+import org.apache.cassandra.db.marshal.TupleType;
+import org.apache.cassandra.db.marshal.UUIDType;
+import org.apache.cassandra.db.marshal.ValueAccessor;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.rows.BTreeRow;
 import org.apache.cassandra.db.rows.BufferCell;
@@ -85,6 +107,17 @@ import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.Row.Deletion;
 import org.apache.cassandra.db.rows.RowIterator;
 import org.apache.cassandra.db.transform.FilteredPartitions;
+import org.apache.cassandra.dht.AbstractBounds;
+import org.apache.cassandra.dht.Bounds;
+import org.apache.cassandra.dht.ByteOrderedPartitioner;
+import org.apache.cassandra.dht.ExcludingBounds;
+import org.apache.cassandra.dht.IPartitioner;
+import org.apache.cassandra.dht.IncludingExcludingBounds;
+import org.apache.cassandra.dht.LocalCompositePrefixPartitioner;
+import org.apache.cassandra.dht.LocalPartitioner;
+import org.apache.cassandra.dht.Murmur3Partitioner;
+import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.index.accord.RouteIndex;
 import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.LocalVersionedSerializer;
@@ -116,9 +149,11 @@ import org.apache.cassandra.service.accord.serializers.CommandsForKeySerializer;
 import org.apache.cassandra.service.accord.serializers.KeySerializers;
 import org.apache.cassandra.service.accord.serializers.TopologySerializers;
 import org.apache.cassandra.utils.Clock.Global;
+import org.apache.cassandra.utils.CloseableIterator;
 import org.apache.cassandra.utils.btree.BTree;
 import org.apache.cassandra.utils.btree.BTreeSet;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+import org.apache.cassandra.utils.concurrent.OpOrder;
 
 import static accord.utils.Invariants.checkArgument;
 import static accord.utils.Invariants.checkState;
@@ -171,9 +206,6 @@ public class AccordKeyspace
             return AccordRoutingKeyByteSource.variableLength(partitioner);
         });
     }
-
-
-    private static final BigInteger ONE = BigInteger.valueOf(1);
 
     // Schema needs all system keyspace, and this is a system keyspace!  So can not touch schema in init
     private static class SchemaHolder
@@ -460,7 +492,6 @@ public class AccordKeyspace
     {
         static final ClusteringComparator keyComparator = TimestampsForKeys.partitionKeyAsClusteringComparator();
         static final CompositeType partitionKeyType = (CompositeType) TimestampsForKeys.partitionKeyType;
-        static final ColumnFilter allColumns = ColumnFilter.all(TimestampsForKeys);
         static final ColumnMetadata store_id = getColumn(TimestampsForKeys, "store_id");
         static final ColumnMetadata key_token = getColumn(TimestampsForKeys, "key_token");
         static final ColumnMetadata key = getColumn(TimestampsForKeys, "key");
@@ -563,18 +594,18 @@ public class AccordKeyspace
     private static TableMetadata commandsForKeysTable(String tableName)
     {
         return parse(tableName,
-              "accord commands per key",
-              "CREATE TABLE %s ("
-              + "store_id int, "
-              + "table_id uuid, "
-              + "key_token blob, " // can't use "token" as this is restricted word in CQL
-              + "key blob, "
-              + "data blob, "
-              + "PRIMARY KEY((store_id, table_id, key_token, key))"
-              + ')'
-               + " WITH compression = {'class':'NoopCompressor'};")
-        .partitioner(CFKPartitioner)
-        .build();
+                     "accord commands per key",
+                     "CREATE TABLE %s ("
+                     + "store_id int, "
+                     + "table_id uuid, "
+                     + "key_token blob, " // can't use "token" as this is restricted word in CQL
+                     + "key blob, "
+                     + "data blob, "
+                     + "PRIMARY KEY((store_id, table_id, key_token, key))"
+                     + ')'
+                     + " WITH compression = {'class':'NoopCompressor'};")
+               .partitioner(CFKPartitioner)
+               .build();
     }
 
     public static class CommandsForKeyAccessor
@@ -952,137 +983,6 @@ public class AccordKeyspace
                                txnId.msb, txnId.lsb, txnId.node.id);
     }
 
-    static class CFKScanner
-    {
-        private CFKScanner() {}
-
-
-        protected static class Reducer extends MergeIterator.Reducer<DecoratedKey, DecoratedKey>
-        {
-            DecoratedKey merged = null;
-            @Override
-            public void reduce(int idx, DecoratedKey current)
-            {
-                merged = current;
-            }
-
-            @Override
-            protected DecoratedKey getReduced()
-            {
-                return merged;
-            }
-
-            @Override
-            protected void onKeyChange()
-            {
-                merged = null;
-            }
-        }
-
-        /**
-         * Returns a DecoratedKey iterator for the given range. Skips reading data files for sstable formats with a partition index file
-         *
-         * @param range
-         * @return
-         */
-        private static CloseableIterator<DecoratedKey> keyIterator(Memtable memtable, AbstractBounds<PartitionPosition> range)
-        {
-
-            AbstractBounds<PartitionPosition> memtableRange = range.withNewRight(memtable.metadata().partitioner.getMinimumToken().maxKeyBound());
-            DataRange dataRange = new DataRange(memtableRange, new ClusteringIndexSliceFilter(Slices.ALL, false));
-            UnfilteredPartitionIterator iter = memtable.partitionIterator(ColumnFilter.NONE, dataRange, SSTableReadsListener.NOOP_LISTENER);
-            return new AbstractIterator<>()
-            {
-                @Override
-                protected DecoratedKey computeNext()
-                {
-                    while (iter.hasNext())
-                    {
-                        DecoratedKey key = iter.next().partitionKey();
-                        if (range.contains(key))
-                            return key;
-
-                        if (key.compareTo(range.right) >= 0)
-                            break;
-
-                        return key;
-                    }
-                    return endOfData();
-                }
-
-                @Override
-                public void close()
-                {
-                    try
-                    {
-                        super.close();
-                    }
-                    finally
-                    {
-                        iter.close();
-                    }
-                }
-            };
-        }
-
-        public static CloseableIterator<DecoratedKey> keyIterator(TableMetadata metadata, AbstractBounds<PartitionPosition> range) throws IOException
-        {
-            ColumnFamilyStore cfs = Keyspace.openAndGetStore(metadata);
-            ColumnFamilyStore.ViewFragment view = cfs.select(View.selectLive(range));
-
-            List<CloseableIterator<?>> closeableIterators = new ArrayList<>();
-            List<Iterator<DecoratedKey>> iterators = new ArrayList<>();
-
-            try
-            {
-                for (Memtable memtable : view.memtables)
-                {
-                    CloseableIterator<DecoratedKey> iter = keyIterator(memtable, range);
-                    iterators.add(iter);
-                    closeableIterators.add(iter);
-                }
-
-                for (SSTableReader sstable : view.sstables)
-                {
-                    CloseableIterator<DecoratedKey> iter = sstable.keyIterator(range);
-                    iterators.add(iter);
-                    closeableIterators.add(iter);
-                }
-            }
-            catch (Throwable e)
-            {
-                for (CloseableIterator<?> iter: closeableIterators)
-                {
-                    try
-                    {
-                        iter.close();
-                    }
-                    catch (Throwable e2)
-                    {
-                        e.addSuppressed(e2);
-                    }
-                }
-                throw e;
-            }
-
-            return MergeIterator.get(iterators, DecoratedKey::compareTo, new Reducer());
-        }
-    }
-
-
-    public Token getPrefixToken(int commandStore, AccordRoutingKey key)
-    {
-        if (key.kindOfRoutingKey() == AccordRoutingKey.RoutingKeyKind.TOKEN)
-        {
-            ByteBuffer tokenBytes = ByteBuffer.wrap(getRoutingKeySerializer(key).serializeNoTable(key));
-            return CFKPartitioner.createPrefixToken(commandStore, key.table().asUUID(), tokenBytes);
-        }
-        else
-        {
-            return CFKPartitioner.createPrefixToken(commandStore, key.table().asUUID());
-        }
-    }
-
     /**
      * Calculates token bounds based on key prefixes.
      */
@@ -1110,7 +1010,7 @@ public class AccordKeyspace
             ColumnFamilyStore baseCfs = Keyspace.openAndGetStore(CommandsForKeys);
             try (OpOrder.Group baseOp = baseCfs.readOrdering.start();
                  WriteContext writeContext = baseCfs.keyspace.getWriteHandler().createContextForRead();
-                 CloseableIterator<DecoratedKey> iter = CFKPartitioner.keyIterator(CommandsForKeys, bounds))
+                 CloseableIterator<DecoratedKey> iter = LocalCompositePrefixPartitioner.keyIterator(CommandsForKeys, bounds))
             {
                 // Need the second try to handle callback errors vs read errors.
                 // Callback will see the read errors, but if the callback fails the outer try will see those errors
@@ -1479,7 +1379,7 @@ public class AccordKeyspace
 
     /**
      * Update the disk state for this epoch, if it's higher than the one we have one disk.
-     *
+     * <p>
      * This is meant to be called before any update involving the new epoch, not after. This way if the update
      * fails, we can detect and cleanup. If we updated disk state after an update and it failed, we could "forget"
      * about (now acked) topology updates after a restart.
@@ -1628,7 +1528,6 @@ public class AccordKeyspace
         Ranges redundant = row.has("redundant") ? blobMapToRanges(row.getMap("redundant", BytesType.instance, BytesType.instance)) : Ranges.EMPTY;
 
         consumer.load(epoch, topology, syncStatus, pendingSyncNotify, remoteSyncComplete, closed, redundant);
-
     }
 
     public static EpochDiskState loadTopologies(TopologyLoadConsumer consumer)
@@ -1714,8 +1613,8 @@ public class AccordKeyspace
     public interface CommandStoreMetadataConsumer
     {
         void accept(ReducingRangeMap<Timestamp> rejectBefore, DurableBefore durableBefore, RedundantBefore redundantBefore, NavigableMap<TxnId, Ranges> bootstrapBeganAt, NavigableMap<Timestamp, Ranges> safeToRead);
-
     }
+
     public static void loadCommandStoreMetadata(int id, CommandStoreMetadataConsumer consumer)
     {
         UntypedResultSet result = executeOnceInternal(format("SELECT * FROM %s.%s WHERE store_id=?", ACCORD_KEYSPACE_NAME, COMMAND_STORE_METADATA), id);
@@ -1762,5 +1661,4 @@ public class AccordKeyspace
         TABLE_SERIALIZERS.clear();
         SchemaHolder.schema = Schema.instance;
     }
-
 }
