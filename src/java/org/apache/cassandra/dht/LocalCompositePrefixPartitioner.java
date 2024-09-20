@@ -149,32 +149,38 @@ public class LocalCompositePrefixPartitioner extends LocalPartitioner
 
     private final Token.TokenFactory tokenFactory = new Token.TokenFactory()
     {
+        @Override
         public Token fromComparableBytes(ByteSource.Peekable comparableBytes, ByteComparable.Version version)
         {
             ByteBuffer tokenData = comparator.fromComparableBytes(ByteBufferAccessor.instance, comparableBytes, version);
             return new FullToken(tokenData);
         }
 
+        @Override
         public ByteBuffer toByteArray(Token token)
         {
             return ((FullToken)token).token();
         }
 
+        @Override
         public Token fromByteArray(ByteBuffer bytes)
         {
             return new FullToken(bytes);
         }
 
+        @Override
         public String toString(Token token)
         {
             return comparator.getString(((FullToken)token).token());
         }
 
+        @Override
         public void validate(String token)
         {
             comparator.validate(comparator.fromString(token));
         }
 
+        @Override
         public Token fromString(String string)
         {
             return new FullToken(comparator.fromString(string));
