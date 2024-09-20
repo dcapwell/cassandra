@@ -21,7 +21,7 @@ abstract class ComparableObjectToken<C extends Comparable<C>> extends Token
 {
     private static final long serialVersionUID = 1L;
 
-    protected final C token;
+    final C token;   // Package-private to allow access from subtypes, which should all reside in the dht package.
 
     protected ComparableObjectToken(C token)
     {
