@@ -37,7 +37,7 @@ import javax.annotation.Nullable;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import org.apache.cassandra.dht.*;
+import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.builder.MultilineRecursiveToStringStyle;
 import org.apache.commons.lang3.builder.ReflectionToStringBuilder;
 
@@ -57,6 +57,16 @@ import org.apache.cassandra.db.marshal.EmptyType;
 import org.apache.cassandra.db.marshal.TimeUUIDType;
 import org.apache.cassandra.db.marshal.UserType;
 import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.dht.ByteOrderedPartitioner;
+import org.apache.cassandra.dht.IPartitioner;
+import org.apache.cassandra.dht.LocalCompositePrefixPartitioner;
+import org.apache.cassandra.dht.LocalPartitioner;
+import org.apache.cassandra.dht.Murmur3Partitioner;
+import org.apache.cassandra.dht.OrderPreservingPartitioner;
+import org.apache.cassandra.dht.RandomPartitioner;
+import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.ReversedLongLocalPartitioner;
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.gms.ApplicationState;
 import org.apache.cassandra.gms.EndpointState;
 import org.apache.cassandra.gms.HeartBeatState;
@@ -628,6 +638,21 @@ public final class CassandraGenerators
         };
     }
 
+    public static Gen<Token> reversedLongLocalToken()
+    {
+        Constraint range = Constraint.between(0, Long.MAX_VALUE);
+        return rs -> new ReversedLongLocalPartitioner.ReversedLongLocalToken(rs.next(range));
+    }
+
+    public static Gen<ByteBuffer> reversedLongLocalKeys()
+    {
+        Constraint range = Constraint.between(0, Long.MAX_VALUE);
+        return rs -> {
+            long value = rs.next(range);
+            return ByteBufferUtil.bytes(value);
+        };
+    }
+
     public static Gen<Token> orderPreservingToken()
     {
         // empty token only happens if partition key is byte[0], which isn't allowed
@@ -642,7 +667,20 @@ public final class CassandraGenerators
         throw new UnsupportedOperationException("Unsupported partitioner: " + partitioner.getClass());
     }
 
-    private enum SupportedPartitioners { Murmur, ByteOrdered, Random, Local, OrderPreserving, LocalCompositePrefix }
+    private enum SupportedPartitioners { Murmur, ByteOrdered, Random, Local, OrderPreserving, LocalCompositePrefix, ReversedLongLocal }
+
+    public static Set<Class<? extends IPartitioner>> knownPartitioners()
+    {
+        //TODO (now): once this patch rebases against trunk this can be pushed into SupportedPartitioners
+        //TODO (now): once the patch rebases against trunk make sure to filter ReversedLongLocalPartitioner when asking for non-local partitioners...
+        return ImmutableSet.of(Murmur3Partitioner.class,
+                               ByteOrderedPartitioner.class,
+                               RandomPartitioner.class,
+                               LocalPartitioner.class,
+                               LocalCompositePrefixPartitioner.class,
+                               ReversedLongLocalPartitioner.class,
+                               OrderPreservingPartitioner.class);
+    }
 
     public static Gen<IPartitioner> partitioners()
     {
@@ -656,6 +694,7 @@ public final class CassandraGenerators
                 case OrderPreserving: return ignore -> OrderPreservingPartitioner.instance;
                 case Local: return localPartitioner();
                 case LocalCompositePrefix: return localCompositePrefixPartitioner();
+                case ReversedLongLocal: return ignore -> ReversedLongLocalPartitioner.instance;
                 default: throw new AssertionError("Unknown partition: " + p);
             }
         });
@@ -677,6 +716,7 @@ public final class CassandraGenerators
             case ByteOrdered: return byteOrderToken();
             case OrderPreserving: return orderPreservingToken();
             case LocalCompositePrefix: return localCompositePrefixPartitionerToken();
+            case ReversedLongLocal: return reversedLongLocalToken();
             default: throw new AssertionError("Unknown partitioner: " + p);
         }
     }
@@ -686,8 +726,10 @@ public final class CassandraGenerators
         if (partitioner instanceof Murmur3Partitioner) return murmurToken();
         if (partitioner instanceof ByteOrderedPartitioner) return byteOrderToken();
         if (partitioner instanceof RandomPartitioner) return randomPartitionerToken();
+        if (partitioner instanceof LocalCompositePrefixPartitioner) return localCompositePrefixPartitionerToken();
         if (partitioner instanceof LocalPartitioner) return localPartitionerToken((LocalPartitioner) partitioner);
         if (partitioner instanceof OrderPreservingPartitioner) return orderPreservingToken();
+        if (partitioner instanceof ReversedLongLocalPartitioner) return reversedLongLocalToken();
         throw new UnsupportedOperationException("Unsupported partitioner: " + partitioner.getClass());
     }
 
@@ -845,6 +887,10 @@ public final class CassandraGenerators
             {
                 LocalPartitioner lp = (LocalPartitioner) partitioner;
                 valueGen = AbstractTypeGenerators.getTypeSupport(lp.getTokenValidator()).bytesGen();
+            }
+            else if (partitioner instanceof ReversedLongLocalPartitioner)
+            {
+                valueGen = reversedLongLocalKeys();
             }
             return partitioner.decorateKey(valueGen.generate(rs));
         };

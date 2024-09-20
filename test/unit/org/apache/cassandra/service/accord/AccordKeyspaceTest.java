@@ -60,6 +60,7 @@ import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.LocalPartitioner;
+import org.apache.cassandra.dht.ReversedLongLocalPartitioner;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.schema.MemtableParams;
 import org.apache.cassandra.schema.Schema;
@@ -183,8 +184,13 @@ public class AccordKeyspaceTest extends CQLTester.InMemory
                 {
                     TableId tableId = rs.pickOrderedSet(tables.navigableKeySet());
                     IPartitioner partitioner = tables.get(tableId);
-                    ByteBuffer data = !(partitioner instanceof LocalPartitioner) ? Int32Type.instance.decompose(rs.nextInt())
-                                                                                 : fromQT(getTypeSupport(partitioner.getTokenValidator()).bytesGen()).next(rs);
+                    ByteBuffer data;
+                    if (partitioner instanceof ReversedLongLocalPartitioner)
+                        data = fromQT(CassandraGenerators.reversedLongLocalKeys()).next(rs);
+                    else if (partitioner instanceof LocalPartitioner)
+                        data = fromQT(getTypeSupport(partitioner.getTokenValidator()).bytesGen()).next(rs);
+                    else
+                        data = Int32Type.instance.decompose(rs.nextInt());
                     PartitionKey key = new PartitionKey(tableId, tables.get(tableId).decorateKey(data));
                     if (keys.add(key))
                     {
