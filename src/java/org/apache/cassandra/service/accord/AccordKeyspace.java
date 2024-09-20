@@ -1112,6 +1112,8 @@ public class AccordKeyspace
                  WriteContext writeContext = baseCfs.keyspace.getWriteHandler().createContextForRead();
                  CloseableIterator<DecoratedKey> iter = CFKPartitioner.keyIterator(CommandsForKeys, bounds))
             {
+                // Need the second try to handle callback errors vs read errors.
+                // Callback will see the read errors, but if the callback fails the outer try will see those errors
                 try
                 {
                     while (iter.hasNext())
@@ -1128,7 +1130,14 @@ public class AccordKeyspace
             }
             catch (IOException e)
             {
-                callback.onError(e);
+                try
+                {
+                    callback.onError(e);
+                }
+                catch (Throwable t)
+                {
+                    e.addSuppressed(t);
+                }
                 throw new RuntimeException(e);
             }
         });
