@@ -1023,12 +1023,12 @@ public class TokenPlacementModel
             if (this == o) return true;
             if (o == null || !Node.class.isAssignableFrom(o.getClass())) return false;
             Node node = (Node) o;
-            return Objects.equals(nodeIdx, node.nodeIdx);
+            return Objects.equals(id(), node.id());
         }
 
         public int hashCode()
         {
-            return Objects.hash(nodeIdx);
+            return Objects.hash(id());
         }
 
         public int compareTo(Node o)
