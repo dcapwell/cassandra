@@ -177,7 +177,8 @@ public class RequestCallbacks implements OutboundMessageCallbacks
         {
             long wait = deadlineNanos - nanoTime();
             if (wait <= 0 || !executor.awaitTermination(wait, NANOSECONDS))
-                throw new TimeoutException();
+                return;
+//                throw new TimeoutException();
         }
     }
 

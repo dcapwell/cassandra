@@ -34,7 +34,10 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 
 import com.google.common.collect.Iterators;
+import org.apache.cassandra.exceptions.RequestTimeoutException;
+import org.apache.cassandra.utils.AssertionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.assertj.core.api.Condition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -92,11 +95,14 @@ public class InJvmSutBase<NODE extends IInstance, CLUSTER extends ICluster<NODE>
 
     public static Function<Throwable, Boolean> retryOnTimeout()
     {
+        Condition<Object> timeoutChecker = AssertionUtils.isInstanceof(RequestTimeoutException.class);
+
         return new Function<Throwable, Boolean>()
         {
             public Boolean apply(Throwable t)
             {
-                return t.getMessage().contains("timed out");
+                return t.getMessage().contains("timed out")
+                        || timeoutChecker.matches(t);
             }
         };
     }
@@ -155,6 +161,7 @@ public class InJvmSutBase<NODE extends IInstance, CLUSTER extends ICluster<NODE>
         if (isShutdown.get())
             throw new RuntimeException("Instance is shut down");
 
+        int attempt = 0;
         while (true)
         {
             try
@@ -182,8 +189,10 @@ public class InJvmSutBase<NODE extends IInstance, CLUSTER extends ICluster<NODE>
             }
             catch (Throwable t)
             {
-                if (retryStrategy.apply(t))
+                if (attempt < 3 && retryStrategy.apply(t))
                     continue;
+
+                attempt++;
 
                 logger.error(String.format("Caught error while trying execute statement %s (%s): %s",
                                            statement, Arrays.toString(bindings), t.getMessage()),

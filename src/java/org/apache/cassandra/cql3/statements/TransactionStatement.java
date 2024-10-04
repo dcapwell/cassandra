@@ -383,9 +383,6 @@ public class TransactionStatement implements CQLStatement.CompositeCQLStatement,
             for (NamedSelect assignment : assignments)
                 checkFalse(isSelectingMultipleClusterings(assignment.select, options), INCOMPLETE_PRIMARY_KEY_SELECT_MESSAGE, "LET assignment", assignment.select.source);
 
-            if (returningSelect != null)
-                checkFalse(isSelectingMultipleClusterings(returningSelect.select, options), INCOMPLETE_PRIMARY_KEY_SELECT_MESSAGE, "returning SELECT", returningSelect.select.source);
-
             Txn txn = createTxn(state.getClientState(), options);
 
             TxnResult txnResult = AccordService.instance().coordinate(txn, options.getConsistency(), requestTime);
@@ -560,7 +557,7 @@ public class TransactionStatement implements CQLStatement.CompositeCQLStatement,
                     throw invalidRequest(NO_COUNTERS_IN_TXNS_MESSAGE, "SELECT", prepared.source);
 
                 returningSelect = new NamedSelect(TxnDataName.returning(), prepared);
-                checkAtMostOneRowSpecified(returningSelect.select, "returning select");
+                checkFalse(returningSelect.select.isPartitionRangeQuery(), ILLEGAL_RANGE_QUERY_MESSAGE, "returning select", returningSelect.select.source);
             }
 
             List<RowDataReference> returningReferences = null;

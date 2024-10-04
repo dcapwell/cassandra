@@ -33,15 +33,43 @@ import accord.utils.RandomSource;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.harry.HarryHelper;
+import org.apache.cassandra.harry.ddl.SchemaSpec;
 import org.apache.cassandra.harry.dsl.ReplayingHistoryBuilder;
 import org.apache.cassandra.harry.sut.SystemUnderTest;
 import org.apache.cassandra.harry.sut.TokenPlacementModel;
 import org.apache.cassandra.harry.sut.injvm.InJvmSut;
+import org.apache.cassandra.service.consensus.TransactionalMode;
 
 import static org.apache.cassandra.distributed.shared.ClusterUtils.waitForCMSToQuiesce;
 
 public class HarryTopologyMixupTest extends TopologyMixupTestBase<HarryTopologyMixupTest.Spec>
 {
+    public static class AccordMode
+    {
+        public AccordMode(Kind kind, @Nullable TransactionalMode passthroughMode)
+        {
+            this.kind = kind;
+            this.passthroughMode = passthroughMode;
+        }
+
+        public enum Kind { None, Direct, Passthrough }
+        public final Kind kind;
+        @Nullable
+        public final TransactionalMode passthroughMode;
+    }
+
+    private final AccordMode mode;
+
+    public HarryTopologyMixupTest()
+    {
+        this(new AccordMode(AccordMode.Kind.None, null));
+    }
+
+    protected HarryTopologyMixupTest(AccordMode mode)
+    {
+        this.mode = mode;
+    }
+
     @Override
     protected Gen<State<Spec>> stateGen()
     {
@@ -67,17 +95,37 @@ public class HarryTopologyMixupTest extends TopologyMixupTestBase<HarryTopologyM
         }
     }
 
-    private static Spec createSchemaSpec(RandomSource rs, Cluster cluster)
+    private static class AccordSut extends InJvmSut
     {
-        ReplayingHistoryBuilder harry = HarryHelper.dataGen(rs.nextLong(),
-                                                            new InJvmSut(cluster),
-                                                            new TokenPlacementModel.SimpleReplicationFactor(3),
-                                                            SystemUnderTest.ConsistencyLevel.QUORUM);
-        cluster.schemaChange(String.format("CREATE KEYSPACE %s WITH replication = {'class': 'SimpleStrategy', 'replication_factor' : 3};", HarryHelper.KEYSPACE));
-        var schema = harry.schema();
-        cluster.schemaChange(schema.compile().cql());
-        waitForCMSToQuiesce(cluster, cluster.get(1));
-        return new Spec(harry);
+        public AccordSut(Cluster cluster)
+        {
+            super(cluster);
+        }
+
+        @Override
+        public Object[][] execute(String statement, ConsistencyLevel cl, int coordinator, int pageSize, Object... bindings)
+        {
+            return super.execute(wrapInTxn(statement), cl, coordinator, pageSize, bindings);
+        }
+    }
+
+    private static BiFunction<RandomSource, Cluster, Spec> createSchemaSpec(AccordMode mode)
+    {
+        return (rs, cluster) -> {
+            long seed = rs.nextLong();
+            var schema = HarryHelper.schemaSpecBuilder("harry", "tbl").surjection().inflate(seed);
+            if (mode.kind != AccordMode.Kind.None)
+                schema = schema.withTransactionMode(mode.passthroughMode);
+            ReplayingHistoryBuilder harry = HarryHelper.dataGen(seed,
+                    mode.kind == AccordMode.Kind.Direct ? new AccordSut(cluster) : new InJvmSut(cluster),
+                    new TokenPlacementModel.SimpleReplicationFactor(3),
+                    SystemUnderTest.ConsistencyLevel.QUORUM,
+                    schema);
+            cluster.schemaChange(String.format("CREATE KEYSPACE %s WITH replication = {'class': 'SimpleStrategy', 'replication_factor' : 3};", HarryHelper.KEYSPACE));
+            cluster.schemaChange(schema.compile().cql());
+            waitForCMSToQuiesce(cluster, cluster.get(1));
+            return new Spec(harry, mode);
+        };
     }
 
     private static BiFunction<RandomSource, State<Spec>, Command<State<Spec>, Void, ?>> cqlOperations(Spec spec)
@@ -122,10 +170,12 @@ public class HarryTopologyMixupTest extends TopologyMixupTestBase<HarryTopologyM
     public static class Spec implements TopologyMixupTestBase.SchemaSpec
     {
         private final ReplayingHistoryBuilder harry;
+        private final AccordMode mode;
 
-        public Spec(ReplayingHistoryBuilder harry)
+        public Spec(ReplayingHistoryBuilder harry, AccordMode mode)
         {
             this.harry = harry;
+            this.mode = mode;
         }
 
         @Override
@@ -141,13 +191,13 @@ public class HarryTopologyMixupTest extends TopologyMixupTestBase<HarryTopologyM
         }
     }
 
-    public static class HarryState extends State<Spec>
+    public class HarryState extends State<Spec>
     {
         private long generation;
         private int numInserts = 0;
         public HarryState(RandomSource rs)
         {
-            super(rs, HarryTopologyMixupTest::createSchemaSpec, HarryTopologyMixupTest::cqlOperations);
+            super(rs, createSchemaSpec(mode), HarryTopologyMixupTest::cqlOperations);
         }
 
         @Override
