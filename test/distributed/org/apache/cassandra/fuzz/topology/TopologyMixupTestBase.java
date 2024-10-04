@@ -431,6 +431,7 @@ public abstract class TopologyMixupTestBase<S extends TopologyMixupTestBase.Sche
         int[] cmsGroup = new int[0];
         private TokenPlacementModel.ReplicationFactor rf;
         TokenPlacementModel.ReplicatedRanges ring = null;
+        int ringFrom = -1;
 
         public State(RandomSource rs, BiFunction<RandomSource, Cluster, S> schemaSpecGen, Function<S, BiFunction<RandomSource, State<S>, Command<State<S>, Void, ?>>> cqlOperationsGen)
         {
@@ -539,6 +540,9 @@ public abstract class TopologyMixupTestBase<S extends TopologyMixupTestBase.Sche
                 cmsGroup = HackSerialization.cmsGroup(node);
                 currentEpoch.set(HackSerialization.tcmEpoch(node));
 
+                if (topologyHistory.generation == 4)
+                    System.out.println();
+                ringFrom = up[0];
                 ring = InJVMTokenAwareVisitExecutor.getRing(cluster.coordinator(up[0]), rf);
             });
             preActions.add(() -> cluster.checkAndResetUncaughtExceptions());
@@ -597,9 +601,10 @@ public abstract class TopologyMixupTestBase<S extends TopologyMixupTestBase.Sche
             IntArrayList safeNodes = new IntArrayList();
             for (int id : up)
             {
+                if (!idToReplica.containsKey(id))
+                    throw new AssertionError("node" + id + " is not found in the ring, but is expected to be up and joined; check node" + ringFrom + " as the ring was from its perspective; test topology generation: " + topologyHistory.generation);
                 Replica replica = idToReplica.get(id);
                 List<Range> ranges = ring.ranges(replica);
-
                 if (ranges.stream().allMatch(safeRanges::contains))
                     safeNodes.add(id);
             }
