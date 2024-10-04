@@ -108,6 +108,11 @@ public class TokenPlacementModel
             }
         }
 
+        public Set<Replica> replicas()
+        {
+            return replicaToRanges.keySet();
+        }
+
         public List<Replica> replicasFor(long token)
         {
             int idx = indexedBinarySearch(ranges, range -> {

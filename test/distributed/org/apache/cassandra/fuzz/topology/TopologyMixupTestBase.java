@@ -35,6 +35,7 @@ import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
 import java.util.function.Function;
@@ -540,10 +541,25 @@ public abstract class TopologyMixupTestBase<S extends TopologyMixupTestBase.Sche
                 cmsGroup = HackSerialization.cmsGroup(node);
                 currentEpoch.set(HackSerialization.tcmEpoch(node));
 
-                if (topologyHistory.generation == 4)
-                    System.out.println();
                 ringFrom = up[0];
-                ring = InJVMTokenAwareVisitExecutor.getRing(cluster.coordinator(up[0]), rf);
+                var upSet = asSet(up);
+                for (int i = 0; i < 10; i++)
+                {
+                    ring = InJVMTokenAwareVisitExecutor.getRing(cluster.coordinator(ringFrom), rf);
+                    var peers = peers(ring);
+                    if (peers.containsAll(upSet)) break;
+                    if (i == 9)
+                        throw new AssertionError(String.format("Expected %s to be in %s", upSet, peers));
+                    logger.warn("Node{} is missing {}; waiting...", ringFrom, Sets.difference(upSet, peers));
+                    try
+                    {
+                        TimeUnit.SECONDS.sleep(2);
+                    }
+                    catch (InterruptedException e)
+                    {
+                        throw new RuntimeException(e);
+                    }
+                }
             });
             preActions.add(() -> cluster.checkAndResetUncaughtExceptions());
             this.schemaSpec = schemaSpecGen.apply(rs, cluster);
@@ -554,6 +570,24 @@ public abstract class TopologyMixupTestBase<S extends TopologyMixupTestBase.Sche
             long waitForEpoch = HackSerialization.tcmEpoch(cluster.get(1));
             currentEpoch.set(waitForEpoch);
             onStartupComplete(waitForEpoch);
+        }
+
+        private static IntHashSet peers(TokenPlacementModel.ReplicatedRanges ring)
+        {
+            IntHashSet set = new IntHashSet();
+            for (Replica replica : ring.replicas())
+                set.add(nodeId(replica));
+            return set;
+        }
+
+        private static int nodeId(Replica replica)
+        {
+            //TODO (fix test api): NodeId is in the API but is always null.  Cheapest way to get the id is to assume the address has it
+            // same issue with address...
+            // /127.0.0.2
+            String harryId = replica.node().id();
+            int index = harryId.lastIndexOf('.');
+            return Integer.parseInt(harryId.substring(index + 1));
         }
 
         protected void onStartupComplete(long tcmEpoch)
@@ -583,12 +617,7 @@ public abstract class TopologyMixupTestBase<S extends TopologyMixupTestBase.Sche
                 IntHashSet alive = new IntHashSet();
                 for (var replica : e.getValue())
                 {
-                    //TODO (fix test api): NodeId is in the API but is always null.  Cheapest way to get the id is to assume the address has it
-                    // same issue with address...
-                    // /127.0.0.2
-                    String harryId = replica.node().id();
-                    int index = harryId.lastIndexOf('.');
-                    int peer = Integer.parseInt(harryId.substring(index + 1));
+                    int peer = nodeId(replica);
                     idToReplica.put(peer, replica);
                     if (up.contains(peer))
                         alive.add(peer);
