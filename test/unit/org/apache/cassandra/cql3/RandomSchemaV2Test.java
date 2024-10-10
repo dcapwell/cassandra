@@ -18,8 +18,13 @@
 
 package org.apache.cassandra.cql3;
 
+import java.nio.ByteBuffer;
+import java.util.AbstractSet;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,27 +33,42 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
+import com.google.common.collect.BiMap;
+import com.google.common.collect.HashBiMap;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Iterators;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 import accord.utils.Gen;
 import accord.utils.Gens;
+import accord.utils.Invariants;
 import accord.utils.RandomSource;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.cql3.ast.Conditional;
 import org.apache.cassandra.cql3.ast.CreateIndexDDL;
 import org.apache.cassandra.cql3.ast.CreateIndexDDL.Indexer;
+import org.apache.cassandra.cql3.ast.Expression;
+import org.apache.cassandra.cql3.ast.ExpressionEvaluator;
 import org.apache.cassandra.cql3.ast.Mutation;
 import org.apache.cassandra.cql3.ast.ReferenceExpression;
 import org.apache.cassandra.cql3.ast.Select;
 import org.apache.cassandra.cql3.ast.Symbol;
 import org.apache.cassandra.cql3.ast.TableReference;
 import org.apache.cassandra.cql3.ast.Txn;
+import org.apache.cassandra.cql3.ast.Where;
+import org.apache.cassandra.db.BufferClustering;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.CompositeType;
 import org.apache.cassandra.db.marshal.MapType;
 import org.apache.cassandra.db.marshal.UTF8Type;
+import org.apache.cassandra.harry.model.DescriptorFactory;
+import org.apache.cassandra.harry.model.OpSelectors;
+import org.apache.cassandra.harry.model.reconciler.PartitionState;
+import org.apache.cassandra.harry.visitors.VisitExecutor;
 import org.apache.cassandra.index.Index;
 import org.apache.cassandra.index.SecondaryIndexManager;
 import org.apache.cassandra.schema.ColumnMetadata;
@@ -58,6 +78,7 @@ import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.consensus.TransactionalMode;
 import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.utils.AbstractTypeGenerators;
+import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CassandraGenerators;
 import org.awaitility.Awaitility;
 
@@ -90,7 +111,7 @@ public class RandomSchemaV2Test extends CQLTester
             return rs.pickOrderedSet(ProtocolVersion.SUPPORTED);
         };
         Gen<Mode> modeGen = Gens.enums().all(Mode.class);
-        qt().withExamples(100).forAll(Gens.random(), modeGen, clientVersionGen).check((rs, mode, protocolVersion) -> {
+        qt().withSeed(3449272830300698514L).withExamples(100).forAll(Gens.random(), modeGen, clientVersionGen).check((rs, mode, protocolVersion) -> {
             clearState();
 
             KeyspaceMetadata ks = createKeyspace(rs);
@@ -102,9 +123,14 @@ public class RandomSchemaV2Test extends CQLTester
                 metadata = Objects.requireNonNull(Schema.instance.getTableMetadata(ks.name, metadata.name));
             }
             Map<ColumnMetadata, CreateIndexDDL> indexedColumns = createIndex(rs, metadata);
+
+            Model model = new Model(metadata);
+
             Mutation mutation = nonTransactionMutation(rs, metadata);
             if (mode == Mode.AccordEnabled)
                 mutation = mutation.withoutTimestamp().withoutTTL(); // Accord doesn't allow custom timestamps or TTL
+            if (mutation.kind != Mutation.Kind.DELETE)
+                model.update(mutation);
             Select select = select(mutation);
             Object[][] expectedRows = rows(mutation);
             try
@@ -120,6 +146,8 @@ public class RandomSchemaV2Test extends CQLTester
                     execute(mode == Mode.AccordEnabled ? Txn.wrap(mutation) : mutation);
                     assertRows(execute(mode == Mode.AccordEnabled ? Txn.wrap(select) : select), expectedRows);
                 }
+                if (mutation.kind != Mutation.Kind.DELETE)
+                    model.validate(select, expectedRows);
             }
             catch (Throwable t)
             {
@@ -135,6 +163,220 @@ public class RandomSchemaV2Test extends CQLTester
 
             checkIndexes(metadata, indexedColumns, mutation, mode, protocolVersion);
         });
+    }
+
+    private static class OffsetSet<T> extends AbstractSet<T>
+    {
+        private final BiMap<T, Integer> valueToOffsets = HashBiMap.create();
+        private int counter = 0;
+
+        public int offset(T value)
+        {
+            return valueToOffsets.get(value);
+        }
+
+        public T value(int offset)
+        {
+            return valueToOffsets.inverse().get(offset);
+        }
+
+        @Override
+        public boolean add(T t)
+        {
+            if (valueToOffsets.containsKey(t)) return false;
+            int offset = counter++;
+            valueToOffsets.put(t, offset);
+            return true;
+        }
+
+        @Override
+        public Iterator<T> iterator()
+        {
+            var all = new ArrayList<>(valueToOffsets.entrySet());
+            all.sort(Comparator.comparing(Map.Entry::getValue));
+            return Iterators.transform(all.iterator(), Map.Entry::getKey);
+        }
+
+        @Override
+        public int size()
+        {
+            return valueToOffsets.size();
+        }
+    }
+
+    private static class Model
+    {
+        private final TableMetadata metadata;
+        private final OffsetSet<Symbol> partitionColumns = new OffsetSet<>();
+        private final OffsetSet<Symbol> clusteringColumns = new OffsetSet<>();
+        private final OffsetSet<Symbol> staticColumns = new OffsetSet<>();
+        private final OffsetSet<Symbol> regularColumns = new OffsetSet<>();
+        private final DescriptorFactory.ValueDescriptorFactory partitionFactory = new DescriptorFactory.ValueDescriptorFactory();
+        @Nullable
+        private final DescriptorFactory.ValueDescriptorFactory clusteringFactory;
+        private final Map<AbstractType<?>, DescriptorFactory.ValueDescriptorFactory> typeFactory = new HashMap<>();
+        private final Map<Symbol, Integer> columnOffsets;
+        private long time = 0;
+
+        private Model(TableMetadata metadata)
+        {
+            this.metadata = metadata;
+            metadata.partitionKeyColumns().forEach(c -> partitionColumns.add(new Symbol(c)));
+            metadata.clusteringColumns().forEach(c -> clusteringColumns.add(new Symbol(c)));
+            metadata.staticColumns().forEach(c -> staticColumns.add(new Symbol(c)));
+            metadata.regularColumns().forEach(c -> regularColumns.add(new Symbol(c)));
+            // its ok to override the factory as its empty...
+            staticColumns.forEach(s -> typeFactory.put(s.type(), new DescriptorFactory.ValueDescriptorFactory()));
+            regularColumns.forEach(s -> typeFactory.put(s.type(), new DescriptorFactory.ValueDescriptorFactory()));
+            this.clusteringFactory = metadata.clusteringColumns().isEmpty() ? null : new DescriptorFactory.ValueDescriptorFactory();
+
+            columnOffsets = new HashMap<>();
+            {
+                int offset = 0;
+                for (ColumnMetadata col : (Iterable<ColumnMetadata>) () -> metadata.allColumnsInSelectOrder())
+                    columnOffsets.put(Symbol.from(col), offset++);
+            }
+        }
+
+        private final Map<Long, List<VisitExecutor.Operation>> pksToOps = new HashMap<>();
+
+        void update(Mutation mutation)
+        {
+            long lts = time++;
+            long opId = lts;
+            long pd = partitionFactory.toDescriptor(toPartition(mutation.values));
+            long cd = clusteringFactory.toDescriptor(toClustering(mutation.values));
+            long[] sds = toDescriptors(staticColumns, mutation.values);
+            long[] vds = toDescriptors(regularColumns, mutation.values);
+            //TODO (coverage): DeleteRowOp/DeleteOp/DeleteColumnsOp
+            VisitExecutor.WriteStaticOp op = new VisitExecutor.WriteStaticOp()
+            {
+                @Override
+                public long pd()
+                {
+                    return pd;
+                }
+
+                @Override
+                public long cd()
+                {
+                    return cd;
+                }
+
+                @Override
+                public long[] sds()
+                {
+                    return sds;
+                }
+
+                @Override
+                public long[] vds()
+                {
+                    return vds;
+                }
+
+                @Override
+                public long lts()
+                {
+                    return lts;
+                }
+
+                @Override
+                public long opId()
+                {
+                    return opId;
+                }
+
+                @Override
+                public OpSelectors.OperationKind kind()
+                {
+                    return metadata.staticColumns().isEmpty()
+                           ? OpSelectors.OperationKind.INSERT
+                           : OpSelectors.OperationKind.INSERT_WITH_STATICS;
+                }
+            };
+            pksToOps.computeIfAbsent(pd, i -> new ArrayList<>()).add(op);
+        }
+
+        void validate(Select select, Object[][] result)
+        {
+            Map<Symbol, Expression> values = new HashMap<>();
+            select.streamRecursive().forEach(e -> {
+                if (!(e instanceof Conditional)) return;
+
+                if (e instanceof Where)
+                {
+                    Where where = (Where) e;
+                    Invariants.checkArgument(where.kind == Where.Inequalities.EQUAL);
+                    values.put(where.symbol.streamRecursive(true).filter(s -> s instanceof Symbol).map(s -> (Symbol) s).findFirst().get(), where.expression);
+                }
+                else if (e instanceof Conditional.In)
+                {
+                    Conditional.In in = (Conditional.In) e;
+                    throw new UnsupportedOperationException("TODO");
+                }
+            });
+            long pd = partitionFactory.toDescriptor(toPartition(values));
+            long cd = clusteringFactory.toDescriptor(toClustering(values));
+            long[] sds = toDescriptors(staticColumns, result);
+            long[] vds = toDescriptors(regularColumns, result);
+            List<VisitExecutor.Operation> ops = pksToOps.get(pd);
+            if (ops == null) throw new AssertionError("Unknown pd: " + pd);
+            //TODO: waiting on Alex
+            PartitionState state = null;
+//            DataGenerators.UNSET_DESCR;
+            // exclude static columns, and do a static column search in the partition
+        }
+
+        private long[] toDescriptors(OffsetSet<Symbol> columns, Object[][] result)
+        {
+            if (result.length == 0) return new long[0];
+            Object[] row = result[0];
+            long[] ds = new long[columns.size()];
+            for (Symbol s : columns)
+            {
+                Object value = row[columnOffsets.get(s)];
+                ByteBuffer bb = value instanceof ByteBuffer ? (ByteBuffer) value: ((AbstractType) s.type()).decompose(value);
+                ds[columns.offset(s)] = typeFactory.get(s.type()).toDescriptor(bb);
+            }
+            return ds;
+        }
+
+        private long[] toDescriptors(OffsetSet<Symbol> columns, Map<Symbol, ? extends Expression> values)
+        {
+            if (columns.isEmpty()) return new long[0];
+            long[] ds = new long[columns.size()];
+            for (Symbol s : columns)
+                ds[columns.offset(s)] = typeFactory.get(s.type()).toDescriptor(ExpressionEvaluator.tryEvalEncoded(values.get(s)).get());
+            return ds;
+        }
+
+        private ByteBuffer toPartition(Map<Symbol, ? extends Expression> columns)
+        {
+            return toKey(this.partitionColumns, columns);
+        }
+
+        private ByteBuffer toClustering(Map<Symbol, ? extends Expression> columns)
+        {
+            return toKey(this.clusteringColumns, columns);
+        }
+
+        private static ByteBuffer toKey(OffsetSet<Symbol> columns, Map<Symbol, ? extends Expression> keys)
+        {
+            switch (columns.size())
+            {
+                case 0: return ByteBufferUtil.EMPTY_BYTE_BUFFER;
+                case 1: return ExpressionEvaluator.tryEvalEncoded(keys.get(Iterables.getFirst(columns, null))).get();
+            }
+            ByteBuffer[] bbs = new ByteBuffer[columns.size()];
+            int offset = 0;
+            for (Symbol s : columns)
+            {
+                Optional<ByteBuffer> eval = ExpressionEvaluator.tryEvalEncoded(keys.get(s));
+                bbs[offset++] = eval.get();
+            }
+            return BufferClustering.make(bbs).serializeAsPartitionKey();
+        }
     }
 
     private void checkIndexes(TableMetadata metadata, Map<ColumnMetadata, CreateIndexDDL> indexedColumns, Mutation mutation, Mode mode, ProtocolVersion protocolVersion)
