@@ -65,9 +65,15 @@ import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.CompositeType;
 import org.apache.cassandra.db.marshal.MapType;
 import org.apache.cassandra.db.marshal.UTF8Type;
+import org.apache.cassandra.harry.ddl.SchemaSpec;
+import org.apache.cassandra.harry.model.AlwaysSamePartitionSelector;
 import org.apache.cassandra.harry.model.DescriptorFactory;
 import org.apache.cassandra.harry.model.OpSelectors;
 import org.apache.cassandra.harry.model.reconciler.PartitionState;
+import org.apache.cassandra.harry.model.reconciler.Reconciler;
+import org.apache.cassandra.harry.operations.Query;
+import org.apache.cassandra.harry.tracker.DataTracker;
+import org.apache.cassandra.harry.visitors.LtsVisitor;
 import org.apache.cassandra.harry.visitors.VisitExecutor;
 import org.apache.cassandra.index.Index;
 import org.apache.cassandra.index.SecondaryIndexManager;
@@ -80,7 +86,9 @@ import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.utils.AbstractTypeGenerators;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CassandraGenerators;
+import org.assertj.core.api.Assertions;
 import org.awaitility.Awaitility;
+import org.mockito.Mockito;
 
 import static accord.utils.Property.qt;
 import static java.lang.String.format;
@@ -322,10 +330,28 @@ public class RandomSchemaV2Test extends CQLTester
             long[] vds = toDescriptors(regularColumns, result);
             List<VisitExecutor.Operation> ops = pksToOps.get(pd);
             if (ops == null) throw new AssertionError("Unknown pd: " + pd);
+
+            Reconciler reconciler = new Reconciler(new AlwaysSamePartitionSelector(pd), SchemaSpec.create(metadata), executor -> new LtsVisitor(executor, () -> 0) {
+                @Override
+                public void visit(long lts)
+                {
+                    this.beforeLts(lts, pd);
+                    ops.forEach(this::operation);
+                    this.afterLts(lts, pd);
+                }
+            });
+
             //TODO: waiting on Alex
-            PartitionState state = null;
-//            DataGenerators.UNSET_DESCR;
-            // exclude static columns, and do a static column search in the partition
+            DataTracker tracker = Mockito.mock(DataTracker.class);
+            Mockito.when(tracker.isFinished(Mockito.anyLong())).thenReturn(true);
+            Query query = Mockito.mock(Query.class);
+            Mockito.when(query.matchCd(Mockito.eq(cd))).thenReturn(true);
+            PartitionState state = reconciler.inflatePartitionState(pd, tracker, query);
+
+            Reconciler.RowState row = state.rows().get(cd);
+            Assertions.assertThat(row).isNotNull();
+            Assertions.assertThat(vds).isEqualTo(row.vds);
+            Assertions.assertThat(sds).isEqualTo(state.staticRow().vds);
         }
 
         private long[] toDescriptors(OffsetSet<Symbol> columns, Object[][] result)

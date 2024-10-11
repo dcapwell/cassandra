@@ -20,6 +20,7 @@ package org.apache.cassandra.harry.ddl;
 
 import java.util.*;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 import javax.annotation.Nullable;
 
@@ -28,9 +29,11 @@ import org.apache.cassandra.harry.sut.SystemUnderTest;
 import org.apache.cassandra.harry.operations.CompiledStatement;
 import org.apache.cassandra.harry.operations.Relation;
 import org.apache.cassandra.harry.util.BitSet;
+import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.consensus.TransactionalMode;
 
 import static org.apache.cassandra.harry.ddl.ColumnSpec.int64Type;
+import static org.apache.cassandra.harry.ddl.ColumnSpec.textType;
 import static org.apache.cassandra.harry.gen.Collections.listColumn;
 
 public class SchemaSpec
@@ -86,6 +89,16 @@ public class SchemaSpec
                       Optional<TransactionalMode> transactionalMode)
     {
         this(keyspace, table, partitionKeys, clusteringKeys, regularColumns, staticColumns, DataGenerators.createKeyGenerator(clusteringKeys), false, false, null, false, transactionalMode);
+    }
+
+    public static SchemaSpec create(TableMetadata metadata)
+    {
+        // all types are not supported, so use a single type just for testing...
+        return new SchemaSpec(metadata.keyspace, metadata.name,
+                              metadata.partitionKeyColumns().stream().map(c -> new ColumnSpec<>(c.name.toString(), textType, ColumnSpec.Kind.PARTITION_KEY)).collect(Collectors.toList()),
+                              metadata.clusteringColumns().stream().map(c -> new ColumnSpec<>(c.name.toString(), textType, ColumnSpec.Kind.CLUSTERING)).collect(Collectors.toList()),
+                              metadata.regularColumns().stream().map(c -> new ColumnSpec<>(c.name.toString(), textType, ColumnSpec.Kind.REGULAR)).collect(Collectors.toList()),
+                              metadata.staticColumns().stream().map(c -> new ColumnSpec<>(c.name.toString(), textType, ColumnSpec.Kind.STATIC)).collect(Collectors.toList()));
     }
 
     public SchemaSpec cloneWithName(String ks,
