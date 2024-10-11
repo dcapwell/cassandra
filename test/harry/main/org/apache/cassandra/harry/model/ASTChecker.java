@@ -22,12 +22,12 @@ import java.nio.ByteBuffer;
 import java.util.AbstractSet;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
@@ -144,21 +144,7 @@ public class ASTChecker
 
     public void validate(Select select, Object[][] result)
     {
-        Map<Symbol, Expression> values = new HashMap<>();
-        select.streamRecursive().forEach(e -> {
-            if (!(e instanceof Conditional)) return;
-
-            if (e instanceof Where)
-            {
-                Where where = (Where) e;
-                Invariants.checkArgument(where.kind == Where.Inequalities.EQUAL);
-                values.put(where.symbol.streamRecursive(true).filter(s -> s instanceof Symbol).map(s -> (Symbol) s).findFirst().get(), where.expression);
-            }
-            else if (e instanceof Conditional.In)
-            {
-                throw new UnsupportedOperationException("TODO");
-            }
-        });
+        Map<Symbol, Expression> values = toValues(select);
         long pd = descriptorFactory.toDescriptor(toPartition(values));
         List<VisitExecutor.Operation> ops = pksToOps.get(pd);
         if (ops == null) throw new AssertionError("Unknown pd: " + pd);
@@ -169,15 +155,9 @@ public class ASTChecker
         SchemaSpec schema = SchemaSpec.fromTableMetadataUnsafe(metadata);
         HistoryBuilder.LongIterator iter = new SequentialLongIterator(0, visits.length);
         Reconciler reconciler = new Reconciler(schema);
-        Query.SinglePartitionQuery query = new Query.SinglePartitionQuery(Query.QueryKind.SINGLE_PARTITION,
-                                                                          pd,
-                                                                          false,
-                                                                          Collections.emptyList(),
-                                                                          schema,
-                                                                          Query.Wildcard.instance);
         SimplifiedQuiescentChecker.validate(schema,
                                             schema.allColumnsSet,
-                                            reconciler.inflatePartitionState(pd, query, (visitExecutor) -> new ReplayingVisitor(visitExecutor, iter)
+                                            reconciler.inflatePartitionState(pd, createQuery(select, values, pd, schema), (visitExecutor) -> new ReplayingVisitor(visitExecutor, iter)
                                             {
                                                 @Override
                                                 public Visit getVisit(long lts)
@@ -199,6 +179,70 @@ public class ASTChecker
                                                 }
                                             }),
                                             rows(result));
+    }
+
+    private Query createQuery(Select select, Map<Symbol, Expression> values, long pd, SchemaSpec schema)
+    {
+        Query query;
+        switch (inferKind(select, values))
+        {
+            case SINGLE_PARTITION:
+            {
+                query = new Query.SinglePartitionQuery(Query.QueryKind.SINGLE_PARTITION,
+                                                       pd,
+                                                       false,
+                                                       Collections.emptyList(),
+                                                       schema,
+                                                       Query.Wildcard.instance);
+            }
+            break;
+            case SINGLE_CLUSTERING:
+            {
+                long cd = descriptorFactory.toDescriptor(toClustering(values));
+                query = new Query.SingleClusteringQuery(Query.QueryKind.SINGLE_CLUSTERING,
+                                                        pd,
+                                                       cd,
+                                                       false,
+                                                       Collections.emptyList(),
+                                                        schema);
+            }
+            break;
+            default:
+                throw new UnsupportedOperationException();
+        }
+        return query;
+    }
+
+    private Query.QueryKind inferKind(Select select, Map<Symbol, Expression> values)
+    {
+        Set<Symbol> symbols = values.keySet();
+        if (symbols.containsAll(partitionColumns))
+        {
+            if (symbols.containsAll(clusteringColumns))
+                return Query.QueryKind.SINGLE_CLUSTERING;
+            return Query.QueryKind.SINGLE_PARTITION;
+        }
+        throw new UnsupportedOperationException();
+    }
+
+    private static Map<Symbol, Expression> toValues(Select select)
+    {
+        Map<Symbol, Expression> values = new HashMap<>();
+        select.streamRecursive().forEach(e -> {
+            if (!(e instanceof Conditional)) return;
+
+            if (e instanceof Where)
+            {
+                Where where = (Where) e;
+                Invariants.checkArgument(where.kind == Where.Inequalities.EQUAL);
+                values.put(where.symbol.streamRecursive(true).filter(s -> s instanceof Symbol).map(s -> (Symbol) s).findFirst().get(), where.expression);
+            }
+            else if (e instanceof Conditional.In)
+            {
+                throw new UnsupportedOperationException("TODO");
+            }
+        });
+        return values;
     }
 
     public List<ResultSetRow> rows(Object[][] rows)
