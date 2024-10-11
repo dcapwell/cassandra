@@ -111,6 +111,7 @@ public abstract class TopologyMixupTestBase<S extends TopologyMixupTestBase.Sche
         //TODO (coverage): node migrate to another rack or dc (unsupported on trunk as of this writing, but planned work for TCM)
 //        MoveNodeToNewRack,
 //        MoveNodeToNewDC,
+//        ChangeIp
     }
 
     private enum RemoveType

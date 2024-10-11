@@ -33,7 +33,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
-import javax.annotation.Nullable;
 
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
@@ -65,15 +64,15 @@ import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.CompositeType;
 import org.apache.cassandra.db.marshal.MapType;
 import org.apache.cassandra.db.marshal.UTF8Type;
+import org.apache.cassandra.harry.data.ResultSetRow;
 import org.apache.cassandra.harry.ddl.SchemaSpec;
-import org.apache.cassandra.harry.model.AlwaysSamePartitionSelector;
+import org.apache.cassandra.harry.dsl.HistoryBuilder;
 import org.apache.cassandra.harry.model.DescriptorFactory;
 import org.apache.cassandra.harry.model.OpSelectors;
-import org.apache.cassandra.harry.model.reconciler.PartitionState;
+import org.apache.cassandra.harry.model.SimplifiedQuiescentChecker;
 import org.apache.cassandra.harry.model.reconciler.Reconciler;
 import org.apache.cassandra.harry.operations.Query;
-import org.apache.cassandra.harry.tracker.DataTracker;
-import org.apache.cassandra.harry.visitors.LtsVisitor;
+import org.apache.cassandra.harry.visitors.ReplayingVisitor;
 import org.apache.cassandra.harry.visitors.VisitExecutor;
 import org.apache.cassandra.index.Index;
 import org.apache.cassandra.index.SecondaryIndexManager;
@@ -86,9 +85,7 @@ import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.utils.AbstractTypeGenerators;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CassandraGenerators;
-import org.assertj.core.api.Assertions;
 import org.awaitility.Awaitility;
-import org.mockito.Mockito;
 
 import static accord.utils.Property.qt;
 import static java.lang.String.format;
@@ -212,6 +209,30 @@ public class RandomSchemaV2Test extends CQLTester
         }
     }
 
+    public static class SequentialLongIterator implements HistoryBuilder.LongIterator
+    {
+        private long current;
+        private final long end;
+
+        public SequentialLongIterator(long start, long end)
+        {
+            this.current = start;
+            this.end = end;
+        }
+
+        @Override
+        public long getAsLong()
+        {
+            return current++;
+        }
+
+        @Override
+        public boolean hasNext()
+        {
+            return current < end;
+        }
+    }
+
     private static class Model
     {
         private final TableMetadata metadata;
@@ -219,10 +240,7 @@ public class RandomSchemaV2Test extends CQLTester
         private final OffsetSet<Symbol> clusteringColumns = new OffsetSet<>();
         private final OffsetSet<Symbol> staticColumns = new OffsetSet<>();
         private final OffsetSet<Symbol> regularColumns = new OffsetSet<>();
-        private final DescriptorFactory.ValueDescriptorFactory partitionFactory = new DescriptorFactory.ValueDescriptorFactory();
-        @Nullable
-        private final DescriptorFactory.ValueDescriptorFactory clusteringFactory;
-        private final Map<AbstractType<?>, DescriptorFactory.ValueDescriptorFactory> typeFactory = new HashMap<>();
+        private final DescriptorFactory.ValueDescriptorFactory descriptorFactory = new DescriptorFactory.ValueDescriptorFactory();
         private final Map<Symbol, Integer> columnOffsets;
         private long time = 0;
 
@@ -233,10 +251,6 @@ public class RandomSchemaV2Test extends CQLTester
             metadata.clusteringColumns().forEach(c -> clusteringColumns.add(new Symbol(c)));
             metadata.staticColumns().forEach(c -> staticColumns.add(new Symbol(c)));
             metadata.regularColumns().forEach(c -> regularColumns.add(new Symbol(c)));
-            // its ok to override the factory as its empty...
-            staticColumns.forEach(s -> typeFactory.put(s.type(), new DescriptorFactory.ValueDescriptorFactory()));
-            regularColumns.forEach(s -> typeFactory.put(s.type(), new DescriptorFactory.ValueDescriptorFactory()));
-            this.clusteringFactory = metadata.clusteringColumns().isEmpty() ? null : new DescriptorFactory.ValueDescriptorFactory();
 
             columnOffsets = new HashMap<>();
             {
@@ -252,8 +266,8 @@ public class RandomSchemaV2Test extends CQLTester
         {
             long lts = time++;
             long opId = lts;
-            long pd = partitionFactory.toDescriptor(toPartition(mutation.values));
-            long cd = clusteringFactory.toDescriptor(toClustering(mutation.values));
+            long pd = descriptorFactory.toDescriptor(toPartition(mutation.values));
+            long cd = descriptorFactory.toDescriptor(toClustering(mutation.values));
             long[] sds = toDescriptors(staticColumns, mutation.values);
             long[] vds = toDescriptors(regularColumns, mutation.values);
             //TODO (coverage): DeleteRowOp/DeleteOp/DeleteColumnsOp
@@ -324,34 +338,113 @@ public class RandomSchemaV2Test extends CQLTester
                     throw new UnsupportedOperationException("TODO");
                 }
             });
-            long pd = partitionFactory.toDescriptor(toPartition(values));
-            long cd = clusteringFactory.toDescriptor(toClustering(values));
-            long[] sds = toDescriptors(staticColumns, result);
-            long[] vds = toDescriptors(regularColumns, result);
+            long pd = descriptorFactory.toDescriptor(toPartition(values));
+//            long cd = clusteringFactory.toDescriptor(toClustering(values));
+//            long[] sds = toDescriptors(staticColumns, result);
+//            long[] vds = toDescriptors(regularColumns, result);
             List<VisitExecutor.Operation> ops = pksToOps.get(pd);
             if (ops == null) throw new AssertionError("Unknown pd: " + pd);
+//
+//            Reconciler reconciler = new Reconciler(new AlwaysSamePartitionSelector(pd), SchemaSpec.fromTableMetadataUnsafe(metadata), executor -> new LtsVisitor(executor, () -> 0) {
+//                @Override
+//                public void visit(long lts)
+//                {
+//                    this.beforeLts(lts, pd);
+//                    ops.forEach(this::operation);
+//                    this.afterLts(lts, pd);
+//                }
+//            });
+//
+//            //TODO: waiting on Alex
+//            DataTracker tracker = Mockito.mock(DataTracker.class);
+//            Mockito.when(tracker.isFinished(Mockito.anyLong())).thenReturn(true);
+//            Query query = Mockito.mock(Query.class);
+//            Mockito.when(query.matchCd(Mockito.eq(cd))).thenReturn(true);
+//            PartitionState state = reconciler.inflatePartitionState(pd, tracker, query);
+//
+//            Reconciler.RowState row = state.rows().get(cd);
+//            Assertions.assertThat(row).isNotNull();
+//            Assertions.assertThat(vds).isEqualTo(row.vds);
+//            Assertions.assertThat(sds).isEqualTo(state.staticRow().vds);
 
-            Reconciler reconciler = new Reconciler(new AlwaysSamePartitionSelector(pd), SchemaSpec.create(metadata), executor -> new LtsVisitor(executor, () -> 0) {
-                @Override
-                public void visit(long lts)
-                {
-                    this.beforeLts(lts, pd);
-                    ops.forEach(this::operation);
-                    this.afterLts(lts, pd);
-                }
-            });
+            ReplayingVisitor.Visit[] visits = new ReplayingVisitor.Visit[ops.size()];
+            for (int i = 0; i < ops.size(); i++)
+                visits[i] = new ReplayingVisitor.Visit(i, pd, new VisitExecutor.Operation[] { ops.get(i) });
+            SchemaSpec schema = SchemaSpec.fromTableMetadataUnsafe(metadata);
+            HistoryBuilder.LongIterator iter =  new SequentialLongIterator(0, visits.length);
+            Reconciler reconciler = new Reconciler(schema);
+            Query.SinglePartitionQuery query = new Query.SinglePartitionQuery(Query.QueryKind.SINGLE_PARTITION,
+                                                                                             pd,
+                                                                                             false,
+                                                                                             Collections.emptyList(),
+                                                                                             schema,
+                                                                                             Query.Wildcard.instance);
+            SimplifiedQuiescentChecker.validate(schema,
+                                                schema.allColumnsSet,
+                                                reconciler.inflatePartitionState(pd, query, (visitExecutor) -> new ReplayingVisitor(visitExecutor, iter)
+                                                {
+                                                    @Override
+                                                    public Visit getVisit(long lts)
+                                                    {
+                                                        return visits[(int) lts];
+                                                    }
 
-            //TODO: waiting on Alex
-            DataTracker tracker = Mockito.mock(DataTracker.class);
-            Mockito.when(tracker.isFinished(Mockito.anyLong())).thenReturn(true);
-            Query query = Mockito.mock(Query.class);
-            Mockito.when(query.matchCd(Mockito.eq(cd))).thenReturn(true);
-            PartitionState state = reconciler.inflatePartitionState(pd, tracker, query);
+                                                    @Override
+                                                    public void replayAll()
+                                                    {
+                                                        while (iter.hasNext())
+                                                            visit(iter.getAsLong());
+                                                    }
 
-            Reconciler.RowState row = state.rows().get(cd);
-            Assertions.assertThat(row).isNotNull();
-            Assertions.assertThat(vds).isEqualTo(row.vds);
-            Assertions.assertThat(sds).isEqualTo(state.staticRow().vds);
+                                                    @Override
+                                                    public void replayAll(long pd)
+                                                    {
+                                                        replayAll();
+                                                    }
+                                                }),
+                                                rows(result));
+        }
+
+        public  List<ResultSetRow> rows(Object[][] rows)
+        {
+            List<ResultSetRow> rs = new ArrayList<>();
+
+            for (Object[] row : rows)
+            {
+                long pd = toDescriptor(row, partitionColumns);
+                long cd = toDescriptor(row, clusteringColumns);
+
+                long[] vds = new long[regularColumns.size()];
+                for (Symbol reg : regularColumns)
+                    vds[regularColumns.offset(reg)] = descriptorFactory.toDescriptor(toBytes(row, reg));
+
+                long[] sds = new long[staticColumns.size()];
+                for (Symbol reg : staticColumns)
+                    sds[staticColumns.offset(reg)] = descriptorFactory.toDescriptor(toBytes(row, reg));
+
+                rs.add (new ResultSetRow(pd, cd, sds, new long[staticColumns.size()], vds, new long[regularColumns.size()], Collections.emptyList()));
+            }
+
+            return rs;
+        }
+
+        private ByteBuffer toBytes(Object[] row, Symbol symbol)
+        {
+            Object value = row[columnOffsets.get(symbol)];
+            return value instanceof ByteBuffer ? (ByteBuffer) value : ((AbstractType) symbol.type()).decompose(value);
+        }
+
+        private long toDescriptor(Object[] row, OffsetSet<Symbol> columns)
+        {
+            if (columns.isEmpty())
+                return descriptorFactory.toDescriptor(ByteBufferUtil.EMPTY_BYTE_BUFFER);
+            if (columns.size() == 1)
+                return descriptorFactory.toDescriptor(toBytes(row, columns.value(0)));
+            ByteBuffer[] bbs = new ByteBuffer[columns.size()];
+            int offset = 0;
+            for (Symbol symbol : columns)
+                bbs[offset++] = toBytes(row, symbol);
+            return descriptorFactory.toDescriptor(BufferClustering.make(bbs).serializeAsPartitionKey());
         }
 
         private long[] toDescriptors(OffsetSet<Symbol> columns, Object[][] result)
@@ -363,7 +456,7 @@ public class RandomSchemaV2Test extends CQLTester
             {
                 Object value = row[columnOffsets.get(s)];
                 ByteBuffer bb = value instanceof ByteBuffer ? (ByteBuffer) value: ((AbstractType) s.type()).decompose(value);
-                ds[columns.offset(s)] = typeFactory.get(s.type()).toDescriptor(bb);
+                ds[columns.offset(s)] = descriptorFactory.toDescriptor(bb);
             }
             return ds;
         }
@@ -373,7 +466,7 @@ public class RandomSchemaV2Test extends CQLTester
             if (columns.isEmpty()) return new long[0];
             long[] ds = new long[columns.size()];
             for (Symbol s : columns)
-                ds[columns.offset(s)] = typeFactory.get(s.type()).toDescriptor(ExpressionEvaluator.tryEvalEncoded(values.get(s)).get());
+                ds[columns.offset(s)] = descriptorFactory.toDescriptor(ExpressionEvaluator.tryEvalEncoded(values.get(s)).get());
             return ds;
         }
 

@@ -555,6 +555,7 @@ public class HistoryBuilder implements Iterable<ReplayingVisitor.Visit>, SingleO
         LongIterator replay = clock.replayAll();
         return new ReplayingVisitor(executor, replay)
         {
+            @Override
             public Visit getVisit(long lts)
             {
                 long idx = lts - clock.base;
@@ -563,10 +564,19 @@ public class HistoryBuilder implements Iterable<ReplayingVisitor.Visit>, SingleO
                 return visit;
             }
 
+            @Override
             public void replayAll()
             {
                 while (replay.hasNext())
                     visit();
+            }
+
+            @Override
+            public void replayAll(long pd)
+            {
+                PartitionVisitStateImpl state = partitionStates.get(pd);
+                for (Long lts : state.visitedLts)
+                    visit(lts);
             }
         };
     }

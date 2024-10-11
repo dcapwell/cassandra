@@ -37,6 +37,7 @@ public abstract class ReplayingVisitor extends LtsVisitor
     public abstract Visit getVisit(long lts);
 
     public abstract void replayAll();
+    public abstract void replayAll(long pd);
 
     private void replay(Visit visit)
     {

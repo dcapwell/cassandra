@@ -24,11 +24,24 @@ import java.util.stream.Collectors;
 
 import javax.annotation.Nullable;
 
+import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.db.marshal.AsciiType;
+import org.apache.cassandra.db.marshal.ByteType;
+import org.apache.cassandra.db.marshal.DoubleType;
+import org.apache.cassandra.db.marshal.FloatType;
+import org.apache.cassandra.db.marshal.Int32Type;
+import org.apache.cassandra.db.marshal.LongType;
+import org.apache.cassandra.db.marshal.ShortType;
+import org.apache.cassandra.db.marshal.TimeUUIDType;
+import org.apache.cassandra.db.marshal.TimestampType;
+import org.apache.cassandra.db.marshal.UTF8Type;
+import org.apache.cassandra.db.marshal.UUIDType;
 import org.apache.cassandra.harry.gen.DataGenerators;
 import org.apache.cassandra.harry.sut.SystemUnderTest;
 import org.apache.cassandra.harry.operations.CompiledStatement;
 import org.apache.cassandra.harry.operations.Relation;
 import org.apache.cassandra.harry.util.BitSet;
+import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.consensus.TransactionalMode;
 
@@ -89,16 +102,6 @@ public class SchemaSpec
                       Optional<TransactionalMode> transactionalMode)
     {
         this(keyspace, table, partitionKeys, clusteringKeys, regularColumns, staticColumns, DataGenerators.createKeyGenerator(clusteringKeys), false, false, null, false, transactionalMode);
-    }
-
-    public static SchemaSpec create(TableMetadata metadata)
-    {
-        // all types are not supported, so use a single type just for testing...
-        return new SchemaSpec(metadata.keyspace, metadata.name,
-                              metadata.partitionKeyColumns().stream().map(c -> new ColumnSpec<>(c.name.toString(), textType, ColumnSpec.Kind.PARTITION_KEY)).collect(Collectors.toList()),
-                              metadata.clusteringColumns().stream().map(c -> new ColumnSpec<>(c.name.toString(), textType, ColumnSpec.Kind.CLUSTERING)).collect(Collectors.toList()),
-                              metadata.regularColumns().stream().map(c -> new ColumnSpec<>(c.name.toString(), textType, ColumnSpec.Kind.REGULAR)).collect(Collectors.toList()),
-                              metadata.staticColumns().stream().map(c -> new ColumnSpec<>(c.name.toString(), textType, ColumnSpec.Kind.STATIC)).collect(Collectors.toList()));
     }
 
     public SchemaSpec cloneWithName(String ks,
@@ -587,5 +590,71 @@ public class SchemaSpec
                 }
             };
         };
+    }
+
+    static final Map<AbstractType<?>, ColumnSpec.DataType<?>> mapping = new HashMap<>() {{
+        this.put(AsciiType.instance, ColumnSpec.asciiType);
+        this.put(UTF8Type.instance, ColumnSpec.textType);
+        this.put(ByteType.instance, ColumnSpec.int8Type);
+        this.put(ShortType.instance, ColumnSpec.int16Type);
+        this.put(Int32Type.instance, ColumnSpec.int32Type);
+        this.put(LongType.instance, ColumnSpec.int64Type);
+        this.put(FloatType.instance, ColumnSpec.floatType);
+        this.put(DoubleType.instance, ColumnSpec.doubleType);
+        this.put(UUIDType.instance, ColumnSpec.uuidType);
+        this.put(TimeUUIDType.instance, ColumnSpec.timeUuidType);
+        this.put(TimestampType.instance, ColumnSpec.timestampType);
+    }};
+
+    // TODO: we should remove schemaSpec in favour of TM
+    public static SchemaSpec fromTableMetadataUnsafe(TableMetadata metadata)
+    {
+        // all types are not supported, so use a single type just for testing...
+        return new SchemaSpec(metadata.keyspace, metadata.name,
+                              metadata.partitionKeyColumns().stream().map(c -> new ColumnSpec<>(c.name.toString(), textType, ColumnSpec.Kind.PARTITION_KEY)).collect(Collectors.toList()),
+                              metadata.clusteringColumns().stream().map(c -> new ColumnSpec<>(c.name.toString(), textType, ColumnSpec.Kind.CLUSTERING)).collect(Collectors.toList()),
+                              metadata.regularColumns().stream().map(c -> new ColumnSpec<>(c.name.toString(), textType, ColumnSpec.Kind.REGULAR)).collect(Collectors.toList()),
+                              metadata.staticColumns().stream().map(c -> new ColumnSpec<>(c.name.toString(), textType, ColumnSpec.Kind.STATIC)).collect(Collectors.toList()));
+    }
+
+    public static SchemaSpec fromTableMetadata(TableMetadata tm)
+    {
+        List<ColumnSpec<?>> partitionKeys = new ArrayList<>();
+        for (ColumnMetadata pk : tm.partitionKeyColumns())
+            partitionKeys.add(fromColumnMetadata(pk));
+        List<ColumnSpec<?>> clusteringKeys = new ArrayList<>();
+        for (ColumnMetadata pk : tm.clusteringColumns())
+            clusteringKeys.add(fromColumnMetadata(pk));
+        List<ColumnSpec<?>> regularColumns = new ArrayList<>();
+        for (ColumnMetadata pk : tm.regularColumns())
+            regularColumns.add(fromColumnMetadata(pk));
+        List<ColumnSpec<?>> staticColumns = new ArrayList<>();
+        for (ColumnMetadata pk : tm.staticColumns())
+            staticColumns.add(fromColumnMetadata(pk));
+        return new SchemaSpec(tm.keyspace,
+                              tm.name,
+                              partitionKeys,
+                              clusteringKeys,
+                              regularColumns,
+                              staticColumns);
+    }
+
+    private static ColumnSpec<?> fromColumnMetadata(ColumnMetadata cm)
+    {
+        ColumnSpec.Kind kind;
+        switch (cm.kind)
+        {
+            case PARTITION_KEY: kind = ColumnSpec.Kind.PARTITION_KEY; break;
+            case CLUSTERING: kind = ColumnSpec.Kind.CLUSTERING; break;
+            case REGULAR: kind = ColumnSpec.Kind.REGULAR; break;
+            case STATIC: kind = ColumnSpec.Kind.STATIC; break;
+            default: throw new IllegalArgumentException();
+        }
+
+        ColumnSpec.DataType<?> type = mapping.get(cm.type);
+        if (type == null)
+            throw new IllegalArgumentException("Type " + cm.type + " is not supported. Supported types " + mapping.keySet());
+
+        return new ColumnSpec<>(cm.name.toString(), type, kind);
     }
 }
