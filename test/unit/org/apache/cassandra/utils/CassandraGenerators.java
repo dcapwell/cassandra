@@ -553,7 +553,7 @@ public final class CassandraGenerators
         private Gen<TableId> tableIdGen = TABLE_ID_GEN;
         private Gen<TableMetadata.Kind> tableKindGen = SourceDSL.arbitrary().constant(TableMetadata.Kind.REGULAR);
         private Gen<Integer> numPartitionColumnsGen = SourceDSL.integers().between(1, 2);
-        private Gen<Integer> numClusteringColumnsGen = SourceDSL.integers().between(1, 2);
+        private Gen<Integer> numClusteringColumnsGen = SourceDSL.integers().between(0, 2);
         private Gen<Integer> numRegularColumnsGen = SourceDSL.integers().between(1, 5);
         private Gen<Integer> numStaticColumnsGen = SourceDSL.integers().between(0, 2);
         @Nullable
