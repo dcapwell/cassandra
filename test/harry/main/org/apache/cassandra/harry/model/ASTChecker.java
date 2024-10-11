@@ -57,6 +57,7 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 
 public class ASTChecker
 {
+    public static final long[] EMPTY = new long[0];
     private final TableMetadata metadata;
     private final OffsetSet<Symbol> partitionColumns = new OffsetSet<>();
     private final OffsetSet<Symbol> clusteringColumns = new OffsetSet<>();
@@ -77,7 +78,7 @@ public class ASTChecker
         columnOffsets = new HashMap<>();
         {
             int offset = 0;
-            for (ColumnMetadata col : (Iterable<ColumnMetadata>) () -> metadata.allColumnsInSelectOrder())
+            for (ColumnMetadata col : (Iterable<ColumnMetadata>) metadata::allColumnsInSelectOrder)
                 columnOffsets.put(Symbol.from(col), offset++);
         }
     }
@@ -87,7 +88,6 @@ public class ASTChecker
     public void update(Mutation mutation)
     {
         long lts = time++;
-        long opId = lts;
         long pd = descriptorFactory.toDescriptor(toPartition(mutation.values));
         long cd = descriptorFactory.toDescriptor(toClustering(mutation.values));
         long[] sds = toDescriptors(staticColumns, mutation.values);
@@ -128,7 +128,7 @@ public class ASTChecker
             @Override
             public long opId()
             {
-                return opId;
+                return lts;
             }
 
             @Override
@@ -156,38 +156,12 @@ public class ASTChecker
             }
             else if (e instanceof Conditional.In)
             {
-                Conditional.In in = (Conditional.In) e;
                 throw new UnsupportedOperationException("TODO");
             }
         });
         long pd = descriptorFactory.toDescriptor(toPartition(values));
-//            long cd = clusteringFactory.toDescriptor(toClustering(values));
-//            long[] sds = toDescriptors(staticColumns, result);
-//            long[] vds = toDescriptors(regularColumns, result);
         List<VisitExecutor.Operation> ops = pksToOps.get(pd);
         if (ops == null) throw new AssertionError("Unknown pd: " + pd);
-//
-//            Reconciler reconciler = new Reconciler(new AlwaysSamePartitionSelector(pd), SchemaSpec.fromTableMetadataUnsafe(metadata), executor -> new LtsVisitor(executor, () -> 0) {
-//                @Override
-//                public void visit(long lts)
-//                {
-//                    this.beforeLts(lts, pd);
-//                    ops.forEach(this::operation);
-//                    this.afterLts(lts, pd);
-//                }
-//            });
-//
-//            //TODO: waiting on Alex
-//            DataTracker tracker = Mockito.mock(DataTracker.class);
-//            Mockito.when(tracker.isFinished(Mockito.anyLong())).thenReturn(true);
-//            Query query = Mockito.mock(Query.class);
-//            Mockito.when(query.matchCd(Mockito.eq(cd))).thenReturn(true);
-//            PartitionState state = reconciler.inflatePartitionState(pd, tracker, query);
-//
-//            Reconciler.RowState row = state.rows().get(cd);
-//            Assertions.assertThat(row).isNotNull();
-//            Assertions.assertThat(vds).isEqualTo(row.vds);
-//            Assertions.assertThat(sds).isEqualTo(state.staticRow().vds);
 
         ReplayingVisitor.Visit[] visits = new ReplayingVisitor.Visit[ops.size()];
         for (int i = 0; i < ops.size(); i++)
@@ -250,6 +224,7 @@ public class ASTChecker
         return rs;
     }
 
+    @SuppressWarnings("unchecked")
     private ByteBuffer toBytes(Object[] row, Symbol symbol)
     {
         Object value = row[columnOffsets.get(symbol)];
@@ -269,23 +244,9 @@ public class ASTChecker
         return descriptorFactory.toDescriptor(BufferClustering.make(bbs).serializeAsPartitionKey());
     }
 
-    private long[] toDescriptors(OffsetSet<Symbol> columns, Object[][] result)
-    {
-        if (result.length == 0) return new long[0];
-        Object[] row = result[0];
-        long[] ds = new long[columns.size()];
-        for (Symbol s : columns)
-        {
-            Object value = row[columnOffsets.get(s)];
-            ByteBuffer bb = value instanceof ByteBuffer ? (ByteBuffer) value : ((AbstractType) s.type()).decompose(value);
-            ds[columns.offset(s)] = descriptorFactory.toDescriptor(bb);
-        }
-        return ds;
-    }
-
     private long[] toDescriptors(OffsetSet<Symbol> columns, Map<Symbol, ? extends Expression> values)
     {
-        if (columns.isEmpty()) return new long[0];
+        if (columns.isEmpty()) return EMPTY;
         long[] ds = new long[columns.size()];
         for (Symbol s : columns)
             ds[columns.offset(s)] = descriptorFactory.toDescriptor(ExpressionEvaluator.tryEvalEncoded(values.get(s)).get());
@@ -349,7 +310,7 @@ public class ASTChecker
         public Iterator<T> iterator()
         {
             var all = new ArrayList<>(valueToOffsets.entrySet());
-            all.sort(Comparator.comparing(Map.Entry::getValue));
+            all.sort(Map.Entry.comparingByValue());
             return Iterators.transform(all.iterator(), Map.Entry::getKey);
         }
 
