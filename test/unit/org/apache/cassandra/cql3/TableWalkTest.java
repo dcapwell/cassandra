@@ -18,7 +18,6 @@
 
 package org.apache.cassandra.cql3;
 
-import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +39,9 @@ import org.apache.cassandra.harry.model.OpSelectors;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.ASTGenerators.MutationGenBuilder;
+import org.apache.cassandra.utils.AbstractTypeGenerators;
+import org.apache.cassandra.utils.AbstractTypeGenerators.TypeGenBuilder;
+import org.apache.cassandra.utils.Generators;
 import org.quicktheories.generators.SourceDSL;
 
 import static accord.utils.Property.commands;
@@ -67,10 +69,9 @@ public class TableWalkTest extends CQLTester
     @Test
     public void test()
     {
-//        3449305727684885768L
-        stateful().withSeed(-7576457307656450664L).withExamples(100).withSteps(20).check(commands(() -> State::new)
-                         .add(this::insert)
-                         .build());
+        stateful().withExamples(100).withSteps(100).check(commands(() -> State::new)
+                                                          .add(1, this::insert)
+                                                          .build());
     }
 
     private class State
@@ -82,7 +83,15 @@ public class TableWalkTest extends CQLTester
         public State(RandomSource rs)
         {
             KeyspaceMetadata ks = createKeyspace(rs);
-            this.metadata = createTable(rs, ks.name);
+            TypeGenBuilder supportedTypes = AbstractTypeGenerators.withoutUnsafeEquality(AbstractTypeGenerators.builder()
+                                                                                         // below is left commented out to make it easier for people to simplify the table to be more human friendly
+//                                                                                                               .withTypeKinds(AbstractTypeGenerators.TypeKind.PRIMITIVE)
+//                                                                                                               .withoutPrimitive(UTF8Type.instance)
+//                                                                                                               .withoutPrimitive(AsciiType.instance)
+            );
+            this.metadata = createTable(Generators.toGen(createTableMetadataBuilder(ks.name)
+                                                         .withDefaultTypeGen(supportedTypes)
+                                                         .build()).next(rs));
             List<Map<Symbol, Object>> uniqueValues;
             {
                 int unique = rs.nextInt(1, 10);
@@ -90,9 +99,9 @@ public class TableWalkTest extends CQLTester
                 {
                     Symbol col = Symbol.from(metadata.partitionKeyColumns().get(0));
                     List<Object> bbs = Gens.lists(toGen(getTypeSupport(col.type()).valueGen).map(v -> (Object) v))
-                                      .uniqueBestEffort()
-                                      .ofSize(unique)
-                                      .next(rs);
+                                           .uniqueBestEffort()
+                                           .ofSize(unique)
+                                           .next(rs);
                     uniqueValues = bbs.stream().map(b -> Map.of(col, b)).collect(Collectors.toList());
                 }
                 else

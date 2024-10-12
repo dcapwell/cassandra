@@ -131,6 +131,7 @@ import org.apache.cassandra.db.Directories;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.db.marshal.AsciiType;
 import org.apache.cassandra.db.marshal.BooleanType;
 import org.apache.cassandra.db.marshal.ByteBufferAccessor;
 import org.apache.cassandra.db.marshal.ByteType;
@@ -192,6 +193,7 @@ import org.apache.cassandra.transport.SimpleClient;
 import org.apache.cassandra.transport.TlsTestUtils;
 import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.ASTGenerators;
+import org.apache.cassandra.utils.AbstractTypeGenerators;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CassandraGenerators;
 import org.apache.cassandra.utils.ConfigGenBuilder;
@@ -2634,12 +2636,16 @@ public abstract class CQLTester
 
     protected TableMetadata createTable(RandomSource rs, String keyspace)
     {
-        TableMetadata metadata = Generators.toGen(createTableMetadataBuilder(keyspace).build()).next(rs);
+        return createTable(Generators.toGen(createTableMetadataBuilder(keyspace)/*.withDefaultTypeGen(AbstractTypeGenerators.withoutUnsafeEquality(AbstractTypeGenerators.builder().withTypeKinds(AbstractTypeGenerators.TypeKind.PRIMITIVE).withoutPrimitive(UTF8Type.instance).withoutPrimitive(AsciiType.instance)))*/.build()).next(rs));
+    }
+
+    protected TableMetadata createTable(TableMetadata metadata)
+    {
         maybeCreateUDTs(metadata);
         String fullQuery = metadata.toCqlString(false, false, false);
         logger.info(fullQuery);
         schemaChange(fullQuery);
-        return Schema.instance.getTableMetadata(keyspace, metadata.name);
+        return Schema.instance.getTableMetadata(metadata.keyspace, metadata.name);
     }
 
     protected void maybeCreateUDTs(TableMetadata metadata)
