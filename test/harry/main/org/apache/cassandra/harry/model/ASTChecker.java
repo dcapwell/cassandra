@@ -48,6 +48,7 @@ import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.harry.data.ResultSetRow;
 import org.apache.cassandra.harry.ddl.SchemaSpec;
 import org.apache.cassandra.harry.dsl.HistoryBuilder;
+import org.apache.cassandra.harry.gen.DataGenerators;
 import org.apache.cassandra.harry.model.reconciler.Reconciler;
 import org.apache.cassandra.harry.operations.Query;
 import org.apache.cassandra.harry.util.BitSet;
@@ -69,6 +70,7 @@ public class ASTChecker
     public final OffsetSet<Symbol> staticColumns = new OffsetSet<>();
     public final OffsetSet<Symbol> regularColumns = new OffsetSet<>();
     private final DescriptorFactory.ValueDescriptorFactory descriptorFactory = new DescriptorFactory.ValueDescriptorFactory();
+    private final Map<Long, List<VisitExecutor.Operation>> pksToOps = new HashMap<>();
     private final Map<Symbol, Integer> columnOffsets;
     private long time = 0;
 
@@ -89,7 +91,46 @@ public class ASTChecker
         }
     }
 
-    private final Map<Long, List<VisitExecutor.Operation>> pksToOps = new HashMap<>();
+    public OpSelectors.OperationKind kind(Mutation mutation)
+    {
+        if (mutation.kind == Mutation.Kind.DELETE)
+        {
+            Set<Symbol> columns = mutation.values.keySet();
+            Assertions.assertThat(columns).containsAll(partitionColumns);
+            columns = Sets.difference(columns, partitionColumns);
+            OpSelectors.OperationKind kind = OpSelectors.OperationKind.DELETE_PARTITION;
+            if (columns.containsAll(clusteringColumns))
+            {
+                columns = Sets.difference(columns, clusteringColumns);
+                if (columns.isEmpty())
+                {
+                    kind = OpSelectors.OperationKind.DELETE_ROW;
+                }
+                else
+                {
+                    kind = OpSelectors.OperationKind.DELETE_COLUMN;
+                }
+            }
+            return kind;
+        }
+        else
+        {
+            boolean hasStatics = !metadata.staticColumns().isEmpty();
+            switch (mutation.kind)
+            {
+                case UPDATE:
+                    return !hasStatics
+                           ? OpSelectors.OperationKind.UPDATE
+                           : OpSelectors.OperationKind.UPDATE_WITH_STATICS;
+                case INSERT:
+                    return !hasStatics
+                           ? OpSelectors.OperationKind.INSERT
+                           : OpSelectors.OperationKind.INSERT_WITH_STATICS;
+                default:
+                    throw new UnsupportedOperationException(mutation.kind.name());
+            }
+        }
+    }
 
     public void update(Mutation mutation)
     {
@@ -439,16 +480,24 @@ public class ASTChecker
 
             long[] vds = new long[regularColumns.size()];
             for (Symbol reg : regularColumns)
-                vds[regularColumns.offset(reg)] = descriptorFactory.toDescriptor(toBytes(row, reg));
+                vds[regularColumns.offset(reg)] = descriptor(row, reg);
 
             long[] sds = new long[staticColumns.size()];
             for (Symbol reg : staticColumns)
-                sds[staticColumns.offset(reg)] = descriptorFactory.toDescriptor(toBytes(row, reg));
+                sds[staticColumns.offset(reg)] = descriptor(row, reg);
 
             rs.add(new ResultSetRow(pd, cd, sds, new long[staticColumns.size()], vds, new long[regularColumns.size()], Collections.emptyList()));
         }
 
         return rs;
+    }
+
+    private long descriptor(Object[] row, Symbol symbol)
+    {
+        Object value = row[columnOffsets.get(symbol)];
+        if (value == null)
+            return DataGenerators.NIL_DESCR;
+        return descriptorFactory.toDescriptor(toBytes(row, symbol));
     }
 
     @SuppressWarnings("unchecked")
@@ -465,7 +514,7 @@ public class ASTChecker
         if (columns.isEmpty())
             return descriptorFactory.toDescriptor(ByteBufferUtil.EMPTY_BYTE_BUFFER);
         if (columns.size() == 1)
-            return descriptorFactory.toDescriptor(toBytes(row, columns.value(0)));
+            return descriptor(row, columns.value(0));
         ByteBuffer[] bbs = new ByteBuffer[columns.size()];
         int offset = 0;
         for (Symbol symbol : columns)
