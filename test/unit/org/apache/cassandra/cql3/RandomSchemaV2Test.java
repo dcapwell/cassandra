@@ -93,7 +93,7 @@ public class RandomSchemaV2Test extends CQLTester
             return rs.pickOrderedSet(ProtocolVersion.SUPPORTED);
         };
         Gen<Mode> modeGen = Gens.enums().all(Mode.class);
-        qt().withSeed(-7039959287483324284L).withExamples(100).forAll(Gens.random(), modeGen, clientVersionGen).check((rs, mode, protocolVersion) -> {
+        qt().withSeed(5158647931416624047L).withExamples(100).forAll(Gens.random(), modeGen, clientVersionGen).check((rs, mode, protocolVersion) -> {
             clearState();
 
             KeyspaceMetadata ks = createKeyspace(rs);

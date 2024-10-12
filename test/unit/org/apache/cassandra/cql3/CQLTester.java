@@ -2401,21 +2401,35 @@ public abstract class CQLTester
             for (int i = 0; i < columns; i++)
             {
                 Object object = row.getObject(i);
-                if (object instanceof UDTValue)
-                {
-                    UDTValue udt = (UDTValue) object;
-                    object = serialize(protocolVersion, udt.getType(), udt);
-                }
-                else if (object instanceof com.datastax.driver.core.TupleValue)
-                {
-                    var tuple = (com.datastax.driver.core.TupleValue) object;
-                    object = serialize(protocolVersion, tuple.getType(), tuple);
-                }
+                object = normalizeCustomTypes(protocolVersion, object);
                 r[i] = object;
             }
             ret.add(r);
         }
         return ret.toArray(Object[][]::new);
+    }
+
+    private Object normalizeCustomTypes(ProtocolVersion protocolVersion, Object object)
+    {
+        if (object instanceof UDTValue)
+        {
+            UDTValue udt = (UDTValue) object;
+            object = serialize(protocolVersion, udt.getType(), udt);
+        }
+        else if (object instanceof com.datastax.driver.core.TupleValue)
+        {
+            var tuple = (com.datastax.driver.core.TupleValue) object;
+            object = serialize(protocolVersion, tuple.getType(), tuple);
+        }
+        // java driver doesn't know about vector type, so returns ByteBuffer, which causes issues as the serializer expects a list
+        else if (object instanceof List)
+        {
+            List<?> list = ((List<?>) object).stream().map(o -> normalizeCustomTypes(protocolVersion, o)).collect(Collectors.toList());
+            object = !list.isEmpty() && list.get(0) instanceof ByteBuffer
+                     ? ListType.getInstance(BytesType.instance, true).pack((List<ByteBuffer>) list)
+                     : list;
+        }
+        return object;
     }
 
     private ByteBuffer serialize(ProtocolVersion protocolVersion, DataType type, Object value)
