@@ -128,7 +128,7 @@ public class SimplifiedQuiescentChecker
                                                    descriptorsToString(expectedRowState.vds), expectedRowState.toString(schema),
                                                    descriptorsToString(actualRowState.vds), actualRowState);
 
-            if (!ltsEqual(expectedRowState.lts, actualRowState.lts))
+            if (!schema.isWriteTimeFromAccord() && !ltsEqual(expectedRowState.lts, actualRowState.lts))
                 throw new LocalValidationException(partitionState.toString(schema),
                                                    toString(actualRows),
                                                    "Timestamps in the row state don't match ones predicted by the model:" +
@@ -194,7 +194,7 @@ public class SimplifiedQuiescentChecker
                                                descriptorsToString(staticRow.vds), staticRow.toString(schemaSpec),
                                                descriptorsToString(actualRowState.sds), actualRowState);
 
-        if (!ltsEqual(staticRow.lts, actualRowState.slts))
+        if (!schemaSpec.isWriteTimeFromAccord() && !ltsEqual(staticRow.lts, actualRowState.slts))
             throw new LocalValidationException(partitionState.toString(schemaSpec),
                                                toString(actualRows),
                                                "Timestamps in the static row state don't match ones predicted by the model:" +

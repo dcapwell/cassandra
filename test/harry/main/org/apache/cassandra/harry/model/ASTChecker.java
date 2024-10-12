@@ -55,6 +55,7 @@ import org.apache.cassandra.harry.visitors.ReplayingVisitor;
 import org.apache.cassandra.harry.visitors.VisitExecutor;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.service.consensus.TransactionalMode;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.assertj.core.api.Assertions;
 
@@ -74,7 +75,7 @@ public class ASTChecker
     public ASTChecker(TableMetadata metadata)
     {
         this.metadata = metadata;
-        this.schema = SchemaSpec.fromTableMetadataUnsafe(metadata);
+        this.schema = SchemaSpec.fromTableMetadataUnsafe(metadata).withTransactionMode(TransactionalMode.full);
         metadata.partitionKeyColumns().forEach(c -> partitionColumns.add(new Symbol(c)));
         metadata.clusteringColumns().forEach(c -> clusteringColumns.add(new Symbol(c)));
         metadata.staticColumns().forEach(c -> staticColumns.add(new Symbol(c)));
