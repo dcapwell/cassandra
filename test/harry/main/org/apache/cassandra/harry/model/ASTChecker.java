@@ -33,6 +33,7 @@ import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Iterators;
+import com.google.common.collect.Sets;
 
 import accord.utils.Invariants;
 import org.apache.cassandra.cql3.ast.Conditional;
@@ -49,20 +50,23 @@ import org.apache.cassandra.harry.ddl.SchemaSpec;
 import org.apache.cassandra.harry.dsl.HistoryBuilder;
 import org.apache.cassandra.harry.model.reconciler.Reconciler;
 import org.apache.cassandra.harry.operations.Query;
+import org.apache.cassandra.harry.util.BitSet;
 import org.apache.cassandra.harry.visitors.ReplayingVisitor;
 import org.apache.cassandra.harry.visitors.VisitExecutor;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.assertj.core.api.Assertions;
 
 public class ASTChecker
 {
     public static final long[] EMPTY = new long[0];
     private final TableMetadata metadata;
-    private final OffsetSet<Symbol> partitionColumns = new OffsetSet<>();
-    private final OffsetSet<Symbol> clusteringColumns = new OffsetSet<>();
-    private final OffsetSet<Symbol> staticColumns = new OffsetSet<>();
-    private final OffsetSet<Symbol> regularColumns = new OffsetSet<>();
+    private final SchemaSpec schema;
+    public final OffsetSet<Symbol> partitionColumns = new OffsetSet<>();
+    public final OffsetSet<Symbol> clusteringColumns = new OffsetSet<>();
+    public final OffsetSet<Symbol> staticColumns = new OffsetSet<>();
+    public final OffsetSet<Symbol> regularColumns = new OffsetSet<>();
     private final DescriptorFactory.ValueDescriptorFactory descriptorFactory = new DescriptorFactory.ValueDescriptorFactory();
     private final Map<Symbol, Integer> columnOffsets;
     private long time = 0;
@@ -70,6 +74,7 @@ public class ASTChecker
     public ASTChecker(TableMetadata metadata)
     {
         this.metadata = metadata;
+        this.schema = SchemaSpec.fromTableMetadataUnsafe(metadata);
         metadata.partitionKeyColumns().forEach(c -> partitionColumns.add(new Symbol(c)));
         metadata.clusteringColumns().forEach(c -> clusteringColumns.add(new Symbol(c)));
         metadata.staticColumns().forEach(c -> staticColumns.add(new Symbol(c)));
@@ -89,34 +94,119 @@ public class ASTChecker
     {
         long lts = time++;
         long pd = descriptorFactory.toDescriptor(toPartition(mutation.values));
-        long cd = descriptorFactory.toDescriptor(toClustering(mutation.values));
-        long[] sds = toDescriptors(staticColumns, mutation.values);
-        long[] vds = toDescriptors(regularColumns, mutation.values);
-        //TODO (coverage): DeleteRowOp/DeleteOp/DeleteColumnsOp
-        VisitExecutor.WriteStaticOp op = new VisitExecutor.WriteStaticOp()
+        long cd = mutation.values.keySet().containsAll(clusteringColumns) ? descriptorFactory.toDescriptor(toClustering(mutation.values)) : -1;
+        VisitExecutor.Operation op;
+        if (mutation.kind == Mutation.Kind.DELETE)
         {
+            Set<Symbol> columns = mutation.values.keySet();
+            Assertions.assertThat(columns).containsAll(partitionColumns);
+            columns = Sets.difference(columns, partitionColumns);
+            OpSelectors.OperationKind kind = OpSelectors.OperationKind.DELETE_PARTITION;
+            if (columns.containsAll(clusteringColumns))
+            {
+                columns = Sets.difference(columns, clusteringColumns);
+                if (columns.isEmpty())
+                {
+                    kind = OpSelectors.OperationKind.DELETE_ROW;
+                }
+                else
+                {
+                    kind = OpSelectors.OperationKind.DELETE_COLUMN;
+                }
+            }
+            switch (kind)
+            {
+                case DELETE_PARTITION:
+                    op = deletePartition(pd, lts);
+                    break;
+                case DELETE_ROW:
+                    op = deleteRow(pd, cd, lts);
+                    break;
+                case DELETE_COLUMN:
+                case DELETE_COLUMN_WITH_STATICS:
+                    op = deleteColumn(pd, cd, columns, lts);
+                    break;
+                default:
+                    throw new UnsupportedOperationException();
+
+//                case DELETE_SLICE:
+//                case DELETE_RANGE:
+            }
+        }
+        else
+        {
+            long[] sds = toDescriptors(staticColumns, mutation.values);
+            long[] vds = toDescriptors(regularColumns, mutation.values);
+            op = new VisitExecutor.WriteStaticOp()
+            {
+                @Override
+                public long pd()
+                {
+                    return pd;
+                }
+
+                @Override
+                public long cd()
+                {
+                    return cd;
+                }
+
+                @Override
+                public long[] sds()
+                {
+                    return sds;
+                }
+
+                @Override
+                public long[] vds()
+                {
+                    return vds;
+                }
+
+                @Override
+                public long lts()
+                {
+                    return lts;
+                }
+
+                @Override
+                public long opId()
+                {
+                    return lts;
+                }
+
+                @Override
+                public OpSelectors.OperationKind kind()
+                {
+                    boolean hasStatics = !metadata.staticColumns().isEmpty();
+                    switch (mutation.kind)
+                    {
+                        case UPDATE:
+                            return !hasStatics
+                                   ? OpSelectors.OperationKind.UPDATE
+                                   : OpSelectors.OperationKind.UPDATE_WITH_STATICS;
+                        case INSERT:
+                            return !hasStatics
+                                   ? OpSelectors.OperationKind.INSERT
+                                   : OpSelectors.OperationKind.INSERT_WITH_STATICS;
+                        default:
+                            throw new UnsupportedOperationException(mutation.kind.name());
+                    }
+                }
+            };
+        }
+        pksToOps.computeIfAbsent(pd, i -> new ArrayList<>()).add(op);
+    }
+
+    private VisitExecutor.DeleteOp deletePartition(long pd, long lts)
+    {
+        return new VisitExecutor.DeleteOp()
+        {
+
             @Override
             public long pd()
             {
                 return pd;
-            }
-
-            @Override
-            public long cd()
-            {
-                return cd;
-            }
-
-            @Override
-            public long[] sds()
-            {
-                return sds;
-            }
-
-            @Override
-            public long[] vds()
-            {
-                return vds;
             }
 
             @Override
@@ -134,12 +224,97 @@ public class ASTChecker
             @Override
             public OpSelectors.OperationKind kind()
             {
-                return metadata.staticColumns().isEmpty()
-                       ? OpSelectors.OperationKind.INSERT
-                       : OpSelectors.OperationKind.INSERT_WITH_STATICS;
+                return OpSelectors.OperationKind.DELETE_PARTITION;
+            }
+
+            @Override
+            public Query relations()
+            {
+                return new Query.SinglePartitionQuery(Query.QueryKind.SINGLE_PARTITION,
+                                                      pd,
+                                                      false,
+                                                      Collections.emptyList(),
+                                                      schema,
+                                                      Query.Wildcard.instance);
             }
         };
-        pksToOps.computeIfAbsent(pd, i -> new ArrayList<>()).add(op);
+    }
+
+    private static VisitExecutor.Operation deleteRow(long pd, long cd, long lts)
+    {
+        return new VisitExecutor.DeleteRowOp()
+        {
+            @Override
+            public long cd()
+            {
+                return cd;
+            }
+
+            @Override
+            public long pd()
+            {
+                return pd;
+            }
+
+            @Override
+            public long lts()
+            {
+                return lts;
+            }
+
+            @Override
+            public long opId()
+            {
+                return lts;
+            }
+
+            @Override
+            public OpSelectors.OperationKind kind()
+            {
+                return OpSelectors.OperationKind.DELETE_ROW;
+            }
+        };
+    }
+
+    private VisitExecutor.Operation deleteColumn(long pd, long cd, Set<Symbol> columns, long lts)
+    {
+        return new VisitExecutor.DeleteColumnsOp() {
+            @Override
+            public long pd()
+            {
+                return pd;
+            }
+
+            @Override
+            public long lts()
+            {
+                return lts;
+            }
+
+            @Override
+            public long opId()
+            {
+                return lts;
+            }
+
+            @Override
+            public OpSelectors.OperationKind kind()
+            {
+                return Sets.intersection(staticColumns, columns).isEmpty() ? OpSelectors.OperationKind.DELETE_COLUMN : OpSelectors.OperationKind.DELETE_COLUMN_WITH_STATICS;
+            }
+
+            @Override
+            public long cd()
+            {
+                return cd;
+            }
+
+            @Override
+            public BitSet columns()
+            {
+                throw new UnsupportedOperationException();
+            }
+        };
     }
 
     public void validate(Select select, Object[][] result)
@@ -152,7 +327,6 @@ public class ASTChecker
         ReplayingVisitor.Visit[] visits = new ReplayingVisitor.Visit[ops.size()];
         for (int i = 0; i < ops.size(); i++)
             visits[i] = new ReplayingVisitor.Visit(i, pd, new VisitExecutor.Operation[]{ ops.get(i) });
-        SchemaSpec schema = SchemaSpec.fromTableMetadataUnsafe(metadata);
         HistoryBuilder.LongIterator iter = new SequentialLongIterator(0, visits.length);
         Reconciler reconciler = new Reconciler(schema);
         SimplifiedQuiescentChecker.validate(schema,
@@ -201,9 +375,9 @@ public class ASTChecker
                 long cd = descriptorFactory.toDescriptor(toClustering(values));
                 query = new Query.SingleClusteringQuery(Query.QueryKind.SINGLE_CLUSTERING,
                                                         pd,
-                                                       cd,
-                                                       false,
-                                                       Collections.emptyList(),
+                                                        cd,
+                                                        false,
+                                                        Collections.emptyList(),
                                                         schema);
             }
             break;

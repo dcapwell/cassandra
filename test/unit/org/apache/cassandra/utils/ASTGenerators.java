@@ -40,6 +40,7 @@ import java.util.stream.IntStream;
 import java.util.stream.StreamSupport;
 
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import org.apache.cassandra.cql3.ast.And;
@@ -254,8 +255,10 @@ public class ASTGenerators
 
     public static class MutationGenBuilder
     {
+        private enum DeleteKind { Partition, Row, Column }
         private final TableMetadata metadata;
         private final Set<Symbol> allColumns;
+        private final Set<Symbol> partitionColumns;
         private final Set<Symbol> primaryColumns;
         private final Set<Symbol> nonPrimaryColumns;
         private Gen<Mutation.Kind> kindGen = SourceDSL.arbitrary().enumValues(Mutation.Kind.class);
@@ -268,11 +271,13 @@ public class ASTGenerators
         private Gen<Boolean> useCasIf = SourceDSL.booleans().all();
         private BiFunction<RandomnessSource, List<Symbol>, List<Symbol>> ifConditionFilter = (rnd, symbols) -> symbols;
         private final Map<Symbol, Gen<?>> columnDataGens;
+        private Gen<DeleteKind> deleteKindGen = SourceDSL.arbitrary().enumValues(DeleteKind.class);
 
         public MutationGenBuilder(TableMetadata metadata)
         {
             this.metadata = Objects.requireNonNull(metadata);
             this.allColumns = Mutation.toSet(metadata.columns());
+            this.partitionColumns = Mutation.toSet(metadata.partitionKeyColumns());
             this.primaryColumns = Mutation.toSet(metadata.primaryKeyColumns());
             this.nonPrimaryColumns = Sets.difference(allColumns, primaryColumns);
 
@@ -384,6 +389,24 @@ public class ASTGenerators
                 }
 
                 Map<Symbol, Expression> values = valuesGen.generate(rnd);
+                if (kind == Mutation.Kind.DELETE)
+                {
+                    // 3 types of delete: partition, row, columns
+                    switch (deleteKindGen.generate(rnd))
+                    {
+                        case Partition:
+                            values = Maps.filterKeys(values, partitionColumns::contains);
+                            break;
+                        case Row:
+                            values = Maps.filterKeys(values, primaryColumns::contains);
+                            break;
+                        case Column:
+                            // nothing to see here
+                            break;
+                        default:
+                            throw new UnsupportedOperationException();
+                    }
+                }
                 Map<? extends AbstractType<?>, List<Reference>> typeToReference = references.stream().collect(Collectors.groupingBy(Reference::type));
                 if (!typeToReference.isEmpty())
                 {

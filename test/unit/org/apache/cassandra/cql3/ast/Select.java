@@ -31,6 +31,7 @@ import com.google.common.collect.ImmutableList;
 
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.BytesType;
+import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.db.marshal.LongType;
 import org.apache.cassandra.schema.TableMetadata;
 
@@ -92,6 +93,11 @@ FROM [keyspace_name.] table_name
     public Select withAllowFiltering()
     {
         return new Select(selections, source, where, orderBy, limit, true);
+    }
+
+    public Select withLimit(int limit)
+    {
+        return new Select(selections, source, where, orderBy, Optional.of(new Literal(limit, Int32Type.instance)), true);
     }
 
     @Override

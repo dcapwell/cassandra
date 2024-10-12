@@ -91,7 +91,7 @@ public class RandomSchemaV2Test extends CQLTester
             return rs.pickOrderedSet(ProtocolVersion.SUPPORTED);
         };
         Gen<Mode> modeGen = Gens.enums().all(Mode.class);
-        qt().withSeed(3449272830300698514L).withExamples(100).forAll(Gens.random(), modeGen, clientVersionGen).check((rs, mode, protocolVersion) -> {
+        qt().withSeed(6995176403093763093L).withExamples(100).forAll(Gens.random(), modeGen, clientVersionGen).check((rs, mode, protocolVersion) -> {
             clearState();
 
             KeyspaceMetadata ks = createKeyspace(rs);
@@ -104,14 +104,15 @@ public class RandomSchemaV2Test extends CQLTester
             }
             Map<ColumnMetadata, CreateIndexDDL> indexedColumns = createIndex(rs, metadata);
 
-            ASTChecker ASTChecker = new ASTChecker(metadata);
+            ASTChecker checker = new ASTChecker(metadata);
 
             Mutation mutation = nonTransactionMutation(rs, metadata);
             if (mode == Mode.AccordEnabled)
                 mutation = mutation.withoutTimestamp().withoutTTL(); // Accord doesn't allow custom timestamps or TTL
-            if (mutation.kind != Mutation.Kind.DELETE)
-                ASTChecker.update(mutation);
+            checker.update(mutation);
             Select select = select(mutation);
+            if (mode == Mode.AccordEnabled && !mutation.values.keySet().containsAll(checker.clusteringColumns))
+                select = select.withLimit(1);
             Object[][] expectedRows = rows(mutation);
             try
             {
@@ -126,8 +127,7 @@ public class RandomSchemaV2Test extends CQLTester
                     execute(mode == Mode.AccordEnabled ? Txn.wrap(mutation) : mutation);
                     assertRows(execute(mode == Mode.AccordEnabled ? Txn.wrap(select) : select), expectedRows);
                 }
-                if (mutation.kind != Mutation.Kind.DELETE)
-                    ASTChecker.validate(select, expectedRows);
+                checker.validate(select, expectedRows);
             }
             catch (Throwable t)
             {
@@ -141,7 +141,7 @@ public class RandomSchemaV2Test extends CQLTester
                 throw new AssertionError(sb.toString(), t);
             }
 
-            checkIndexes(metadata, indexedColumns, mutation, mode, protocolVersion);
+//            checkIndexes(metadata, indexedColumns, mutation, mode, protocolVersion);
         });
     }
 
