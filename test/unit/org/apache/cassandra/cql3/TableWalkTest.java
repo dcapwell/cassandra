@@ -34,9 +34,11 @@ import org.apache.cassandra.cql3.ast.Bind;
 import org.apache.cassandra.cql3.ast.Mutation;
 import org.apache.cassandra.cql3.ast.Select;
 import org.apache.cassandra.cql3.ast.Symbol;
+import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.harry.model.ASTChecker;
 import org.apache.cassandra.harry.model.OpSelectors;
 import org.apache.cassandra.schema.KeyspaceMetadata;
+import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.ASTGenerators.MutationGenBuilder;
 import org.apache.cassandra.utils.AbstractTypeGenerators;
@@ -57,8 +59,7 @@ public class TableWalkTest extends CQLTester
         OpSelectors.OperationKind kind = state.checker.kind(mutation);
         Select select = select(mutation);
         long pd = state.checker.pd(mutation);
-//        String name = kind.name() + " pd" + pd;
-        String name = mutation.toString();
+        String name = kind.name() + " pd" + pd;
         return new SimpleCommand<>(name, s2 -> {
             execute(mutation);
             s2.checker.update(mutation);
@@ -66,17 +67,40 @@ public class TableWalkTest extends CQLTester
         });
     }
 
+    private static boolean hasEnoughMemtable(State state)
+    {
+        return state.store.getCurrentMemtable().getLiveDataSize() > 3;
+    }
+
+    public Property.Command<State, Void, ?> flushTable(RandomSource rs, State state)
+    {
+        return new SimpleCommand<>("Flush", s2 -> s2.store.forceBlockingFlush(ColumnFamilyStore.FlushReason.UNIT_TESTS));
+    }
+
+    private static boolean hasEnoughSSTables(State state)
+    {
+        return state.store.getTracker().getView().liveSSTables().size() >= 3;
+    }
+
+    public Property.Command<State, Void, ?> compactTable(RandomSource rs, State state)
+    {
+        return new SimpleCommand<>("Compact", s2 -> s2.store.forceMajorCompaction());
+    }
+
     @Test
     public void test()
     {
-        stateful().withExamples(100).withSteps(100).check(commands(() -> State::new)
-                                                          .add(1, this::insert)
+        stateful().withExamples(100).withSteps(200).check(commands(() -> State::new)
+                                                          .add(this::insert)
+                                                          .addIf(TableWalkTest::hasEnoughMemtable, this::flushTable)
+                                                          .addIf(TableWalkTest::hasEnoughSSTables, this::compactTable)
                                                           .build());
     }
 
     private class State
     {
         private final TableMetadata metadata;
+        private final ColumnFamilyStore store;
         private final ASTChecker checker;
         private final Gen<Mutation> mutationGen;
 
@@ -92,6 +116,8 @@ public class TableWalkTest extends CQLTester
             this.metadata = createTable(Generators.toGen(createTableMetadataBuilder(ks.name)
                                                          .withDefaultTypeGen(supportedTypes)
                                                          .build()).next(rs));
+            this.store = Schema.instance.getColumnFamilyStoreInstance(metadata.id);
+            store.disableAutoCompaction();
             List<Map<Symbol, Object>> uniqueValues;
             {
                 int unique = rs.nextInt(1, 10);
