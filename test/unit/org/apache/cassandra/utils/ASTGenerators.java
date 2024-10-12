@@ -273,6 +273,7 @@ public class ASTGenerators
         private BiFunction<RandomnessSource, List<Symbol>, List<Symbol>> ifConditionFilter = (rnd, symbols) -> symbols;
         private final Map<Symbol, Gen<?>> columnDataGens;
         private Gen<DeleteKind> deleteKindGen = SourceDSL.arbitrary().enumValues(DeleteKind.class);
+        private BiFunction<Object, AbstractType<?>, Gen<Value>> literalOrBindGen = ASTGenerators::valueGen;
 
         public MutationGenBuilder(TableMetadata metadata)
         {
@@ -290,10 +291,16 @@ public class ASTGenerators
                 for (Symbol name : allColumns)
                 {
                     Gen<?> gen = columnDataGens.get(name);
-                    map.put(name, valueGen(gen.generate(rnd), name.type()).generate(rnd));
+                    map.put(name, literalOrBindGen.apply(gen.generate(rnd), name.type()).generate(rnd));
                 }
                 return map;
             };
+        }
+
+        public MutationGenBuilder withLiteralOrBindGen(BiFunction<Object, AbstractType<?>, Gen<Value>> literalOrBindGen)
+        {
+            this.literalOrBindGen = literalOrBindGen;
+            return this;
         }
 
         public MutationGenBuilder withoutTransaction()
@@ -368,9 +375,9 @@ public class ASTGenerators
             return this;
         }
 
-        private Gen<Map<Symbol, ByteBuffer>> partitionValueGen = null;
+        private Gen<Map<Symbol, Object>> partitionValueGen = null;
 
-        public MutationGenBuilder withPartitions(Gen<Map<Symbol, ByteBuffer>> partitionValueGen)
+        public MutationGenBuilder withPartitions(Gen<Map<Symbol, Object>> partitionValueGen)
         {
             this.partitionValueGen = partitionValueGen;
             return this;
