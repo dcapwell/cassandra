@@ -278,6 +278,8 @@ public class ASTChecker
 
     private VisitExecutor.Operation deleteColumn(long pd, long cd, Set<Symbol> columns, long lts)
     {
+        BitSet bs = new BitSet.BitSet64Bit(columnOffsets.size());
+        columns.forEach(s -> bs.set(columnOffsets.get(s)));
         return new VisitExecutor.DeleteColumnsOp() {
             @Override
             public long pd()
@@ -312,7 +314,7 @@ public class ASTChecker
             @Override
             public BitSet columns()
             {
-                throw new UnsupportedOperationException();
+                return bs;
             }
         };
     }

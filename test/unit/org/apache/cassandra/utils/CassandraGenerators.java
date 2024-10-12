@@ -815,7 +815,7 @@ public final class CassandraGenerators
                 else
                 {
                     int numRegularColumns = numRegularColumnsGen.generate(rnd);
-                    int numStaticColumns = numStaticColumnsGen.generate(rnd);
+                    int numStaticColumns = numClusteringColumns == 0 ? 0 : numStaticColumnsGen.generate(rnd);
                     for (int i = 0; i < numStaticColumns; i++)
                         builder.addColumn(createColumnDefinition(ks, tableName, ColumnMetadata.Kind.STATIC, i, nameGen, staticColTypeGen, rnd));
                     for (int i = 0; i < numRegularColumns; i++)
