@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.utils;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -367,6 +368,14 @@ public class ASTGenerators
             return this;
         }
 
+        private Gen<Map<Symbol, ByteBuffer>> partitionValueGen = null;
+
+        public MutationGenBuilder withPartitions(Gen<Map<Symbol, ByteBuffer>> partitionValueGen)
+        {
+            this.partitionValueGen = partitionValueGen;
+            return this;
+        }
+
         public Gen<Mutation> build()
         {
             Map<Symbol, ColumnMetadata> allColumnsMap = metadata.columns().stream().collect(Collectors.toMap(m -> new Symbol(m), Function.identity()));
@@ -389,6 +398,11 @@ public class ASTGenerators
                 }
 
                 Map<Symbol, Expression> values = valuesGen.generate(rnd);
+                if (partitionValueGen != null)
+                {
+                    for (Map.Entry<Symbol, ?> e : partitionValueGen.generate(rnd).entrySet())
+                        values.put(e.getKey(), valueGen(e.getValue(), e.getKey().type()).generate(rnd));
+                }
                 if (kind == Mutation.Kind.DELETE)
                 {
                     // 3 types of delete: partition, row, columns

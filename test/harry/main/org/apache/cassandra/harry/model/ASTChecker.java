@@ -93,7 +93,7 @@ public class ASTChecker
     public void update(Mutation mutation)
     {
         long lts = time++;
-        long pd = descriptorFactory.toDescriptor(toPartition(mutation.values));
+        long pd = pd(mutation);
         long cd = mutation.values.keySet().containsAll(clusteringColumns) ? descriptorFactory.toDescriptor(toClustering(mutation.values)) : -1;
         VisitExecutor.Operation op;
         if (mutation.kind == Mutation.Kind.DELETE)
@@ -196,6 +196,11 @@ public class ASTChecker
             };
         }
         pksToOps.computeIfAbsent(pd, i -> new ArrayList<>()).add(op);
+    }
+
+    public long pd(Mutation mutation)
+    {
+        return descriptorFactory.toDescriptor(toPartition(mutation.values));
     }
 
     private VisitExecutor.DeleteOp deletePartition(long pd, long lts)
