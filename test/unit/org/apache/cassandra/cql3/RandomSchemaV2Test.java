@@ -28,6 +28,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -41,6 +42,7 @@ import org.apache.cassandra.cql3.ast.CreateIndexDDL.Indexer;
 import org.apache.cassandra.cql3.ast.Mutation;
 import org.apache.cassandra.cql3.ast.ReferenceExpression;
 import org.apache.cassandra.cql3.ast.Select;
+import org.apache.cassandra.cql3.ast.Statement;
 import org.apache.cassandra.cql3.ast.Symbol;
 import org.apache.cassandra.cql3.ast.TableReference;
 import org.apache.cassandra.cql3.ast.Txn;
@@ -91,7 +93,7 @@ public class RandomSchemaV2Test extends CQLTester
             return rs.pickOrderedSet(ProtocolVersion.SUPPORTED);
         };
         Gen<Mode> modeGen = Gens.enums().all(Mode.class);
-        qt().withSeed(-3690120932611187161L).withExamples(100).forAll(Gens.random(), modeGen, clientVersionGen).check((rs, mode, protocolVersion) -> {
+        qt().withSeed(-7039959287483324284L).withExamples(100).forAll(Gens.random(), modeGen, clientVersionGen).check((rs, mode, protocolVersion) -> {
             clearState();
 
             KeyspaceMetadata ks = createKeyspace(rs);
@@ -113,21 +115,13 @@ public class RandomSchemaV2Test extends CQLTester
             Select select = select(mutation);
             if (mode == Mode.AccordEnabled && !mutation.values.keySet().containsAll(checker.clusteringColumns))
                 select = select.withLimit(1);
-            Object[][] expectedRows = rows(mutation);
             try
             {
-                if (protocolVersion != null)
-                {
-                    //TODO (usability): as of this moment reads don't go through Accord when transaction_mode='full', so need to wrap the select in a txn
-                    executeNet(protocolVersion, mode == Mode.AccordEnabled ? Txn.wrap(mutation) : mutation);
-                    assertRowsNet(executeNet(protocolVersion, mode == Mode.AccordEnabled ? Txn.wrap(select) : select), expectedRows);
-                }
-                else
-                {
-                    execute(mode == Mode.AccordEnabled ? Txn.wrap(mutation) : mutation);
-                    assertRows(execute(mode == Mode.AccordEnabled ? Txn.wrap(select) : select), expectedRows);
-                }
-                checker.validate(select, expectedRows);
+                Object[][] actualRows;
+                if (mode == Mode.AccordEnabled) actualRows = execute(protocolVersion, Txn.wrap(mutation), Txn.wrap(select));
+                else                            actualRows = execute(protocolVersion, mutation, select);
+
+                checker.validate(select, actualRows);
             }
             catch (Throwable t)
             {
@@ -143,6 +137,20 @@ public class RandomSchemaV2Test extends CQLTester
 
 //            checkIndexes(metadata, indexedColumns, mutation, mode, protocolVersion);
         });
+    }
+
+    private Object[][] execute(@Nullable ProtocolVersion protocolVersion, Statement mutation, Statement select)
+    {
+        if (protocolVersion != null)
+        {
+            executeNet(protocolVersion, mutation);
+            return getRows(protocolVersion, executeNet(protocolVersion, select));
+        }
+        else
+        {
+            execute(mutation);
+            return getRows(execute(select));
+        }
     }
 
     private void checkIndexes(TableMetadata metadata, Map<ColumnMetadata, CreateIndexDDL> indexedColumns, Mutation mutation, Mode mode, ProtocolVersion protocolVersion)

@@ -45,6 +45,7 @@ import org.apache.cassandra.cql3.ast.Symbol;
 import org.apache.cassandra.cql3.ast.Where;
 import org.apache.cassandra.db.BufferClustering;
 import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.db.marshal.ListType;
 import org.apache.cassandra.harry.data.ResultSetRow;
 import org.apache.cassandra.harry.ddl.SchemaSpec;
 import org.apache.cassandra.harry.dsl.HistoryBuilder;
@@ -280,7 +281,8 @@ public class ASTChecker
     {
         BitSet bs = new BitSet.BitSet64Bit(columnOffsets.size());
         columns.forEach(s -> bs.set(columnOffsets.get(s)));
-        return new VisitExecutor.DeleteColumnsOp() {
+        return new VisitExecutor.DeleteColumnsOp()
+        {
             @Override
             public long pd()
             {
@@ -448,7 +450,23 @@ public class ASTChecker
     private ByteBuffer toBytes(Object[] row, Symbol symbol)
     {
         Object value = row[columnOffsets.get(symbol)];
-        return value instanceof ByteBuffer ? (ByteBuffer) value : ((AbstractType) symbol.type()).decompose(value);
+        if (value instanceof List && symbol.type().unwrap() instanceof ListType)
+        {
+            // elements are bbs
+            ListType<?> lt = (ListType<?>) symbol.type().unwrap();
+            List<?> list = (List<?>) value;
+            if (list.isEmpty())
+            {
+                value = lt.pack(Collections.emptyList());
+            }
+            else if (list.get(0) instanceof ByteBuffer)
+            {
+                value = lt.pack(((List<ByteBuffer>) value));
+            }
+        }
+        return value instanceof ByteBuffer
+               ? (ByteBuffer) value
+               : ((AbstractType) symbol.type()).decompose(value);
     }
 
     private long toDescriptor(Object[] row, OffsetSet<Symbol> columns)

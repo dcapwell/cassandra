@@ -67,22 +67,6 @@ import com.google.common.base.Objects;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
-
-import accord.utils.RandomSource;
-import org.apache.cassandra.cql3.ast.Conditional;
-import org.apache.cassandra.cql3.ast.Expression;
-import org.apache.cassandra.cql3.ast.Mutation;
-import org.apache.cassandra.cql3.ast.Select;
-import org.apache.cassandra.cql3.ast.Symbol;
-import org.apache.cassandra.cql3.ast.TableReference;
-import org.apache.cassandra.cql3.ast.Where;
-import org.apache.cassandra.db.marshal.ByteBufferAccessor;
-import org.apache.cassandra.db.virtual.SystemViewsKeyspace;
-import org.apache.cassandra.utils.ASTGenerators;
-import org.apache.cassandra.utils.CassandraGenerators;
-import org.apache.cassandra.utils.Generators;
-import org.assertj.core.api.Assertions;
-import org.awaitility.Awaitility;
 import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.After;
@@ -100,6 +84,7 @@ import org.slf4j.LoggerFactory;
 import accord.utils.DefaultRandom;
 import accord.utils.Gen;
 import accord.utils.Property;
+import accord.utils.RandomSource;
 import com.codahale.metrics.Gauge;
 import com.datastax.driver.core.CloseFuture;
 import com.datastax.driver.core.Cluster;
@@ -132,6 +117,13 @@ import org.apache.cassandra.config.DataStorageSpec;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.EncryptionOptions;
 import org.apache.cassandra.config.YamlConfigurationLoader;
+import org.apache.cassandra.cql3.ast.Conditional;
+import org.apache.cassandra.cql3.ast.Expression;
+import org.apache.cassandra.cql3.ast.Mutation;
+import org.apache.cassandra.cql3.ast.Select;
+import org.apache.cassandra.cql3.ast.Symbol;
+import org.apache.cassandra.cql3.ast.TableReference;
+import org.apache.cassandra.cql3.ast.Where;
 import org.apache.cassandra.cql3.functions.FunctionName;
 import org.apache.cassandra.cql3.functions.types.ParseUtils;
 import org.apache.cassandra.db.ColumnFamilyStore;
@@ -140,6 +132,7 @@ import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.BooleanType;
+import org.apache.cassandra.db.marshal.ByteBufferAccessor;
 import org.apache.cassandra.db.marshal.ByteType;
 import org.apache.cassandra.db.marshal.BytesType;
 import org.apache.cassandra.db.marshal.CollectionType;
@@ -161,6 +154,7 @@ import org.apache.cassandra.db.marshal.TupleType;
 import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.db.marshal.UUIDType;
 import org.apache.cassandra.db.marshal.VectorType;
+import org.apache.cassandra.db.virtual.SystemViewsKeyspace;
 import org.apache.cassandra.db.virtual.VirtualKeyspace;
 import org.apache.cassandra.db.virtual.VirtualKeyspaceRegistry;
 import org.apache.cassandra.db.virtual.VirtualSchemaKeyspace;
@@ -197,20 +191,19 @@ import org.apache.cassandra.transport.Server;
 import org.apache.cassandra.transport.SimpleClient;
 import org.apache.cassandra.transport.TlsTestUtils;
 import org.apache.cassandra.transport.messages.ResultMessage;
+import org.apache.cassandra.utils.ASTGenerators;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.CassandraGenerators;
 import org.apache.cassandra.utils.ConfigGenBuilder;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.Generators;
 import org.apache.cassandra.utils.JMXServerUtils;
 import org.apache.cassandra.utils.LazyToString;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.TimeUUID;
+import org.assertj.core.api.Assertions;
+import org.awaitility.Awaitility;
 
-import static org.apache.cassandra.utils.CassandraGenerators.regularKeyspace;
-import static org.apache.cassandra.utils.CassandraGenerators.regularTable;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 import static org.apache.cassandra.config.CassandraRelevantProperties.CASSANDRA_JMX_LOCAL_PORT;
 import static org.apache.cassandra.config.CassandraRelevantProperties.TEST_DRIVER_CONNECTION_TIMEOUT_MS;
 import static org.apache.cassandra.config.CassandraRelevantProperties.TEST_DRIVER_READ_TIMEOUT_MS;
@@ -225,6 +218,12 @@ import static org.apache.cassandra.cql3.SchemaElement.SchemaElementType.TABLE;
 import static org.apache.cassandra.cql3.SchemaElement.SchemaElementType.TYPE;
 import static org.apache.cassandra.metrics.CassandraMetricsRegistry.createMetricsKeyspaceTables;
 import static org.apache.cassandra.schema.SchemaConstants.VIRTUAL_METRICS;
+import static org.apache.cassandra.utils.CassandraGenerators.regularKeyspace;
+import static org.apache.cassandra.utils.CassandraGenerators.regularTable;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 /**
  * Base class for CQL tests.
@@ -2388,6 +2387,41 @@ public abstract class CQLTester
 
         Object[][] a = new Object[ret.size()][];
         return ret.toArray(a);
+    }
+
+    protected Object[][] getRows(ProtocolVersion protocolVersion, ResultSet result)
+    {
+        if (result == null)
+            return new Object[0][];
+        List<Object[]> ret = new ArrayList<>();
+        int columns = result.getColumnDefinitions().size();
+        for (Row row : result.all())
+        {
+            Object[] r = new Object[columns];
+            for (int i = 0; i < columns; i++)
+            {
+                Object object = row.getObject(i);
+                if (object instanceof UDTValue)
+                {
+                    UDTValue udt = (UDTValue) object;
+                    object = serialize(protocolVersion, udt.getType(), udt);
+                }
+                else if (object instanceof com.datastax.driver.core.TupleValue)
+                {
+                    var tuple = (com.datastax.driver.core.TupleValue) object;
+                    object = serialize(protocolVersion, tuple.getType(), tuple);
+                }
+                r[i] = object;
+            }
+            ret.add(r);
+        }
+        return ret.toArray(Object[][]::new);
+    }
+
+    private ByteBuffer serialize(ProtocolVersion protocolVersion, DataType type, Object value)
+    {
+        var codec = getCluster(protocolVersion).getConfiguration().getCodecRegistry().codecFor(type);
+        return codec.serialize(value, com.datastax.driver.core.ProtocolVersion.fromInt(protocolVersion.asInt()));
     }
 
     protected void assertColumnNames(UntypedResultSet result, String... expectedColumnNames)
