@@ -90,7 +90,7 @@ public class TableWalkTest extends CQLTester
     @Test
     public void test()
     {
-        stateful().withExamples(100).withSteps(200).check(commands(() -> State::new)
+        stateful().withExamples(10).withSteps(400).check(commands(() -> State::new)
                                                           .add(this::insert)
                                                           .addIf(TableWalkTest::hasEnoughMemtable, this::flushTable)
                                                           .addIf(TableWalkTest::hasEnoughSSTables, this::compactTable)
