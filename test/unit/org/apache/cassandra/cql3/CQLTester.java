@@ -2389,55 +2389,6 @@ public abstract class CQLTester
         return ret.toArray(a);
     }
 
-    protected Object[][] getRows(ProtocolVersion protocolVersion, ResultSet result)
-    {
-        if (result == null)
-            return new Object[0][];
-        List<Object[]> ret = new ArrayList<>();
-        int columns = result.getColumnDefinitions().size();
-        for (Row row : result.all())
-        {
-            Object[] r = new Object[columns];
-            for (int i = 0; i < columns; i++)
-            {
-                Object object = row.getObject(i);
-                object = normalizeCustomTypes(protocolVersion, object);
-                r[i] = object;
-            }
-            ret.add(r);
-        }
-        return ret.toArray(Object[][]::new);
-    }
-
-    private Object normalizeCustomTypes(ProtocolVersion protocolVersion, Object object)
-    {
-        if (object instanceof UDTValue)
-        {
-            UDTValue udt = (UDTValue) object;
-            object = serialize(protocolVersion, udt.getType(), udt);
-        }
-        else if (object instanceof com.datastax.driver.core.TupleValue)
-        {
-            var tuple = (com.datastax.driver.core.TupleValue) object;
-            object = serialize(protocolVersion, tuple.getType(), tuple);
-        }
-        // java driver doesn't know about vector type, so returns ByteBuffer, which causes issues as the serializer expects a list
-        else if (object instanceof List)
-        {
-            List<?> list = ((List<?>) object).stream().map(o -> normalizeCustomTypes(protocolVersion, o)).collect(Collectors.toList());
-            object = !list.isEmpty() && list.get(0) instanceof ByteBuffer
-                     ? ListType.getInstance(BytesType.instance, true).pack((List<ByteBuffer>) list)
-                     : list;
-        }
-        return object;
-    }
-
-    private ByteBuffer serialize(ProtocolVersion protocolVersion, DataType type, Object value)
-    {
-        var codec = getCluster(protocolVersion).getConfiguration().getCodecRegistry().codecFor(type);
-        return codec.serialize(value, com.datastax.driver.core.ProtocolVersion.fromInt(protocolVersion.asInt()));
-    }
-
     protected void assertColumnNames(UntypedResultSet result, String... expectedColumnNames)
     {
         if (result == null)

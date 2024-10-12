@@ -36,7 +36,6 @@ import com.google.common.collect.Iterators;
 import com.google.common.collect.Sets;
 
 import accord.utils.Invariants;
-import com.datastax.driver.core.TupleValue;
 import org.apache.cassandra.cql3.ast.Conditional;
 import org.apache.cassandra.cql3.ast.Expression;
 import org.apache.cassandra.cql3.ast.ExpressionEvaluator;
@@ -46,7 +45,6 @@ import org.apache.cassandra.cql3.ast.Symbol;
 import org.apache.cassandra.cql3.ast.Where;
 import org.apache.cassandra.db.BufferClustering;
 import org.apache.cassandra.db.marshal.AbstractType;
-import org.apache.cassandra.db.marshal.ListType;
 import org.apache.cassandra.harry.data.ResultSetRow;
 import org.apache.cassandra.harry.ddl.SchemaSpec;
 import org.apache.cassandra.harry.dsl.HistoryBuilder;
@@ -451,20 +449,6 @@ public class ASTChecker
     private ByteBuffer toBytes(Object[] row, Symbol symbol)
     {
         Object value = row[columnOffsets.get(symbol)];
-        if (value instanceof List && symbol.type().unwrap() instanceof ListType)
-        {
-            // elements are bbs
-            ListType<?> lt = (ListType<?>) symbol.type().unwrap();
-            List<?> list = (List<?>) value;
-            if (list.isEmpty())
-            {
-                value = lt.pack(Collections.emptyList());
-            }
-            else if (list.get(0) instanceof ByteBuffer)
-            {
-                value = lt.pack(((List<ByteBuffer>) value));
-            }
-        }
         return value instanceof ByteBuffer
                ? (ByteBuffer) value
                : ((AbstractType) symbol.type()).decompose(value);

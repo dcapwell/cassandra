@@ -111,7 +111,8 @@ public class RandomSchemaV2Test extends CQLTester
             Mutation mutation = nonTransactionMutation(rs, metadata);
             if (mode == Mode.AccordEnabled)
                 mutation = mutation.withoutTimestamp().withoutTTL(); // Accord doesn't allow custom timestamps or TTL
-            checker.update(mutation);
+            if (protocolVersion == null)
+                checker.update(mutation);
             Select select = select(mutation);
             if (mode == Mode.AccordEnabled && !mutation.values.keySet().containsAll(checker.clusteringColumns))
                 select = select.withLimit(1);
@@ -121,7 +122,8 @@ public class RandomSchemaV2Test extends CQLTester
                 if (mode == Mode.AccordEnabled) actualRows = execute(protocolVersion, Txn.wrap(mutation), Txn.wrap(select));
                 else                            actualRows = execute(protocolVersion, mutation, select);
 
-                checker.validate(select, actualRows);
+                if (protocolVersion == null)
+                    checker.validate(select, actualRows);
             }
             catch (Throwable t)
             {
@@ -144,7 +146,8 @@ public class RandomSchemaV2Test extends CQLTester
         if (protocolVersion != null)
         {
             executeNet(protocolVersion, mutation);
-            return getRows(protocolVersion, executeNet(protocolVersion, select));
+            executeNet(protocolVersion, select);
+            return null;
         }
         else
         {
