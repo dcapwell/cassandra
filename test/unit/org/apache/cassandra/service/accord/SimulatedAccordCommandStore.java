@@ -41,10 +41,10 @@ import accord.local.CommandStores;
 import accord.local.DurableBefore;
 import accord.local.Node;
 import accord.local.NodeCommandStoreService;
-import accord.local.TimeService;
 import accord.local.PreLoadContext;
 import accord.local.SafeCommand;
 import accord.local.SafeCommandStore;
+import accord.local.TimeService;
 import accord.messages.BeginRecovery;
 import accord.messages.PreAccept;
 import accord.messages.TxnRequest;
@@ -109,13 +109,14 @@ public class SimulatedAccordCommandStore implements AutoCloseable
         globalExecutor = new SimulatedExecutorFactory(rs.fork(), fromQT(Generators.TIMESTAMP_GEN.map(java.sql.Timestamp::getTime)).mapToLong(TimeUnit.MILLISECONDS::toNanos).next(rs), failures::add);
         this.unorderedScheduled = globalExecutor.scheduled("ignored");
         ExecutorFactory.Global.unsafeSet(globalExecutor);
-        Stage.READ.unsafeSetExecutor(unorderedScheduled);
-        Stage.MUTATION.unsafeSetExecutor(unorderedScheduled);
+        for (Stage stage : Arrays.asList(Stage.READ, Stage.MUTATION, Stage.ACCORD_RANGE_LOADER))
+            stage.unsafeSetExecutor(unorderedScheduled);
         for (Stage stage : Arrays.asList(Stage.MISC, Stage.ACCORD_MIGRATION, Stage.READ, Stage.MUTATION))
             stage.unsafeSetExecutor(globalExecutor.configureSequential("ignore").build());
 
         this.updateHolder = new CommandStore.EpochUpdateHolder();
         this.nodeId = AccordTopology.tcmIdToAccord(ClusterMetadata.currentNullable().myNodeId());
+        this.topology = AccordTopology.createAccordTopology(ClusterMetadata.current());
         this.storeService = new NodeCommandStoreService()
         {
             private final ToLongFunction<TimeUnit> elapsed = TimeService.elapsedWrapperFromNonMonotonicSource(TimeUnit.NANOSECONDS, this::now);
@@ -137,7 +138,7 @@ public class SimulatedAccordCommandStore implements AutoCloseable
             @Override
             public long epoch()
             {
-                return ClusterMetadata.current().epoch.getEpoch();
+                return topology.epoch();
             }
 
             @Override
@@ -164,7 +165,10 @@ public class SimulatedAccordCommandStore implements AutoCloseable
 
         AccordStateCache stateCache = new AccordStateCache(Stage.READ.executor(), Stage.MUTATION.executor(), 8 << 20, new AccordStateCacheMetrics("test"));
         this.journal = new MockJournal();
-        this.store = new AccordCommandStore(0,
+        var rangesForEpoch = new CommandStores.RangesForEpoch(topology.epoch(), topology.ranges(), null);
+        int storeId = 0;
+        journal.setRangesForEpoch(storeId, rangesForEpoch);
+        this.store = new AccordCommandStore(storeId,
                                             storeService,
                                             new TestAgent.RethrowAgent()
                                             {
@@ -213,9 +217,7 @@ public class SimulatedAccordCommandStore implements AutoCloseable
             });
         });
 
-        this.topology = AccordTopology.createAccordTopology(ClusterMetadata.current());
         this.topologies = new Topologies.Single(SizeOfIntersectionSorter.SUPPLIER, topology);
-        var rangesForEpoch = new CommandStores.RangesForEpoch(topology.epoch(), topology.ranges(), store);
         updateHolder.add(topology.epoch(), rangesForEpoch, topology.ranges());
         updateHolder.updateGlobal(topology.ranges());
 

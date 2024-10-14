@@ -138,6 +138,11 @@ public class MockJournal implements IJournal
         return fieldUpdates(store).rangesForEpochAccumulator.get();
     }
 
+    public void setRangesForEpoch(int store, CommandStores.RangesForEpoch rangesForEpoch)
+    {
+        fieldUpdates(store).rangesForEpochAccumulator.update(rangesForEpoch.snapshot());
+    }
+
     @Override
     public List<Deps> loadHistoricalTransactions(int store)
     {
@@ -178,7 +183,8 @@ public class MockJournal implements IJournal
         if (fieldUpdates.addHistoricalTransactions != null)
             updates.historicalTransactionsAccumulator.update(fieldUpdates.addHistoricalTransactions);
 
-        onFlush.run();
+        if (onFlush != null)
+            onFlush.run();
     }
 
     /**
