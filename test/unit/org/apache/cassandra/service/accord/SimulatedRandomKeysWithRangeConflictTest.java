@@ -76,7 +76,7 @@ public class SimulatedRandomKeysWithRangeConflictTest extends SimulatedAccordCom
     @Test
     public void keysAllOverConflictingWithRange()
     {
-        stateful().withSteps(State.steps).check(commands(() -> State::new)
+        stateful().withSeed(42).withSteps(State.steps).check(commands(() -> State::new)
                 .add(SimulatedRandomKeysWithRangeConflictTest::insertKey)
                 .add(SimulatedRandomKeysWithRangeConflictTest::insertRange)
                 .build());

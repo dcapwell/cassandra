@@ -20,6 +20,7 @@ package org.apache.cassandra.service.accord;
 
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Set;
@@ -30,9 +31,11 @@ import javax.annotation.Nullable;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
 
+import accord.api.RoutingKey;
 import accord.local.Command;
 import accord.local.KeyHistory;
 import accord.local.RedundantBefore;
+import accord.primitives.AbstractKeys;
 import accord.primitives.Range;
 import accord.primitives.Ranges;
 import accord.primitives.Routable.Domain;
@@ -41,6 +44,7 @@ import accord.primitives.SaveStatus;
 import accord.primitives.Status;
 import accord.primitives.Timestamp;
 import accord.primitives.TxnId;
+import accord.utils.Invariants;
 import accord.utils.async.AsyncChains;
 import accord.utils.async.AsyncResult;
 import org.agrona.collections.ObjectHashSet;
@@ -82,6 +86,23 @@ public class CommandsForRangesLoader implements AccordStateCache.Listener<TxnId,
             cachedRangeTxns.remove(txnId);
     }
 
+    public AsyncResult<Pair<Watcher, NavigableMap<TxnId, Summary>>> get(@Nullable TxnId primaryTxnId, KeyHistory keyHistory, AbstractKeys<RoutingKey> keys)
+    {
+        Invariants.checkArgument(keyHistory == KeyHistory.RECOVERY, "Key to Ranges lookup only supported during recovery: found %s for txnId %s", keyHistory, primaryTxnId);
+
+        RedundantBefore redundantBefore = store.unsafeGetRedundantBefore();
+        TxnId minTxnId = redundantBefore.minGcBefore(keys);
+
+        Timestamp maxTxnId = Timestamp.MAX;
+        TxnId findAsDep = primaryTxnId != null ? primaryTxnId : null;
+
+        var watcher = fromCache(findAsDep, keys, minTxnId, maxTxnId, redundantBefore);
+        var before = ImmutableMap.copyOf(watcher.get());
+        return AsyncChains.ofCallable(Stage.ACCORD_RANGE_LOADER.executor(), () -> get(keys, before, findAsDep, minTxnId, maxTxnId, redundantBefore))
+                          .map(map -> Pair.create(watcher, map), store)
+                          .beginAsResult();
+    }
+
     public AsyncResult<Pair<Watcher, NavigableMap<TxnId, Summary>>> get(@Nullable TxnId primaryTxnId, KeyHistory keyHistory, Ranges ranges)
     {
         RedundantBefore redundantBefore = store.unsafeGetRedundantBefore();
@@ -105,6 +126,14 @@ public class CommandsForRangesLoader implements AccordStateCache.Listener<TxnId,
         return load(ranges, cacheHits, matches, findAsDep, redundantBefore);
     }
 
+    private NavigableMap<TxnId, Summary> get(AbstractKeys<RoutingKey> keys, ImmutableMap<TxnId, Summary> cacheHits, TxnId findAsDep, TxnId minTxnId, Timestamp maxTxnId, RedundantBefore redundantBefore)
+    {
+        Pair<Ranges, Set<TxnId>> matches = intersects(keys, minTxnId, maxTxnId);
+        if (matches.left.isEmpty())
+            return new TreeMap<>();
+        return load(matches.left, cacheHits, matches.right, findAsDep, redundantBefore);
+    }
+
     private Collection<TxnId> intersects(Range range, TxnId minTxnId, Timestamp maxTxnId)
     {
         assert range instanceof TokenRange : "Require TokenRange but given " + range.getClass();
@@ -122,6 +151,30 @@ public class CommandsForRangesLoader implements AccordStateCache.Listener<TxnId,
                 intersects = Collections.emptySet();
         }
         return intersects;
+    }
+
+    private Pair<Ranges, Set<TxnId>> intersects(AbstractKeys<RoutingKey> keys, TxnId minTxnId, Timestamp maxTxnId)
+    {
+        Map<Ranges, Set<TxnId>> intersects = searcher.intersects(store.id(), keys, minTxnId, maxTxnId);
+        if (!historicalTransaction.isEmpty())
+        {
+            if (intersects.isEmpty())
+                intersects = new HashMap<>();
+            for (var e : historicalTransaction.tailMap(minTxnId, true).entrySet())
+            {
+                if (e.getValue().intersects(keys))
+                    intersects.computeIfAbsent(e.getValue(), i -> new ObjectHashSet<>()).add(e.getKey());
+            }
+        }
+        if (intersects.isEmpty()) return Pair.create(Ranges.EMPTY, Collections.emptySet());
+        Ranges r_accum = Ranges.EMPTY;
+        Set<TxnId> t_accum = new ObjectHashSet<>();
+        for (Map.Entry<Ranges, Set<TxnId>> e : intersects.entrySet())
+        {
+            r_accum = r_accum.with(e.getKey()).mergeTouching();
+            t_accum.addAll(e.getValue());
+        }
+        return Pair.create(r_accum, t_accum);
     }
 
     public class Watcher implements AccordStateCache.Listener<TxnId, Command>, AutoCloseable
@@ -215,6 +268,13 @@ public class CommandsForRangesLoader implements AccordStateCache.Listener<TxnId,
         for (TxnId rangeTxnId : cachedRangeTxns)
             watcher.onAdd(store.commandCache().getUnsafe(rangeTxnId));
         store.commandCache().register(watcher);
+        return watcher;
+    }
+
+    private Watcher fromCache(TxnId findAsDep, AbstractKeys<RoutingKey> keys, TxnId minTxnId, Timestamp maxTxnId, RedundantBefore redundantBefore)
+    {
+        //TODO (correctness): impl
+        Watcher watcher = new Watcher(null, findAsDep, minTxnId, maxTxnId, redundantBefore);
         return watcher;
     }
 

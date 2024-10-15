@@ -22,6 +22,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
@@ -57,9 +58,11 @@ import org.apache.cassandra.service.accord.AccordKeyspace;
 import org.apache.cassandra.service.accord.AccordSafeCommandsForRanges;
 import org.apache.cassandra.service.accord.AccordSafeState;
 import org.apache.cassandra.service.accord.AccordStateCache;
+import org.apache.cassandra.service.accord.CommandsForRangesLoader;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey.TokenKey;
 import org.apache.cassandra.utils.NoSpamLogger;
+import org.apache.cassandra.utils.Pair;
 
 public class AsyncLoader
 {
@@ -188,6 +191,11 @@ public class AsyncLoader
             case Key:
                 AbstractKeys<RoutingKey> keys = (AbstractKeys<RoutingKey>) keysOrRanges;
                 keys.forEach(key -> referenceAndAssembleReadsForKey(key, context, chains));
+                if (this.keyHistory == KeyHistory.RECOVERY)
+                {
+                    // load range txn that intersect this key
+                    chains.add(referenceAndDispatchReadsForKeyToRanges(primaryTxnId, keys, context));
+                }
                 break;
             case Range:
                 chains.add(referenceAndDispatchReadsForRange(primaryTxnId, context));
@@ -197,6 +205,27 @@ public class AsyncLoader
         }
 
         return !chains.isEmpty() ? AsyncChains.reduce(chains, (a, b) -> null).beginAsResult() : null;
+    }
+
+    private AsyncChain<?> referenceAndDispatchReadsForKeyToRanges(@Nullable TxnId primaryTxnId, AbstractKeys<RoutingKey> keys, AsyncOperation.Context context)
+    {
+        if (keyHistory != KeyHistory.RECOVERY)
+            return AsyncChains.success(null);
+        //TODO (correctness): in-memory race condition.. this only does disk atm so would miss anything in-memory; should bridge the gap like the other methods
+        List<AsyncChain<?>> root = new ArrayList<>();
+        root.add(findIntersectingRanges(keys).flatMap((Ranges ranges) -> {
+            if (ranges.isEmpty())
+                return AsyncChains.success(null);
+            var chain = commandStore.diskCommandsForRanges().get(primaryTxnId, keyHistory, ranges);
+            context.commandsForRanges = new AccordSafeCommandsForRanges(ranges, chain);
+            return chain;
+        }, commandStore.executor()));
+        return AsyncChains.all(root);
+    }
+
+    private AsyncChain<Ranges> findIntersectingRanges(AbstractKeys<RoutingKey> keys)
+    {
+        return null;
     }
 
     private AsyncChain<?> referenceAndDispatchReadsForRange(@Nullable TxnId primaryTxnId, AsyncOperation.Context context)

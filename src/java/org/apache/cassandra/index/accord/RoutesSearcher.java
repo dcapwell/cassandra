@@ -19,8 +19,13 @@
 package org.apache.cassandra.index.accord;
 
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 
+import accord.api.RoutingKey;
+import accord.primitives.AbstractKeys;
+import accord.primitives.Ranges;
 import accord.primitives.Timestamp;
 import accord.primitives.TxnId;
 import org.agrona.collections.ObjectHashSet;
@@ -53,6 +58,50 @@ public class RoutesSearcher
     private final ColumnFilter columnFilter = ColumnFilter.selectionBuilder().add(store_id).add(txn_id).build();
     private final DataLimits limits = DataLimits.NONE;
     private final DataRange dataRange = DataRange.allData(cfs.getPartitioner());
+
+    private void searchKeyAccord(int store, AccordRoutingKey key)
+    {
+        RowFilter rowFilter = RowFilter.create(false);
+        rowFilter.add(participants, Operator.EQ, OrderedRouteSerializer.serializeRoutingKey(key));
+        rowFilter.add(store_id, Operator.EQ, Int32Type.instance.decompose(store));
+
+        var cmd = PartitionRangeReadCommand.create(cfs.metadata(),
+                                                   FBUtilities.nowInSeconds(),
+                                                   columnFilter,
+                                                   rowFilter,
+                                                   limits,
+                                                   dataRange);
+        Index.Searcher s = index.searcherFor(cmd);
+        try (var controller = cmd.executionController())
+        {
+            UnfilteredPartitionIterator partitionIterator = s.search(controller);
+            return new CloseableIterator<>()
+            {
+                private final Entry entry = new Entry();
+                @Override
+                public void close()
+                {
+                    partitionIterator.close();
+                }
+
+                @Override
+                public boolean hasNext()
+                {
+                    return partitionIterator.hasNext();
+                }
+
+                @Override
+                public Entry next()
+                {
+                    UnfilteredRowIterator next = partitionIterator.next();
+                    var partitionKeyComponents = AccordKeyspace.CommandRows.splitPartitionKey(next.partitionKey());
+                    entry.store_id = AccordKeyspace.CommandRows.getStoreId(partitionKeyComponents);
+                    entry.txnId = AccordKeyspace.CommandRows.getTxnId(partitionKeyComponents);
+                    return entry;
+                }
+            };
+        }
+    }
 
     private CloseableIterator<Entry> searchKeysAccord(int store, AccordRoutingKey start, AccordRoutingKey end)
     {
@@ -118,6 +167,25 @@ public class RoutesSearcher
             }
         }
         return set.isEmpty() ? Collections.emptySet() : set;
+    }
+
+    public Map<Ranges, Set<TxnId>> intersects(int store, AbstractKeys<RoutingKey> keys, TxnId minTxnId, Timestamp maxTxnId)
+    {
+        Map<Ranges, Set<TxnId>> map = new HashMap<>();
+        for (RoutingKey key : keys)
+        {
+            try (var it = searchKeyAccord(store, (AccordRoutingKey) key, start, end))
+            {
+                while (it.hasNext())
+                {
+                    Entry next = it.next();
+                    if (next.store_id != store) continue; // the index should filter out, but just in case...
+                    if (next.txnId.compareTo(minTxnId) >= 0 && next.txnId.compareTo(maxTxnId) < 0)
+                        set.add(next.txnId);
+                }
+            }
+        }
+        return map;
     }
 
     private static final class Entry
