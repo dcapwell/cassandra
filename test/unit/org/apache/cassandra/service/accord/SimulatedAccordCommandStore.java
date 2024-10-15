@@ -222,7 +222,11 @@ public class SimulatedAccordCommandStore implements AutoCloseable
         updateHolder.updateGlobal(topology.ranges());
 
         shouldEvict = boolSource(rs.fork());
-        shouldFlush = boolSource(rs.fork());
+        {
+            // tests used to take 1m but after many changes in accord they now take many minutes and its due to flush... so lower the frequency of flushing
+            var fork = rs.fork();
+            shouldFlush = () -> fork.decide(.01);
+        }
         shouldCompact = boolSource(rs.fork());
     }
 
