@@ -90,7 +90,7 @@ public class RouteSSTableManager implements SSTableManager
     }
 
     @Override
-    public NavigableSet<ByteBuffer> search(int storeId, TableId tableId, byte[] key)
+    public synchronized NavigableSet<ByteBuffer> search(int storeId, TableId tableId, byte[] key)
     {
         Group group = new Group(storeId, tableId);
         TreeSet<ByteBuffer> matches = new TreeSet<>();

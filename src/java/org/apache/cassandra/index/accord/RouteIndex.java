@@ -453,21 +453,6 @@ public class RouteIndex implements Index, INotificationConsumer
                 matches.addAll(memtableIndexManager.search(storeId, tableId, start, startInclusive, end, endInclusive));
                 return matches;
             }
-
-            NavigableSet<ByteBuffer> search(int storeId, ByteBuffer keyBytes)
-            {
-                TableId tableId;
-                byte[] key;
-                {
-
-                    AccordRoutingKey route = OrderedRouteSerializer.deserializeRoutingKey(keyBytes);
-                    tableId = route.table();
-                    key = OrderedRouteSerializer.serializeRoutingKeyNoTable(route);
-                }
-                NavigableSet<ByteBuffer> matches = sstableManager.search(storeId, tableId, key);
-                matches.addAll(memtableIndexManager.search(storeId, tableId, key));
-                return matches;
-            }
         };
     }
 
