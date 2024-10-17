@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -448,7 +449,8 @@ public class AccordCommandStore extends CommandStore
                                                  Map<TxnId, AccordSafeCommand> commands,
                                                  Map<RoutingKey, AccordSafeTimestampsForKey> timestampsForKeys,
                                                  Map<RoutingKey, AccordSafeCommandsForKey> commandsForKeys,
-                                                 @Nullable AccordSafeCommandsForRanges commandsForRanges)
+                                                 @Nullable AccordSafeCommandsForRanges commandsForRanges,
+                                                 @Nullable Set<TxnId> rangeTxnInCommandsMap)
     {
         checkState(current == null);
         commands.values().forEach(AccordSafeState::preExecute);
@@ -457,7 +459,7 @@ public class AccordCommandStore extends CommandStore
         if (commandsForRanges != null)
             commandsForRanges.preExecute();
 
-        current = AccordSafeCommandStore.create(preLoadContext, commands, timestampsForKeys, commandsForKeys, commandsForRanges, this);
+        current = AccordSafeCommandStore.create(preLoadContext, commands, timestampsForKeys, commandsForKeys, commandsForRanges, rangeTxnInCommandsMap, this);
         return current;
     }
 

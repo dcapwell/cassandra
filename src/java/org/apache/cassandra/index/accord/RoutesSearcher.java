@@ -18,9 +18,11 @@
 
 package org.apache.cassandra.index.accord;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Set;
 
+import accord.api.RoutingKey;
 import accord.primitives.Timestamp;
 import accord.primitives.TxnId;
 import org.agrona.collections.ObjectHashSet;
@@ -169,6 +171,22 @@ public class RoutesSearcher
     {
         var set = new ObjectHashSet<TxnId>();
         try (var it = searchRange(store, start, end))
+        {
+            while (it.hasNext())
+            {
+                Entry next = it.next();
+                if (next.store_id != store) continue; // the index should filter out, but just in case...
+                if (next.txnId.compareTo(minTxnId) >= 0 && next.txnId.compareTo(maxTxnId) < 0)
+                    set.add(next.txnId);
+            }
+        }
+        return set.isEmpty() ? Collections.emptySet() : set;
+    }
+
+    public Set<TxnId> contains(int store, AccordRoutingKey key, TxnId minTxnId, Timestamp maxTxnId)
+    {
+        var set = new ObjectHashSet<TxnId>();
+        try (var it = searchKey(store, key))
         {
             while (it.hasNext())
             {

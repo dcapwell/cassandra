@@ -35,6 +35,7 @@ import accord.impl.AbstractSafeCommandStore;
 import accord.impl.CommandsSummary;
 import accord.local.CommandStores;
 import accord.local.CommandStores.RangesForEpoch;
+import accord.local.Node;
 import accord.local.NodeCommandStoreService;
 import accord.local.PreLoadContext;
 import accord.local.RedundantBefore;
@@ -43,6 +44,7 @@ import accord.primitives.AbstractKeys;
 import accord.primitives.AbstractRanges;
 import accord.primitives.Deps;
 import accord.primitives.Ranges;
+import accord.primitives.Routable;
 import accord.primitives.Routables;
 import accord.primitives.Timestamp;
 import accord.primitives.Txn;
@@ -56,6 +58,7 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     private final Map<RoutingKey, AccordSafeCommandsForKey> commandsForKeys;
     private final Map<RoutingKey, AccordSafeTimestampsForKey> timestampsForKeys;
     private final @Nullable AccordSafeCommandsForRanges commandsForRanges;
+    private final Set<TxnId> rangeTxnInCommandsMap;
     private final AccordCommandStore commandStore;
     private RangesForEpoch ranges;
     private FieldUpdates fieldUpdates;
@@ -65,6 +68,7 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
                                    Map<RoutingKey, AccordSafeTimestampsForKey> timestampsForKey,
                                    Map<RoutingKey, AccordSafeCommandsForKey> commandsForKey,
                                    @Nullable AccordSafeCommandsForRanges commandsForRanges,
+                                   @Nullable Set<TxnId> rangeTxnInCommandsMap,
                                    AccordCommandStore commandStore)
     {
         super(context);
@@ -72,6 +76,7 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
         this.timestampsForKeys = timestampsForKey;
         this.commandsForKeys = commandsForKey;
         this.commandsForRanges = commandsForRanges;
+        this.rangeTxnInCommandsMap = rangeTxnInCommandsMap;
         this.commandStore = commandStore;
         commandStore.updateRangesForEpoch(this);
         if (this.ranges == null)
@@ -83,9 +88,10 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
                                                 Map<RoutingKey, AccordSafeTimestampsForKey> timestampsForKey,
                                                 Map<RoutingKey, AccordSafeCommandsForKey> commandsForKey,
                                                 @Nullable AccordSafeCommandsForRanges commandsForRanges,
+                                                @Nullable Set<TxnId> rangeTxnInCommandsMap,
                                                 AccordCommandStore commandStore)
     {
-        return new AccordSafeCommandStore(preLoadContext, commands, timestampsForKey, commandsForKey, commandsForRanges, commandStore);
+        return new AccordSafeCommandStore(preLoadContext, commands, timestampsForKey, commandsForKey, commandsForRanges, rangeTxnInCommandsMap, commandStore);
     }
 
     @VisibleForTesting
@@ -194,7 +200,18 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     private <O> O mapReduce(Routables<?> keysOrRanges, BiFunction<CommandsSummary, O, O> map, O accumulate)
     {
         accumulate = mapReduceForRange(keysOrRanges, map, accumulate);
+        accumulate = mapReduceForRangesForKey(keysOrRanges, map, accumulate);
         return mapReduceForKey(keysOrRanges, map, accumulate);
+    }
+
+    private <O> O mapReduceForRangesForKey(Routables<?> keysOrRanges, BiFunction<CommandsSummary, O, O> map, O accumulate)
+    {
+        return null;
+    }
+
+    public static void main(String[] args)
+    {
+        System.out.println(new TxnId(31, 1729201428399000L, Txn.Kind.Write, Routable.Domain.Key, new Node.Id(3)));
     }
 
     private <O> O mapReduceForRange(Routables<?> keysOrRanges, BiFunction<CommandsSummary, O, O> map, O accumulate)

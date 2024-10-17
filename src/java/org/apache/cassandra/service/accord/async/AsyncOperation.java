@@ -19,6 +19,7 @@ package org.apache.cassandra.service.accord.async;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -75,6 +76,8 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
         final Object2ObjectHashMap<RoutingKey, AccordSafeCommandsForKey> commandsForKey = new Object2ObjectHashMap<>();
         @Nullable
         AccordSafeCommandsForRanges commandsForRanges = null;
+        @Nullable
+        Set<TxnId> rangeTxnInCommandsMap = null;
 
         void releaseResources(AccordCommandStore commandStore)
         {
@@ -85,6 +88,8 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
             timestampsForKey.clear();
             commandsForKey.forEach((k, v) -> commandStore.commandsForKeyCache().release(v));
             commandsForKey.clear();
+            commandsForRanges = null;
+            rangeTxnInCommandsMap = null;
         }
 
         void revertChanges()
@@ -245,7 +250,7 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
                 if (loadOnly)
                     return true;
             case PREPARING:
-                safeStore = commandStore.beginOperation(preLoadContext, context.commands, context.timestampsForKey, context.commandsForKey, context.commandsForRanges);
+                safeStore = commandStore.beginOperation(preLoadContext, context.commands, context.timestampsForKey, context.commandsForKey, context.commandsForRanges, context.rangeTxnInCommandsMap);
                 state(RUNNING);
             case RUNNING:
 

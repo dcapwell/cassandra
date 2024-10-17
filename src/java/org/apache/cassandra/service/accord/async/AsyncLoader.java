@@ -188,6 +188,11 @@ public class AsyncLoader
             case Key:
                 AbstractKeys<RoutingKey> keys = (AbstractKeys<RoutingKey>) keysOrRanges;
                 keys.forEach(key -> referenceAndAssembleReadsForKey(key, context, chains));
+                if (this.keyHistory == KeyHistory.RECOVERY)
+                {
+                    // load range txn that intersect this key
+                    chains.add(referenceAndDispatchReadsForKeyToRanges(primaryTxnId, keys, context));
+                }
                 break;
             case Range:
                 chains.add(referenceAndDispatchReadsForRange(primaryTxnId, context));
@@ -197,6 +202,27 @@ public class AsyncLoader
         }
 
         return !chains.isEmpty() ? AsyncChains.reduce(chains, (a, b) -> null).beginAsResult() : null;
+    }
+
+    private AsyncChain<?> referenceAndDispatchReadsForKeyToRanges(@Nullable TxnId primaryTxnId, AbstractKeys<RoutingKey> keys, AsyncOperation.Context context)
+    {
+        if (keyHistory != KeyHistory.RECOVERY)
+            return AsyncChains.success(null);
+        //TODO (correctness): in-memory race condition.. this only does disk atm so would miss anything in-memory; should bridge the gap like the other methods
+
+        return findIntersectingRanges(primaryTxnId, keys).flatMap((Set<TxnId> txnIds) -> {
+            if (txnIds.isEmpty())
+                return AsyncChains.success(null);
+            context.rangeTxnInCommandsMap = txnIds;
+            List<AsyncChain<?>> chains = new ArrayList<>();
+            referenceAndAssembleReads(txnIds, context.commands, commandStore.commandCache(), chains);
+            return chains.isEmpty() ? AsyncChains.success(null) : AsyncChains.all(chains);
+        }, commandStore.executor());
+    }
+
+    private AsyncChain<Set<TxnId>> findIntersectingRanges(@Nullable TxnId primaryTxnId, AbstractKeys<RoutingKey> keys)
+    {
+        return commandStore.diskCommandsForRanges().get(primaryTxnId, keyHistory, keys);
     }
 
     private AsyncChain<?> referenceAndDispatchReadsForRange(@Nullable TxnId primaryTxnId, AsyncOperation.Context context)

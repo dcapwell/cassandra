@@ -30,9 +30,11 @@ import javax.annotation.Nullable;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
 
+import accord.api.RoutingKey;
 import accord.local.Command;
 import accord.local.KeyHistory;
 import accord.local.RedundantBefore;
+import accord.primitives.AbstractKeys;
 import accord.primitives.Range;
 import accord.primitives.Ranges;
 import accord.primitives.Routable.Domain;
@@ -41,6 +43,7 @@ import accord.primitives.SaveStatus;
 import accord.primitives.Status;
 import accord.primitives.Timestamp;
 import accord.primitives.TxnId;
+import accord.utils.async.AsyncChain;
 import accord.utils.async.AsyncChains;
 import accord.utils.async.AsyncResult;
 import org.agrona.collections.ObjectHashSet;
@@ -80,6 +83,20 @@ public class CommandsForRangesLoader implements AccordStateCache.Listener<TxnId,
         TxnId txnId = state.key();
         if (txnId.is(Domain.Range))
             cachedRangeTxns.remove(txnId);
+    }
+
+    public AsyncChain<Set<TxnId>> get(@Nullable TxnId primaryTxnId, KeyHistory keyHistory, AbstractKeys<RoutingKey> keys)
+    {
+        RedundantBefore redundantBefore = store.unsafeGetRedundantBefore();
+        TxnId minTxnId = redundantBefore.minGcBefore(keys);
+        Timestamp maxTxnId = primaryTxnId == null || keyHistory == KeyHistory.RECOVERY || !primaryTxnId.is(ExclusiveSyncPoint) ? Timestamp.MAX : primaryTxnId;
+
+        return AsyncChains.ofCallable(Stage.ACCORD_RANGE_LOADER.executor(), () -> {
+            Set<TxnId> matches = new ObjectHashSet<>();
+            for (RoutingKey key : keys)
+                matches.addAll(searcher.contains(store.id(), (AccordRoutingKey) key, minTxnId, maxTxnId));
+            return matches;
+        });
     }
 
     public AsyncResult<Pair<Watcher, NavigableMap<TxnId, Summary>>> get(@Nullable TxnId primaryTxnId, KeyHistory keyHistory, Ranges ranges)
