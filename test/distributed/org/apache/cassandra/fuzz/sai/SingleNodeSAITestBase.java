@@ -47,6 +47,7 @@ import org.apache.cassandra.harry.gen.EntropySource;
 import org.apache.cassandra.harry.gen.Generator;
 import org.apache.cassandra.harry.gen.Generators;
 import org.apache.cassandra.harry.gen.SchemaGenerators;
+import org.apache.cassandra.service.consensus.TransactionalMode;
 
 import static org.apache.cassandra.distributed.api.Feature.GOSSIP;
 import static org.apache.cassandra.distributed.api.Feature.NETWORK;
@@ -68,11 +69,11 @@ public abstract class SingleNodeSAITestBase extends TestBaseImpl
     protected static final Logger logger = LoggerFactory.getLogger(SingleNodeSAITest.class);
     protected static Cluster cluster;
 
-    protected final boolean withAccord;
+    protected TransactionalMode transactionalMode;
 
-    protected SingleNodeSAITestBase(boolean withAccord)
+    protected SingleNodeSAITestBase(TransactionalMode transactionalMode)
     {
-        this.withAccord = withAccord;
+        this.transactionalMode = transactionalMode;
     }
 
     @BeforeClass
@@ -274,7 +275,7 @@ public abstract class SingleNodeSAITestBase extends TestBaseImpl
             // and read-repair in the test itself. node_local bypasses Accord which breaks any attempt at testing Accord
             // so if we are running with Accord use QUORUM (which Accord will ignore since it runs with transactional
             // mode full).
-            if (withAccord)
+            if (transactionalMode != null && transactionalMode.nonSerialWritesThroughAccord)
                 return ConsistencyLevel.QUORUM;
             else
                 return ConsistencyLevel.NODE_LOCAL;

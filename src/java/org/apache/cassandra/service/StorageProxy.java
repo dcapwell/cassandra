@@ -66,6 +66,7 @@ import org.apache.cassandra.db.IMutation;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.MessageParams;
 import org.apache.cassandra.db.Mutation;
+import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.PartitionRangeReadCommand;
 import org.apache.cassandra.db.ReadCommand;
 import org.apache.cassandra.db.ReadExecutionController;
@@ -82,6 +83,7 @@ import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.db.rows.RowIterator;
 import org.apache.cassandra.db.view.ViewUtils;
+import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.CasWriteTimeoutException;
@@ -2181,9 +2183,7 @@ public class StorageProxy implements StorageProxyMBean
         return null;
     }
 
-
-    public static AsyncTxnResult readWithAccord(ClusterMetadata cm, PartitionRangeReadCommand command, ConsistencyLevel consistencyLevel, Dispatcher.RequestTime requestTime)
-    {
+    public static AsyncTxnResult readWithAccord(ClusterMetadata cm, PartitionRangeReadCommand command, List<AbstractBounds<PartitionPosition>> ranges, ConsistencyLevel consistencyLevel, Dispatcher.RequestTime requestTime)    {
         if (consistencyLevel != null && !IAccordService.SUPPORTED_READ_CONSISTENCY_LEVELS.contains(consistencyLevel))
             throw new InvalidRequestException(consistencyLevel + " is not supported by Accord");
 
@@ -2191,8 +2191,10 @@ public class StorageProxy implements StorageProxyMBean
         TableParams tableParams = tableMetadata.params;
         Range<Token> readRange = new Range<>(command.dataRange().startKey().getToken(), command.dataRange().stopKey().getToken());
         consistencyLevel = tableParams.transactionalMode.readCLForStrategy(tableParams.transactionalMigrationFrom, consistencyLevel, cm, tableMetadata.id, readRange);
-        TxnRead read = new TxnRangeRead(command, consistencyLevel);
-        Txn.Kind kind = EphemeralRead;
+        TxnRead read = new TxnRangeRead(command, ranges, consistencyLevel);
+        Txn.Kind kind = Read;
+        if (tableParams.transactionalMode == TransactionalMode.full && getAccordEphemeralReadEnabledEnabled() && tableParams.transactionalMigrationFrom == none)
+            kind = EphemeralRead;
         Txn txn = new Txn.InMemory(kind, read.keys(), read, TxnQuery.RANGE_QUERY, null);
         IAccordService accordService = AccordService.instance();
         return accordService.coordinateAsync(txn, consistencyLevel, requestTime);

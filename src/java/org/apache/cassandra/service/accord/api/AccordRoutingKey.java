@@ -50,7 +50,7 @@ public abstract class AccordRoutingKey extends AccordRoutableKey implements Rout
 {
     public enum RoutingKeyKind
     {
-        TOKEN, SENTINEL
+        TOKEN, SENTINEL, MIN_TOKEN
     }
 
     protected AccordRoutingKey(TableId table)
@@ -203,8 +203,9 @@ public abstract class AccordRoutingKey extends AccordRoutableKey implements Rout
         }
     }
 
-    // final in part because we refer to its class directly in AccordRoutableKey.compareTo
-    public static final class TokenKey extends AccordRoutingKey
+    // Should be final in part because we refer to its class directly in AccordRoutableKey.compareTo
+    // but it's helpful for MinTokenKey to be able to extend so `asTokenKey` also works with it
+    public static class TokenKey extends AccordRoutingKey
     {
         private static final long EMPTY_SIZE;
 
@@ -318,6 +319,119 @@ public abstract class AccordRoutingKey extends AccordRoutableKey implements Rout
         }
     }
 
+    // Allows the creation of a Range that is begin inclusive or end exclusive for a given Token
+    public static final class MinTokenKey extends TokenKey
+    {
+        private static final long EMPTY_SIZE;
+
+        @Override
+        public Range asRange()
+        {
+            AccordRoutingKey before = token.isMinimum()
+                                      ? new SentinelKey(table, true)
+                                      : new MinTokenKey(table, token.decreaseSlightly());
+
+            return new TokenRange(before, this);
+        }
+
+        static
+        {
+            EMPTY_SIZE = ObjectSizes.measure(new MinTokenKey(null, null));
+        }
+
+        public MinTokenKey(TableId tableId, Token token)
+        {
+            super(tableId, token);
+        }
+
+        public MinTokenKey withToken(Token token)
+        {
+            return new MinTokenKey(table, token);
+        }
+
+        @Override
+        public Token token()
+        {
+            return token;
+        }
+
+        @Override
+        public RoutingKeyKind kindOfRoutingKey()
+        {
+            return RoutingKeyKind.MIN_TOKEN;
+        }
+
+        @Override
+        public String suffix()
+        {
+            return token.toString();
+        }
+
+        public long estimatedSizeOnHeap()
+        {
+            return EMPTY_SIZE + token().getHeapSize();
+        }
+
+        public AccordRoutingKey withTable(TableId table)
+        {
+            return new MinTokenKey(table, token);
+        }
+
+        public static final MinTokenKey.Serializer serializer = new MinTokenKey.Serializer();
+        public static class Serializer implements AccordKeySerializer<MinTokenKey>
+        {
+            private Serializer() {}
+
+            @Override
+            public void serialize(MinTokenKey key, DataOutputPlus out, int version) throws IOException
+            {
+                key.table.serialize(out);
+                Token.compactSerializer.serialize(key.token, out, version);
+            }
+
+            @Override
+            public void skip(DataInputPlus in, int version) throws IOException
+            {
+                in.skipBytesFully(TableId.staticSerializedSize());
+                // TODO (expected): should we be using the TableId partitioner here?
+                Token.compactSerializer.skip(in, getPartitioner(), version);
+            }
+
+            @Override
+            public MinTokenKey deserialize(DataInputPlus in, int version) throws IOException
+            {
+                TableId table = TableId.deserialize(in).intern();
+                Token token = Token.compactSerializer.deserialize(in, getPartitioner(), version);
+                return new MinTokenKey(table, token);
+            }
+
+            public MinTokenKey fromBytes(ByteBuffer bytes, IPartitioner partitioner)
+            {
+                TableId tableId = TableId.deserialize(bytes, ByteBufferAccessor.instance, 0).intern();
+                bytes.position(tableId.serializedSize());
+                Token token = Token.compactSerializer.deserialize(bytes, partitioner);
+                return new MinTokenKey(tableId, token);
+            }
+
+            public ByteBuffer toBytes(MinTokenKey tokenKey)
+            {
+                int size = (int) (tokenKey.table.serializedSize() + Token.compactSerializer.serializedSize(tokenKey.token));
+                ByteBuffer out = ByteBuffer.allocate(size);
+                int position = tokenKey.table.serialize(out, ByteBufferAccessor.instance, 0);
+                out.position(position);
+                Token.compactSerializer.serialize(tokenKey.token, out);
+                out.flip();
+                return out;
+            }
+
+            @Override
+            public long serializedSize(MinTokenKey key, int version)
+            {
+                return key.table.serializedSize() + Token.compactSerializer.serializedSize(key.token(), version);
+            }
+        }
+    }
+
     public static class Serializer implements AccordKeySerializer<AccordRoutingKey>
     {
         static final RoutingKeyKind[] kinds = RoutingKeyKind.values();
@@ -333,6 +447,9 @@ public abstract class AccordRoutingKey extends AccordRoutableKey implements Rout
                     break;
                 case SENTINEL:
                     SentinelKey.serializer.serialize((SentinelKey) key, out, version);
+                    break;
+                case MIN_TOKEN:
+                    MinTokenKey.serializer.serialize((MinTokenKey) key, out, version);
                     break;
                 default:
                     throw new IllegalArgumentException();
@@ -382,6 +499,9 @@ public abstract class AccordRoutingKey extends AccordRoutableKey implements Rout
                 case SENTINEL:
                     SentinelKey.serializer.skip(in, version);
                     break;
+                case MIN_TOKEN:
+                    MinTokenKey.serializer.skip(in, version);
+                    break;
                 default:
                     throw new IllegalArgumentException();
             }
@@ -397,6 +517,8 @@ public abstract class AccordRoutingKey extends AccordRoutableKey implements Rout
                     return TokenKey.serializer.deserialize(in, version);
                 case SENTINEL:
                     return SentinelKey.serializer.deserialize(in, version);
+                case MIN_TOKEN:
+                    return MinTokenKey.serializer.deserialize(in, version);
                 default:
                     throw new IllegalArgumentException();
             }
@@ -413,6 +535,9 @@ public abstract class AccordRoutingKey extends AccordRoutableKey implements Rout
                     break;
                 case SENTINEL:
                     size += SentinelKey.serializer.serializedSize((SentinelKey) key, version);
+                    break;
+                case MIN_TOKEN:
+                    size += MinTokenKey.serializer.serializedSize((MinTokenKey)key, version);
                     break;
                 default:
                     throw new IllegalArgumentException();

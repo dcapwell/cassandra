@@ -18,13 +18,10 @@
 
 package org.apache.cassandra.fuzz.sai;
 
-import org.junit.Ignore;
-
-@Ignore // TODO: remove when java.lang.IllegalArgumentException: 1b255f4d-ef25-40a6-0000-00000000000b:4459194184563723815 >= 1b255f4d-ef25-40a6-0000-00000000000b:4459194184563723815 is fixed
 public class MultiNodeSAITest extends MultiNodeSAITestBase
 {
     public MultiNodeSAITest()
     {
-        super(false);
+        super(null);
     }
 }

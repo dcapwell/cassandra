@@ -22,7 +22,6 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.UUID;
 import java.util.function.BiFunction;
-
 import javax.annotation.Nullable;
 
 import org.apache.cassandra.db.marshal.ByteArrayAccessor;
@@ -38,19 +37,24 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.bytecomparable.ByteSourceInverse;
 
-import static org.apache.cassandra.service.accord.api.AccordRoutingKey.RoutingKeyKind.SENTINEL;
-
 public class AccordRoutingKeyByteSource
 {
     public static final ByteComparable.Version currentVersion = ByteComparable.Version.OSS50;
 
     private static final byte[] MIN_ORDER = { -1 };
-    private static final byte[] TOKEN_ORDER = { 0 };
-    private static final byte[] MAX_ORDER = { 1 };
+
+    private static final byte[] MIN_TOKEN_ORDER = { 0 };
+    private static final byte[] TOKEN_ORDER = { 1 };
+    private static final byte[] MAX_ORDER = { 2 };
 
     private static ByteSource minPrefix()
     {
         return ByteSource.signedFixedLengthNumber(ByteArrayAccessor.instance, MIN_ORDER);
+    }
+
+    private static ByteSource minTokenPrefix()
+    {
+        return ByteSource.signedFixedLengthNumber(ByteArrayAccessor.instance, MIN_TOKEN_ORDER);
     }
 
     private static ByteSource tokenPrefix()
@@ -103,11 +107,11 @@ public class AccordRoutingKeyByteSource
             return ByteSource.withTerminator(ByteSource.TERMINATOR, maxPrefix(), ByteSource.fixedLength(empty));
         }
 
-        public ByteSource asComparableBytes(Token token)
+        public ByteSource asComparableBytes(Token token, ByteSource prefix)
         {
             if (token.getPartitioner() != partitioner)
                 throw new IllegalArgumentException("Attempted to use the wrong partitioner: given " + token.getPartitioner() + " but expected " + partitioner);
-            return ByteSource.withTerminator(ByteSource.TERMINATOR, tokenPrefix(), token.asComparableBytes(version));
+            return ByteSource.withTerminator(ByteSource.TERMINATOR, prefix, token.asComparableBytes(version));
         }
 
         public <V> Token tokenFromComparableBytes(ValueAccessor<V> accessor, V data) throws IOException
@@ -124,7 +128,7 @@ public class AccordRoutingKeyByteSource
             var prefix = ByteSourceInverse.getOptionalSignedFixedLength(ByteArrayAccessor.instance, component, 1);
             if (prefix == null)
                 throw new IOException("Unable to read prefix; prefix was null");
-            if (!Arrays.equals(TOKEN_ORDER, prefix))
+            if (!Arrays.equals(TOKEN_ORDER, prefix) && !Arrays.equals(MIN_TOKEN_ORDER, prefix))
             {
                 String match = Arrays.equals(MIN_ORDER, prefix) ? "min"
                                                                 : Arrays.equals(MAX_ORDER, prefix) ? "max"
@@ -148,8 +152,17 @@ public class AccordRoutingKeyByteSource
 
         public ByteSource asComparableBytesNoTable(AccordRoutingKey key)
         {
-            return key.kindOfRoutingKey() == SENTINEL ? key.asSentinelKey().isMin ? minAsComparableBytes() : maxAsComparableBytes()
-                                                      : asComparableBytes(key.token());
+            switch (key.kindOfRoutingKey())
+            {
+                case SENTINEL:
+                    return  key.asSentinelKey().isMin ? minAsComparableBytes() : maxAsComparableBytes();
+                case TOKEN:
+                    return asComparableBytes(key.token(), tokenPrefix());
+                case MIN_TOKEN:
+                    return asComparableBytes(key.token(), minTokenPrefix());
+                default:
+                    throw new IllegalStateException("Unhandled routing key type " + key.kindOfRoutingKey());
+            }
         }
 
         public <V> AccordRoutingKey fromComparableBytes(ValueAccessor<V> accessor, V data) throws IOException
@@ -186,6 +199,7 @@ public class AccordRoutingKeyByteSource
             return fromComparableBytes(bs, tableId,
                                        (id, isMin) -> isMin ? AccordRoutingKey.SentinelKey.min(id) : AccordRoutingKey.SentinelKey.max(id),
                                        AccordRoutingKey.TokenKey::new,
+                                       AccordRoutingKey.MinTokenKey::new,
                                        version, partitioner
             );
         }
@@ -193,6 +207,7 @@ public class AccordRoutingKeyByteSource
         public static AccordRoutingKey fromComparableBytes(ByteSource.Peekable bs, TableId tableId,
                                                            BiFunction<TableId, Boolean, AccordRoutingKey> onSentinel,
                                                            BiFunction<TableId, Token, AccordRoutingKey> onToken,
+                                                           BiFunction<TableId, Token, AccordRoutingKey> onMinToken,
                                                            ByteComparable.Version version, IPartitioner partitioner)
         {
             if (bs.peek() == ByteSource.TERMINATOR)
@@ -208,6 +223,13 @@ public class AccordRoutingKeyByteSource
                 if (component == null)
                     throw new IllegalStateException("Unable to read token; component was not found");
                 return onToken.apply(tableId, partitioner.getTokenFactory().fromComparableBytes(component, version));
+            }
+            if (Arrays.equals(MIN_TOKEN_ORDER, prefix))
+            {
+                component = ByteSourceInverse.nextComponentSource(bs);
+                if (component == null)
+                    throw new IllegalStateException("Unable to read token; component was not found");
+                return onMinToken.apply(tableId, partitioner.getTokenFactory().fromComparableBytes(component, version));
             }
             if (Arrays.equals(MIN_ORDER, prefix))
                 return onSentinel.apply(tableId, true);
@@ -233,7 +255,7 @@ public class AccordRoutingKeyByteSource
 
         public byte[] serialize(Token token)
         {
-            return ByteSourceInverse.readBytes(asComparableBytes(token));
+            return ByteSourceInverse.readBytes(asComparableBytes(token, tokenPrefix()));
         }
 
         public byte[] serialize(AccordRoutingKey key)
