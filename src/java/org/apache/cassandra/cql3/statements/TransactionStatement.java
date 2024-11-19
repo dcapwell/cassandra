@@ -77,12 +77,10 @@ import org.apache.cassandra.service.accord.txn.TxnReference;
 import org.apache.cassandra.service.accord.txn.TxnResult;
 import org.apache.cassandra.service.accord.txn.TxnUpdate;
 import org.apache.cassandra.service.accord.txn.TxnWrite;
-import org.apache.cassandra.service.consensus.TransactionalMode;
 import org.apache.cassandra.transport.Dispatcher;
 import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.FBUtilities;
 
-import static accord.primitives.Txn.Kind.EphemeralRead;
 import static accord.primitives.Txn.Kind.Read;
 import static org.apache.cassandra.cql3.statements.RequestValidations.checkFalse;
 import static org.apache.cassandra.cql3.statements.RequestValidations.checkNotNull;
@@ -94,6 +92,7 @@ import static org.apache.cassandra.service.accord.txn.TxnData.TxnDataNameKind.US
 import static org.apache.cassandra.service.accord.txn.TxnData.txnDataName;
 import static org.apache.cassandra.service.accord.txn.TxnKeyRead.createTxnRead;
 import static org.apache.cassandra.service.accord.txn.TxnResult.Kind.retry_new_protocol;
+import static org.apache.cassandra.service.consensus.migration.ConsensusRequestRouter.shouldReadEphemerally;
 
 public class TransactionStatement implements CQLStatement.CompositeCQLStatement, CQLStatement.ReturningCQLStatement
 {
@@ -329,11 +328,6 @@ public class TransactionStatement implements CQLStatement.CompositeCQLStatement,
         return new Keys(keySet);
     }
 
-    private static TransactionalMode transactionalModeForSingleKey(Keys keys)
-    {
-        return Schema.instance.getTableMetadata(((AccordRoutableKey) keys.get(0)).table()).params.transactionalMode;
-    }
-
     @VisibleForTesting
     public Txn createTxn(ClientState state, QueryOptions options)
     {
@@ -346,10 +340,7 @@ public class TransactionStatement implements CQLStatement.CompositeCQLStatement,
             List<TxnNamedRead> reads = createNamedReads(options, state, null, keySet::add);
             Keys txnKeys = toKeys(keySet);
             TxnKeyRead read = createTxnRead(reads, null);
-            Txn.Kind kind = txnKeys.size() == 1
-                    && transactionalModeForSingleKey(txnKeys) == TransactionalMode.full
-                    && DatabaseDescriptor.getAccordEphemeralReadEnabledEnabled()
-                    ? EphemeralRead : Read;
+            Txn.Kind kind = shouldReadEphemerally(txnKeys, Schema.instance.getTableMetadata(((AccordRoutableKey) txnKeys.get(0)).table()).params, Read);
             return new Txn.InMemory(kind, txnKeys, read, TxnQuery.ALL, null);
         }
         else

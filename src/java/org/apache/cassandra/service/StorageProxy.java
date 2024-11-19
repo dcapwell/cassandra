@@ -179,14 +179,12 @@ import org.apache.cassandra.utils.concurrent.CountDownLatch;
 import org.apache.cassandra.utils.concurrent.Future;
 import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
 
-import static accord.primitives.Txn.Kind.EphemeralRead;
 import static accord.primitives.Txn.Kind.Read;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.Iterables.concat;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
-import static org.apache.cassandra.config.DatabaseDescriptor.getAccordEphemeralReadEnabledEnabled;
 import static org.apache.cassandra.db.ConsistencyLevel.SERIAL;
 import static org.apache.cassandra.metrics.ClientRequestsMetricsHolder.casReadMetrics;
 import static org.apache.cassandra.metrics.ClientRequestsMetricsHolder.casWriteMetrics;
@@ -214,7 +212,7 @@ import static org.apache.cassandra.service.consensus.migration.ConsensusMigratio
 import static org.apache.cassandra.service.consensus.migration.ConsensusMigrationMutationHelper.splitMutationsIntoAccordAndNormal;
 import static org.apache.cassandra.service.consensus.migration.ConsensusRequestRouter.ConsensusRoutingDecision;
 import static org.apache.cassandra.service.consensus.migration.ConsensusRequestRouter.getTableMetadata;
-import static org.apache.cassandra.service.consensus.migration.TransactionalMigrationFromMode.none;
+import static org.apache.cassandra.service.consensus.migration.ConsensusRequestRouter.shouldReadEphemerally;
 import static org.apache.cassandra.service.paxos.Ballot.Flag.GLOBAL;
 import static org.apache.cassandra.service.paxos.Ballot.Flag.LOCAL;
 import static org.apache.cassandra.service.paxos.BallotGenerator.Global.nextBallot;
@@ -2192,9 +2190,7 @@ public class StorageProxy implements StorageProxyMBean
         Range<Token> readRange = new Range<>(command.dataRange().startKey().getToken(), command.dataRange().stopKey().getToken());
         consistencyLevel = tableParams.transactionalMode.readCLForStrategy(tableParams.transactionalMigrationFrom, consistencyLevel, cm, tableMetadata.id, readRange);
         TxnRead read = new TxnRangeRead(command, ranges, consistencyLevel);
-        Txn.Kind kind = Read;
-        if (tableParams.transactionalMode == TransactionalMode.full && getAccordEphemeralReadEnabledEnabled() && tableParams.transactionalMigrationFrom == none)
-            kind = EphemeralRead;
+        Txn.Kind kind = shouldReadEphemerally(read.keys(), tableParams, Read);
         Txn txn = new Txn.InMemory(kind, read.keys(), read, TxnQuery.RANGE_QUERY, null);
         IAccordService accordService = AccordService.instance();
         return accordService.coordinateAsync(txn, consistencyLevel, requestTime);
@@ -2207,12 +2203,11 @@ public class StorageProxy implements StorageProxyMBean
 
         // If the non-SERIAL write strategy is sending all writes through Accord there is no need to use the supplied consistency
         // level since Accord will manage reading safely
-        TransactionalMode transactionalMode = group.metadata().params.transactionalMode;
+        TableMetadata tableMetadata = getTableMetadata(cm, group.metadata().id);
+        TableParams tableParams = tableMetadata.params;
         consistencyLevel = consistencyLevelForAccordRead(cm, group, consistencyLevel);
         TxnKeyRead read = TxnKeyRead.createSerialRead(group.queries, consistencyLevel);
-        Txn.Kind kind = Read;
-        if (transactionalMode == TransactionalMode.full && getAccordEphemeralReadEnabledEnabled() && group.queries.size() == 1 && group.metadata().params.transactionalMigrationFrom == none)
-            kind = EphemeralRead;
+        Txn.Kind kind = shouldReadEphemerally(read.keys(), tableParams, Read);
         Txn txn = new Txn.InMemory(kind, read.keys(), read, TxnQuery.ALL, null);
         AsyncTxnResult asyncTxnResult = AccordService.instance().coordinateAsync(txn, consistencyLevel, requestTime);
         return getConsensusAttemptResultFromAsyncTxnResult(asyncTxnResult, group.queries.size(), index -> group.queries.get(index).isReversed(), consistencyLevel, requestTime);

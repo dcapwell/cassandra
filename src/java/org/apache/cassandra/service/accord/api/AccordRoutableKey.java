@@ -82,7 +82,7 @@ public abstract class AccordRoutableKey implements RoutableKey
 
         Class<?> thisClass = this.getClass();
         Class<?> thatClass = that.getClass();
-        if (thisClass== SentinelKey.class || thatClass == SentinelKey.class)
+        if (thisClass == SentinelKey.class || thatClass == SentinelKey.class)
         {
             int leftInt = thisClass == SentinelKey.class ? ((SentinelKey) this).asInt() : 0;
             int rightInt = thatClass == SentinelKey.class ? ((SentinelKey) that).asInt() : 0;

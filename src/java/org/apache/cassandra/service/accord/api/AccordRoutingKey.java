@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.function.BiFunction;
 
 import accord.api.Key;
 import accord.api.RoutingKey;
@@ -203,11 +204,69 @@ public abstract class AccordRoutingKey extends AccordRoutableKey implements Rout
         }
     }
 
+    private static class TokenKeySerializer<T extends TokenKey> implements AccordKeySerializer<T>
+    {
+        private final BiFunction<TableId, Token, T> factory;
+
+        private TokenKeySerializer(BiFunction<TableId, Token, T> factory)
+        {
+            this.factory = factory;
+        }
+
+        @Override
+        public void serialize(T key, DataOutputPlus out, int version) throws IOException
+        {
+            key.table.serialize(out);
+            Token.compactSerializer.serialize(key.token, out, version);
+        }
+
+        @Override
+        public void skip(DataInputPlus in, int version) throws IOException
+        {
+            in.skipBytesFully(TableId.staticSerializedSize());
+            // TODO (expected): should we be using the TableId partitioner here?
+            Token.compactSerializer.skip(in, getPartitioner(), version);
+        }
+
+        @Override
+        public T deserialize(DataInputPlus in, int version) throws IOException
+        {
+            TableId table = TableId.deserialize(in).intern();
+            Token token = Token.compactSerializer.deserialize(in, getPartitioner(), version);
+            return factory.apply(table, token);
+        }
+
+        public T fromBytes(ByteBuffer bytes, IPartitioner partitioner)
+        {
+            TableId tableId = TableId.deserialize(bytes, ByteBufferAccessor.instance, 0).intern();
+            bytes.position(tableId.serializedSize());
+            Token token = Token.compactSerializer.deserialize(bytes, partitioner);
+            return factory.apply(tableId, token);
+        }
+
+        public ByteBuffer toBytes(T tokenKey)
+        {
+            int size = (int) (tokenKey.table.serializedSize() + Token.compactSerializer.serializedSize(tokenKey.token));
+            ByteBuffer out = ByteBuffer.allocate(size);
+            int position = tokenKey.table.serialize(out, ByteBufferAccessor.instance, 0);
+            out.position(position);
+            Token.compactSerializer.serialize(tokenKey.token, out);
+            out.flip();
+            return out;
+        }
+
+        @Override
+        public long serializedSize(TokenKey key, int version)
+        {
+            return key.table.serializedSize() + Token.compactSerializer.serializedSize(key.token(), version);
+        }
+    }
+
     // Should be final in part because we refer to its class directly in AccordRoutableKey.compareTo
     // but it's helpful for MinTokenKey to be able to extend so `asTokenKey` also works with it
     public static class TokenKey extends AccordRoutingKey
     {
-        private static final long EMPTY_SIZE;
+        private static final long EMPTY_SIZE = ObjectSizes.measure(new TokenKey(null, null));
 
         @Override
         public Range asRange()
@@ -217,11 +276,6 @@ public abstract class AccordRoutingKey extends AccordRoutableKey implements Rout
                                       : new TokenKey(table, token.decreaseSlightly());
 
             return new TokenRange(before, this);
-        }
-
-        static
-        {
-            EMPTY_SIZE = ObjectSizes.measure(new TokenKey(null, null));
         }
 
         final Token token;
@@ -264,79 +318,22 @@ public abstract class AccordRoutingKey extends AccordRoutableKey implements Rout
             return new TokenKey(table, token);
         }
 
-        public static final Serializer serializer = new Serializer();
-        public static class Serializer implements AccordKeySerializer<TokenKey>
-        {
-            private Serializer() {}
-
-            @Override
-            public void serialize(TokenKey key, DataOutputPlus out, int version) throws IOException
-            {
-                key.table.serialize(out);
-                Token.compactSerializer.serialize(key.token, out, version);
-            }
-
-            @Override
-            public void skip(DataInputPlus in, int version) throws IOException
-            {
-                in.skipBytesFully(TableId.staticSerializedSize());
-                // TODO (expected): should we be using the TableId partitioner here?
-                Token.compactSerializer.skip(in, getPartitioner(), version);
-            }
-
-            @Override
-            public TokenKey deserialize(DataInputPlus in, int version) throws IOException
-            {
-                TableId table = TableId.deserialize(in).intern();
-                Token token = Token.compactSerializer.deserialize(in, getPartitioner(), version);
-                return new TokenKey(table, token);
-            }
-
-            public TokenKey fromBytes(ByteBuffer bytes, IPartitioner partitioner)
-            {
-                TableId tableId = TableId.deserialize(bytes, ByteBufferAccessor.instance, 0).intern();
-                bytes.position(tableId.serializedSize());
-                Token token = Token.compactSerializer.deserialize(bytes, partitioner);
-                return new TokenKey(tableId, token);
-            }
-
-            public ByteBuffer toBytes(TokenKey tokenKey)
-            {
-                int size = (int) (tokenKey.table.serializedSize() + Token.compactSerializer.serializedSize(tokenKey.token));
-                ByteBuffer out = ByteBuffer.allocate(size);
-                int position = tokenKey.table.serialize(out, ByteBufferAccessor.instance, 0);
-                out.position(position);
-                Token.compactSerializer.serialize(tokenKey.token, out);
-                out.flip();
-                return out;
-            }
-
-            @Override
-            public long serializedSize(TokenKey key, int version)
-            {
-                return key.table.serializedSize() + Token.compactSerializer.serializedSize(key.token(), version);
-            }
-        }
+        public static final TokenKeySerializer<TokenKey> serializer = new TokenKeySerializer<>(TokenKey::new);
     }
 
     // Allows the creation of a Range that is begin inclusive or end exclusive for a given Token
     public static final class MinTokenKey extends TokenKey
     {
-        private static final long EMPTY_SIZE;
+        private static final long EMPTY_SIZE = ObjectSizes.measure(new MinTokenKey(null, null));
 
         @Override
         public Range asRange()
         {
             AccordRoutingKey before = token.isMinimum()
                                       ? new SentinelKey(table, true)
-                                      : new MinTokenKey(table, token.decreaseSlightly());
+                                      : new TokenKey(table, token.decreaseSlightly());
 
             return new TokenRange(before, this);
-        }
-
-        static
-        {
-            EMPTY_SIZE = ObjectSizes.measure(new MinTokenKey(null, null));
         }
 
         public MinTokenKey(TableId tableId, Token token)
@@ -377,59 +374,7 @@ public abstract class AccordRoutingKey extends AccordRoutableKey implements Rout
             return new MinTokenKey(table, token);
         }
 
-        public static final MinTokenKey.Serializer serializer = new MinTokenKey.Serializer();
-        public static class Serializer implements AccordKeySerializer<MinTokenKey>
-        {
-            private Serializer() {}
-
-            @Override
-            public void serialize(MinTokenKey key, DataOutputPlus out, int version) throws IOException
-            {
-                key.table.serialize(out);
-                Token.compactSerializer.serialize(key.token, out, version);
-            }
-
-            @Override
-            public void skip(DataInputPlus in, int version) throws IOException
-            {
-                in.skipBytesFully(TableId.staticSerializedSize());
-                // TODO (expected): should we be using the TableId partitioner here?
-                Token.compactSerializer.skip(in, getPartitioner(), version);
-            }
-
-            @Override
-            public MinTokenKey deserialize(DataInputPlus in, int version) throws IOException
-            {
-                TableId table = TableId.deserialize(in).intern();
-                Token token = Token.compactSerializer.deserialize(in, getPartitioner(), version);
-                return new MinTokenKey(table, token);
-            }
-
-            public MinTokenKey fromBytes(ByteBuffer bytes, IPartitioner partitioner)
-            {
-                TableId tableId = TableId.deserialize(bytes, ByteBufferAccessor.instance, 0).intern();
-                bytes.position(tableId.serializedSize());
-                Token token = Token.compactSerializer.deserialize(bytes, partitioner);
-                return new MinTokenKey(tableId, token);
-            }
-
-            public ByteBuffer toBytes(MinTokenKey tokenKey)
-            {
-                int size = (int) (tokenKey.table.serializedSize() + Token.compactSerializer.serializedSize(tokenKey.token));
-                ByteBuffer out = ByteBuffer.allocate(size);
-                int position = tokenKey.table.serialize(out, ByteBufferAccessor.instance, 0);
-                out.position(position);
-                Token.compactSerializer.serialize(tokenKey.token, out);
-                out.flip();
-                return out;
-            }
-
-            @Override
-            public long serializedSize(MinTokenKey key, int version)
-            {
-                return key.table.serializedSize() + Token.compactSerializer.serializedSize(key.token(), version);
-            }
-        }
+        public static final TokenKeySerializer<MinTokenKey> serializer = new TokenKeySerializer<>(MinTokenKey::new);
     }
 
     public static class Serializer implements AccordKeySerializer<AccordRoutingKey>
