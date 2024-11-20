@@ -38,7 +38,6 @@ import org.apache.cassandra.harry.SchemaSpec;
 import org.apache.cassandra.harry.op.Visit;
 import org.apache.cassandra.harry.dsl.HistoryBuilder;
 import org.apache.cassandra.harry.dsl.HistoryBuilderHelper;
-import org.apache.cassandra.harry.execution.DataTracker;
 import org.apache.cassandra.harry.execution.RingAwareInJvmDTestVisitExecutor;
 import org.apache.cassandra.harry.gen.Generator;
 import org.apache.cassandra.harry.gen.Generators;
@@ -187,14 +186,12 @@ public class ConsistentBootstrapTest extends FuzzTestBase
                 for (int i = 1; i <= 4; i++)
                     metricCounts[i - 1] = cluster.get(i).callOnInstance(() -> TCMMetrics.instance.coordinatorBehindPlacements.getCount());
 
-                DataTracker tracker = new DataTracker.SequentialDataTracker();
                 RingAwareInJvmDTestVisitExecutor executor = RingAwareInJvmDTestVisitExecutor.builder()
                                                                                             .replicationFactor(new TokenPlacementModel.SimpleReplicationFactor(2))
                                                                                             .nodeSelector(i -> 2)
                                                                                             .consistencyLevel(ConsistencyLevel.ALL)
                                                                                             .build(schema,
-                                                                                                   tracker,
-                                                                                                   new QuiescentChecker(schema.valueGenerators, tracker, history),
+                                                                                                   new QuiescentChecker(schema.valueGenerators, history),
                                                                                                    cluster);
 
                 Thread startup = new Thread(() -> newInstance.startup());

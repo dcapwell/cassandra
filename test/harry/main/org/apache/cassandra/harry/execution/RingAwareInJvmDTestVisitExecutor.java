@@ -51,7 +51,6 @@ public class RingAwareInJvmDTestVisitExecutor extends InJvmDTestVisitExecutor
     private final TokenPlacementModel.ReplicationFactor rf;
 
     private RingAwareInJvmDTestVisitExecutor(SchemaSpec schema,
-                                             DataTracker dataTracker,
                                              Model model,
                                              ICluster<?> cluster,
                                              NodeSelector nodeSelector,
@@ -61,7 +60,7 @@ public class RingAwareInJvmDTestVisitExecutor extends InJvmDTestVisitExecutor
                                              TokenPlacementModel.ReplicationFactor rf,
                                              QueryBuildingVisitExecutor.WrapQueries wrapQueries)
     {
-        super(schema, dataTracker, model, cluster, nodeSelector, pageSizeSelector, retryPolicy, consistencyLevel, QueryBuildingVisitExecutor.WrapQueries.UNLOGGED_BATCH);
+        super(schema, model, cluster, nodeSelector, pageSizeSelector, retryPolicy, consistencyLevel, QueryBuildingVisitExecutor.WrapQueries.UNLOGGED_BATCH);
         this.rf = rf;
     }
 
@@ -199,15 +198,14 @@ public class RingAwareInJvmDTestVisitExecutor extends InJvmDTestVisitExecutor
 
         public RingAwareInJvmDTestVisitExecutor build(SchemaSpec schema, Model.Replay replay, ICluster<?> cluster)
         {
-            DataTracker tracker = new DataTracker.SequentialDataTracker();
-            Model model = new QuiescentChecker(schema.valueGenerators, tracker, replay);
-            return build(schema, tracker, model, cluster);
+            Model model = new QuiescentChecker(schema.valueGenerators, replay);
+            return build(schema, model, cluster);
         }
 
-        public RingAwareInJvmDTestVisitExecutor build(SchemaSpec schema, DataTracker tracker, Model model, ICluster<?> cluster)
+        public RingAwareInJvmDTestVisitExecutor build(SchemaSpec schema, Model model, ICluster<?> cluster)
         {
             setDefaults(schema, cluster);
-            return new RingAwareInJvmDTestVisitExecutor(schema, tracker, model, cluster,
+            return new RingAwareInJvmDTestVisitExecutor(schema, model, cluster,
                                                         nodeSelector, pageSizeSelector, retryPolicy, consistencyLevel, rf, wrapQueries);
         }
     }

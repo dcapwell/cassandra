@@ -35,7 +35,6 @@ import org.apache.cassandra.harry.dsl.HistoryBuilderHelper;
 import org.apache.cassandra.harry.dsl.SingleOperationBuilder;
 import org.apache.cassandra.harry.execution.CQLTesterVisitExecutor;
 import org.apache.cassandra.harry.execution.CQLVisitExecutor;
-import org.apache.cassandra.harry.execution.DataTracker;
 import org.apache.cassandra.harry.gen.Generator;
 import org.apache.cassandra.harry.gen.Generators;
 import org.apache.cassandra.harry.gen.SchemaGenerators;
@@ -312,9 +311,8 @@ public class HistoryBuilderTest extends CQLTester
 
     public CQLVisitExecutor create(SchemaSpec schema, HistoryBuilder historyBuilder)
     {
-        DataTracker tracker = new DataTracker.SequentialDataTracker();
-        return new CQLTesterVisitExecutor(schema, tracker,
-                                          new QuiescentChecker(schema.valueGenerators, tracker, historyBuilder),
+        return new CQLTesterVisitExecutor(schema,
+                                          new QuiescentChecker(schema.valueGenerators, historyBuilder),
                                           statement -> {
                                               if (logger.isTraceEnabled())
                                                   logger.trace(statement.toString());

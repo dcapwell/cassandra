@@ -87,6 +87,7 @@ public class HarryValidatingQuery extends SimulatedAction
                         CompiledStatement compiled = queryBuilder.compile(visit);
                         Object[][] objects = executeNodeLocal(compiled.cql(), replica.node(), compiled.bindings());
                         List<ResultSetRow> actualRows = InJvmDTestVisitExecutor.rowsToResultSet(simulation.schema, select, objects);
+                        // REVIEW: is there a reason select isn't tracked?  logically it "shouldn't" mutate but can... is this to simplify the model to skip selects?
                         simulation.model.validate(select, actualRows);
                     }
                 }

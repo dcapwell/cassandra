@@ -56,11 +56,11 @@ import org.apache.cassandra.distributed.api.SimpleQueryResult;
 import org.apache.cassandra.distributed.impl.Query;
 import org.apache.cassandra.distributed.shared.WithProperties;
 import org.apache.cassandra.harry.SchemaSpec;
+import org.apache.cassandra.harry.execution.DataTracker;
 import org.apache.cassandra.harry.op.Visit;
 import org.apache.cassandra.harry.op.Operations;
 import org.apache.cassandra.harry.gen.OperationsGenerators;
 import org.apache.cassandra.harry.execution.CompiledStatement;
-import org.apache.cassandra.harry.execution.DataTracker;
 import org.apache.cassandra.harry.execution.QueryBuildingVisitExecutor;
 import org.apache.cassandra.harry.gen.EntropySource;
 import org.apache.cassandra.harry.gen.Generator;
@@ -379,7 +379,6 @@ public class HarrySimulatorTest
 
         protected final Map<Long, Visit> log;
         protected final Generator<Long> ltsGen;
-        protected final DataTracker tracker;
 
         private HarrySimulation(SchemaSpec schema,
                                 EntropySource rng,
@@ -389,14 +388,13 @@ public class HarrySimulatorTest
                                 Function<HarrySimulation, SimulatedNodeState> nodeState,
                                 Function<HarrySimulation, ActionSchedule.Work[]> schedule,
                                 Map<Long, Visit> log,
-                                Generator<Long> ltsGen,
-                                DataTracker tracker)
+                                Generator<Long> ltsGen)
         {
             this.rng = rng;
             this.schema = schema;
             this.insertGen = OperationsGenerators.writeOp(schema);
             this.queryBuilder = new QueryBuildingVisitExecutor(schema, QueryBuildingVisitExecutor.WrapQueries.UNLOGGED_BATCH);
-            this.model = new QuiescentChecker(schema.valueGenerators, tracker, new Model.Replay()
+            this.model = new QuiescentChecker(schema.valueGenerators, new DataTracker.SimpleDataTracker(), new Model.Replay()
             {
                 @Override
                 public Visit replay(long lts)
@@ -447,12 +445,11 @@ public class HarrySimulatorTest
 
             this.log = log;
             this.ltsGen = ltsGen;
-            this.tracker = tracker;
         }
 
         public HarrySimulation withScheduler(RunnableActionScheduler scheduler)
         {
-            return new HarrySimulation(schema, rng, simulated, scheduler, cluster, (ignore) -> nodeState, schedule, log, ltsGen, tracker);
+            return new HarrySimulation(schema, rng, simulated, scheduler, cluster, (ignore) -> nodeState, schedule, log, ltsGen);
         }
 
         public HarrySimulation withSchedulers(Function<HarrySimulation, Map<Verb, FutureActionScheduler>> schedulers)
@@ -469,12 +466,12 @@ public class HarrySimulatorTest
                                                               perVerbFutureActionScheduler,
                                                               this.simulated.debug,
                                                               this.simulated.failures);
-            return new HarrySimulation(schema, rng, simulated, scheduler, cluster, (ignore) -> nodeState, schedule, log, ltsGen, tracker);
+            return new HarrySimulation(schema, rng, simulated, scheduler, cluster, (ignore) -> nodeState, schedule, log, ltsGen);
         }
 
         public HarrySimulation withSchedule(Function<HarrySimulation, ActionSchedule.Work[]> schedule)
         {
-            return new HarrySimulation(schema, rng, simulated, scheduler, cluster, (ignore) -> nodeState, schedule, log, ltsGen, tracker);
+            return new HarrySimulation(schema, rng, simulated, scheduler, cluster, (ignore) -> nodeState, schedule, log, ltsGen);
         }
 
         @Override
@@ -554,8 +551,7 @@ public class HarrySimulatorTest
                                                                           // No work initially
                                                                           (sim) -> new ActionSchedule.Work[0],
                                                                           new HashMap<>(),
-                                                                          OperationsGenerators.lts(),
-                                                                          new DataTracker.SimpleDataTracker());
+                                                                          OperationsGenerators.lts());
                                            });
         }
     }
@@ -762,7 +758,7 @@ public class HarrySimulatorTest
 
             actions[i] = new Actions.LambdaAction("", Action.Modifiers.RELIABLE_NO_TIMEOUTS, () -> {
                 CompiledStatement compiledStatement = simulation.queryBuilder.compile(visit);
-                DataTracker tracker = simulation.tracker;
+                QuiescentChecker model = simulation.model;
 
                 RetryingQuery query = new RetryingQuery(compiledStatement.cql(), cl, compiledStatement.bindings());
                 Action wrapper = new SimulatedActionCallable<>("Query",
@@ -772,14 +768,16 @@ public class HarrySimulatorTest
                                                                simulation.cluster.get((int) ((lts % simulation.cluster.size()) + 1)),
                                                                query)
                 {
+                    Model.Context ctx;
                     @Override
                     protected InterceptedExecution.InterceptedTaskExecution task()
                     {
                         return new InterceptedExecution.InterceptedTaskExecution((InterceptingExecutor) on.executor())
                         {
+
                             public void run()
                             {
-                                tracker.begin(visit);
+                                ctx = model.begin(visit);
                                 System.out.println("Started visit = " + visit);
                                 // we'll be invoked on the node's executor, but we need to ensure the task is loaded on its classloader
                                 try
@@ -806,7 +804,7 @@ public class HarrySimulatorTest
                         else
                         {
                             System.out.println("Finished visit = " + visit);
-                            tracker.end(visit);
+                            ctx.close();
                         }
                     }
                 };
@@ -853,8 +851,8 @@ public class HarrySimulatorTest
     {
         return new Actions.LambdaAction("Validate", Action.Modifiers.RELIABLE_NO_TIMEOUTS,
                                         () -> {
-                                            if (!simulation.tracker.allFinished())
-                                                throw new IllegalStateException("Can not begin validation, as writing has not quiesced yet: " + simulation.tracker);
+                                            if (!simulation.model.tracker().allFinished())
+                                                throw new IllegalStateException("Can not begin validation, as writing has not quiesced yet: " + simulation.model.tracker());
 
                                             logger.warn("Starting validation. Ring view: {}", simulation.nodeState);
                                             Set<Long> pds = visitedPds(simulation);

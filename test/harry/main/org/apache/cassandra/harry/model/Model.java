@@ -26,6 +26,13 @@ import org.apache.cassandra.harry.op.Visit;
 
 public interface Model
 {
+    interface Context extends AutoCloseable
+    {
+        @Override
+        void close();
+    }
+
+    Context begin(Visit visit);
     void validate(Operations.SelectStatement select, List<ResultSetRow> actual);
 
     class LtsOperationPair

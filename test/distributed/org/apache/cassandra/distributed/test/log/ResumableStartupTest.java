@@ -40,7 +40,6 @@ import org.apache.cassandra.harry.SchemaSpec;
 import org.apache.cassandra.harry.op.Visit;
 import org.apache.cassandra.harry.dsl.HistoryBuilder;
 import org.apache.cassandra.harry.dsl.HistoryBuilderHelper;
-import org.apache.cassandra.harry.execution.DataTracker;
 import org.apache.cassandra.harry.execution.RingAwareInJvmDTestVisitExecutor;
 import org.apache.cassandra.harry.gen.Generator;
 import org.apache.cassandra.harry.gen.Generators;
@@ -101,15 +100,14 @@ public class ResumableStartupTest extends FuzzTestBase
 
                 // First write with ONE, as we only have 1 node
                 TokenPlacementModel.ReplicationFactor rf = new TokenPlacementModel.SimpleReplicationFactor(1);
-                DataTracker tracker = new DataTracker.SequentialDataTracker();
-                QuiescentChecker checker = new QuiescentChecker(schema.valueGenerators, tracker, history);
+                QuiescentChecker checker = new QuiescentChecker(schema.valueGenerators, history);
 
                 RingAwareInJvmDTestVisitExecutor executor;
                 // RF is ONE here since we have no pending nodes
                 executor = RingAwareInJvmDTestVisitExecutor.builder()
                                                            .replicationFactor(rf)
                                                            .consistencyLevel(ConsistencyLevel.ONE)
-                                                           .build(schema, tracker, checker, cluster);
+                                                           .build(schema, checker, cluster);
                 Iterator<Visit> iterator = history.iterator();
                 while (iterator.hasNext())
                     executor.execute(iterator.next());
@@ -131,7 +129,7 @@ public class ResumableStartupTest extends FuzzTestBase
                 executor = RingAwareInJvmDTestVisitExecutor.builder()
                                                            .replicationFactor(rf)
                                                            .consistencyLevel(ConsistencyLevel.ONE)
-                                                           .build(schema, tracker, checker, cluster);
+                                                           .build(schema, checker, cluster);
                 while (iterator.hasNext())
                     executor.execute(iterator.next());
 
