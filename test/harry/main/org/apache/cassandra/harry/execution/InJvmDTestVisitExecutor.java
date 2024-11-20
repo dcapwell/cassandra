@@ -57,6 +57,7 @@ public class InJvmDTestVisitExecutor extends CQLVisitExecutor
     protected final RetryPolicy retryPolicy;
 
     protected InJvmDTestVisitExecutor(SchemaSpec schema,
+                                      DataTracker dataTracker,
                                       Model model,
                                       ICluster<?> cluster,
 
@@ -66,7 +67,7 @@ public class InJvmDTestVisitExecutor extends CQLVisitExecutor
                                       ConsistencyLevelSelector consistencyLevel,
                                       WrapQueries wrapQueries)
     {
-        super(schema, model, new QueryBuildingVisitExecutor(schema, wrapQueries));
+        super(schema, dataTracker, model, new QueryBuildingVisitExecutor(schema, wrapQueries));
         this.cluster = cluster;
         this.consistencyLevel = consistencyLevel;
 
@@ -361,8 +362,9 @@ public class InJvmDTestVisitExecutor extends CQLVisitExecutor
         public InJvmDTestVisitExecutor build(SchemaSpec schema, Model.Replay replay, ICluster<?> cluster)
         {
             setDefaults(schema, cluster);
-            Model model = new QuiescentChecker(schema.valueGenerators, replay);
-            return new InJvmDTestVisitExecutor(schema, model, cluster,
+            DataTracker tracker = new DataTracker.SequentialDataTracker();
+            Model model = new QuiescentChecker(schema.valueGenerators, tracker, replay);
+            return new InJvmDTestVisitExecutor(schema, tracker, model, cluster,
                                                nodeSelector, pageSizeSelector, retryPolicy, consistencyLevel, wrapQueries);
         }
 

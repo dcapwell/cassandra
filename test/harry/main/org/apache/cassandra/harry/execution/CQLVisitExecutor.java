@@ -40,12 +40,15 @@ public abstract class CQLVisitExecutor
 {
     private static final Logger logger = LoggerFactory.getLogger(QueryBuildingVisitExecutor.class);
     protected final SchemaSpec schema;
+
+    protected final DataTracker dataTracker;
     protected final Model model;
     private final QueryBuildingVisitExecutor queryBuilder;
 
-    public CQLVisitExecutor(SchemaSpec schema, Model model, QueryBuildingVisitExecutor queryBuilder)
+    public CQLVisitExecutor(SchemaSpec schema, DataTracker dataTracker, Model model, QueryBuildingVisitExecutor queryBuilder)
     {
         this.schema = schema;
+        this.dataTracker = dataTracker;
         this.model = model;
         this.queryBuilder = queryBuilder;
     }
@@ -125,10 +128,7 @@ public abstract class CQLVisitExecutor
 
     public void execute(Visit visit)
     {
-        // why not use try-with-resource syntax?  Previous logic wouldn't "end(visit)" when an error is thrown, so to mimic
-        // this behavior need to avoid try-with-resources syntax.  In the future would be good to notify the model of
-        // errors,
-        Model.Context ctx = model.begin(visit);
+        dataTracker.begin(visit);
         CompiledStatement compiledStatement = queryBuilder.compile(visit);
         // All operations are not touching any data
         if (compiledStatement == null)
@@ -147,7 +147,7 @@ public abstract class CQLVisitExecutor
             Invariants.checkState(selects.size() == 1);
             executeValidatingVisit(visit, selects, compiledStatement);
         }
-        ctx.close();
+        dataTracker.end(visit);
     }
 
     // Lives in a separate method so that it is easier to override it

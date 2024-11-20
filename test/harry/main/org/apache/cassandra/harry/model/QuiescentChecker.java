@@ -24,14 +24,11 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableMap;
 
-import com.google.common.annotations.VisibleForTesting;
-
 import accord.utils.Invariants;
 import org.apache.cassandra.harry.execution.DataTracker;
 import org.apache.cassandra.harry.op.Operations;
 import org.apache.cassandra.harry.execution.ResultSetRow;
 import org.apache.cassandra.harry.gen.ValueGenerators;
-import org.apache.cassandra.harry.op.Visit;
 
 import static org.apache.cassandra.harry.MagicConstants.LTS_UNKNOWN;
 import static org.apache.cassandra.harry.MagicConstants.NIL_DESCR;
@@ -57,23 +54,6 @@ public class QuiescentChecker implements Model
         this.valueGenerators = valueGenerators;
         this.tracker = tracker;
         this.replay = replay;
-    }
-
-    public QuiescentChecker(ValueGenerators valueGenerators, Replay replay)
-    {
-        this(valueGenerators, new DataTracker.SequentialDataTracker(), replay);
-    }
-
-    public DataTracker tracker()
-    {
-        return tracker;
-    }
-
-    @Override
-    public Context begin(Visit visit)
-    {
-        tracker.begin(visit);
-        return () -> tracker.end(visit);
     }
 
     @Override
@@ -111,8 +91,8 @@ public class QuiescentChecker implements Model
 
         validate(valueGenerators, partitionState, actualRows);
     }
-    // TODO: reverse
 
+    // TODO: reverse
     public static void validate(ValueGenerators valueGenerators, PartitionState partitionState, List<ResultSetRow> actualRows)
     {
         Iterator<ResultSetRow> actual = actualRows.iterator();
