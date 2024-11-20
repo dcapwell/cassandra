@@ -153,7 +153,7 @@ public class SelectHelper
 
     public static Select.Builder commmonPart(Operations.SelectStatement select, SchemaSpec schema)
     {
-        Select.Builder builder = new Select.Builder().withoutNewLine();
+        Select.Builder builder = new Select.Builder();
 
         Operations.Selection selection = Operations.Selection.fromBitSet(select.selection(), schema);
         if (selection.isWildcard())
@@ -233,7 +233,7 @@ public class SelectHelper
     private static CompiledStatement toCompiled(Select select)
     {
         // Select does not add ';' by default, but CompiledStatement expects this
-        String cql = select.toCQL() + ";";
+        String cql = select.toCQL(false) + ";";
         Object[] bindingsArr = select.binds();
         return new CompiledStatement(cql, bindingsArr);
     }

@@ -60,7 +60,6 @@ FROM [keyspace_name.] table_name
     public final Optional<OrderBy> orderBy;
     public final Optional<Value> limit;
     public final boolean allowFiltering;
-    public final boolean insertNewLine;
     public Select(List<Expression> selections)
     {
         this(selections, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
@@ -68,10 +67,10 @@ FROM [keyspace_name.] table_name
 
     public Select(List<Expression> selections, Optional<TableReference> source, Optional<Conditional> where, Optional<OrderBy> orderBy, Optional<Value> limit)
     {
-        this(selections, source, where, orderBy, limit, false, true);
+        this(selections, source, where, orderBy, limit, false);
     }
 
-    public Select(List<Expression> selections, Optional<TableReference> source, Optional<Conditional> where, Optional<OrderBy> orderBy, Optional<Value> limit, boolean allowFiltering, boolean insertNewLine)
+    public Select(List<Expression> selections, Optional<TableReference> source, Optional<Conditional> where, Optional<OrderBy> orderBy, Optional<Value> limit, boolean allowFiltering)
     {
         this.selections = selections;
         this.source = source;
@@ -79,7 +78,6 @@ FROM [keyspace_name.] table_name
         this.orderBy = orderBy;
         this.limit = limit;
         this.allowFiltering = allowFiltering;
-        this.insertNewLine = insertNewLine;
         if (!source.isPresent())
         {
             if (where.isPresent())
@@ -100,11 +98,23 @@ FROM [keyspace_name.] table_name
 
     public Select withAllowFiltering()
     {
-        return new Select(selections, source, where, orderBy, limit, true, insertNewLine);
+        return new Select(selections, source, where, orderBy, limit, true);
     }
 
     @Override
     public void toCQL(StringBuilder sb, int indent)
+    {
+        toCQL(sb, indent, true);
+    }
+
+    public String toCQL(boolean insertNewLine)
+    {
+        StringBuilder sb = new StringBuilder();
+        toCQL(sb, 0, insertNewLine);
+        return sb.toString();
+    }
+
+    public void toCQL(StringBuilder sb, int indent, boolean insertNewLine)
     {
         sb.append("SELECT ");
         if (selections.isEmpty())
@@ -277,7 +287,6 @@ FROM [keyspace_name.] table_name
 
     public static class Builder
     {
-        private boolean addNewLine = true;
         private boolean filtering = false;
         @Nullable // null means wildcard
         private List<Expression> selections = new ArrayList<>();
@@ -365,12 +374,6 @@ FROM [keyspace_name.] table_name
             return this;
         }
 
-        public Builder withoutNewLine()
-        {
-            addNewLine = false;
-            return this;
-        }
-
         /**
          * When the column type/value type isn't known, this will fall back to byte type
          */
@@ -409,8 +412,7 @@ FROM [keyspace_name.] table_name
                               where.isEmpty() ? Optional.empty() : Optional.of(where.build()),
                               orderBy.isEmpty() ? Optional.empty() : Optional.of(orderBy.build()),
                               limit,
-                              filtering,
-                              addNewLine);
+                              filtering);
         }
     }
 }
