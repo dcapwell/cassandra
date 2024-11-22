@@ -19,7 +19,6 @@
 package org.apache.cassandra.service.accord.serializers;
 
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.UUID;
 import java.util.function.BiFunction;
 import javax.annotation.Nullable;
@@ -32,7 +31,9 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.service.accord.AccordKeyspace;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey;
+import org.apache.cassandra.service.accord.api.AccordRoutingKey.SentinelKey;
 import org.apache.cassandra.utils.ByteArrayUtil;
+import org.apache.cassandra.utils.TriFunction;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.bytecomparable.ByteSourceInverse;
@@ -41,15 +42,34 @@ public class AccordRoutingKeyByteSource
 {
     public static final ByteComparable.Version currentVersion = ByteComparable.Version.OSS50;
 
-    private static final byte[] MIN_ORDER = { -1 };
+    // TODO (review): I'm not sure MIN_MIN has a use, maybe try and remove?
+    private static final byte[] MIN_MIN_ORDER = { -2 };
+    private static final byte MIN_MIN_ORDER_BYTE = -2;
+
+    private static final byte[] MIN_MAX_ORDER = { -1 };
+    private static final byte MIN_MAX_ORDER_BYTE = -1;
+
 
     private static final byte[] MIN_TOKEN_ORDER = { 0 };
-    private static final byte[] TOKEN_ORDER = { 1 };
-    private static final byte[] MAX_ORDER = { 2 };
+    private static final byte MIN_TOKEN_ORDER_BYTE = 0;
 
-    private static ByteSource minPrefix()
+    private static final byte[] TOKEN_ORDER = { 1 };
+    private static final byte TOKEN_ORDER_BYTE = 1;
+
+    private static final byte[] MAX_MIN_ORDER = { 2 };
+    private static final byte MAX_MIN_ORDER_BYTE = 2;
+
+    private static final byte[] MAX_MAX_ORDER = { 3 };
+    private static final byte MAX_MAX_ORDER_BYTE = 3;
+
+    private static ByteSource minMinPrefix()
     {
-        return ByteSource.signedFixedLengthNumber(ByteArrayAccessor.instance, MIN_ORDER);
+        return ByteSource.signedFixedLengthNumber(ByteArrayAccessor.instance, MIN_MIN_ORDER);
+    }
+
+    private static ByteSource minMaxPrefix()
+    {
+        return ByteSource.signedFixedLengthNumber(ByteArrayAccessor.instance, MIN_MAX_ORDER);
     }
 
     private static ByteSource minTokenPrefix()
@@ -62,9 +82,14 @@ public class AccordRoutingKeyByteSource
         return ByteSource.signedFixedLengthNumber(ByteArrayAccessor.instance, TOKEN_ORDER);
     }
 
-    private static ByteSource maxPrefix()
+    private static ByteSource maxMinPrefix()
     {
-        return ByteSource.signedFixedLengthNumber(ByteArrayAccessor.instance, MAX_ORDER);
+        return ByteSource.signedFixedLengthNumber(ByteArrayAccessor.instance, MAX_MIN_ORDER);
+    }
+
+    private static ByteSource maxMaxPrefix()
+    {
+        return ByteSource.signedFixedLengthNumber(ByteArrayAccessor.instance, MAX_MAX_ORDER);
     }
 
     public static Serializer create(IPartitioner partitioner)
@@ -97,14 +122,24 @@ public class AccordRoutingKeyByteSource
             this.empty = empty;
         }
 
-        public ByteSource minAsComparableBytes()
+        public ByteSource minMinAsComparableBytes()
         {
-            return ByteSource.withTerminator(ByteSource.TERMINATOR, minPrefix(), ByteSource.fixedLength(empty));
+            return ByteSource.withTerminator(ByteSource.TERMINATOR, minMinPrefix(), ByteSource.fixedLength(empty));
         }
 
-        public ByteSource maxAsComparableBytes()
+        public ByteSource minMaxAsComparableBytes()
         {
-            return ByteSource.withTerminator(ByteSource.TERMINATOR, maxPrefix(), ByteSource.fixedLength(empty));
+            return ByteSource.withTerminator(ByteSource.TERMINATOR, minMaxPrefix(), ByteSource.fixedLength(empty));
+        }
+
+        public ByteSource maxMinAsComparableBytes()
+        {
+            return ByteSource.withTerminator(ByteSource.TERMINATOR, maxMinPrefix(), ByteSource.fixedLength(empty));
+        }
+
+        public ByteSource maxMaxAsComparableBytes()
+        {
+            return ByteSource.withTerminator(ByteSource.TERMINATOR, maxMaxPrefix(), ByteSource.fixedLength(empty));
         }
 
         public ByteSource asComparableBytes(Token token, ByteSource prefix)
@@ -128,12 +163,26 @@ public class AccordRoutingKeyByteSource
             var prefix = ByteSourceInverse.getOptionalSignedFixedLength(ByteArrayAccessor.instance, component, 1);
             if (prefix == null)
                 throw new IOException("Unable to read prefix; prefix was null");
-            if (!Arrays.equals(TOKEN_ORDER, prefix) && !Arrays.equals(MIN_TOKEN_ORDER, prefix))
+
+            switch (prefix[0])
             {
-                String match = Arrays.equals(MIN_ORDER, prefix) ? "min"
-                                                                : Arrays.equals(MAX_ORDER, prefix) ? "max"
-                                                                                                   : "unknown";
-                throw new IOException("Attempt to read token from non-token value: was " + match);
+                case TOKEN_ORDER_BYTE:
+                case MIN_TOKEN_ORDER_BYTE:
+                    break;
+                default:
+                    String match = "unknown";
+                    switch (prefix[0])
+                    {
+                        case MIN_MIN_ORDER_BYTE:
+                            match = "minmin"; break;
+                        case MIN_MAX_ORDER_BYTE:
+                            match = "minmax"; break;
+                        case MAX_MIN_ORDER_BYTE:
+                            match = "maxmin"; break;
+                        case MAX_MAX_ORDER_BYTE:
+                            match = "maxmax"; break;
+                    }
+                    throw new IOException("Attempt to read token from non-token value: was " + match);
             }
             component = ByteSourceInverse.nextComponentSource(bs);
             if (component == null)
@@ -155,7 +204,21 @@ public class AccordRoutingKeyByteSource
             switch (key.kindOfRoutingKey())
             {
                 case SENTINEL:
-                    return  key.asSentinelKey().isMin ? minAsComparableBytes() : maxAsComparableBytes();
+                    SentinelKey sentinelKey = key.asSentinelKey();
+                    if (sentinelKey.isMinSentinel)
+                    {
+                        if (sentinelKey.isMinMinSentinel)
+                            return minMinAsComparableBytes();
+                        else
+                            return minMaxAsComparableBytes();
+                    }
+                    else
+                    {
+                        if (sentinelKey.isMinMinSentinel)
+                            return maxMinAsComparableBytes();
+                        else
+                            return maxMaxAsComparableBytes();
+                    }
                 case TOKEN:
                     return asComparableBytes(key.token(), tokenPrefix());
                 case MIN_TOKEN:
@@ -197,7 +260,7 @@ public class AccordRoutingKeyByteSource
             if (partitioner == null)
                 partitioner = AccordKeyspace.partitioner(tableId);
             return fromComparableBytes(bs, tableId,
-                                       (id, isMin) -> isMin ? AccordRoutingKey.SentinelKey.min(id) : AccordRoutingKey.SentinelKey.max(id),
+                                       SentinelKey::new,
                                        AccordRoutingKey.TokenKey::new,
                                        AccordRoutingKey.MinTokenKey::new,
                                        version, partitioner
@@ -205,7 +268,7 @@ public class AccordRoutingKeyByteSource
         }
 
         public static AccordRoutingKey fromComparableBytes(ByteSource.Peekable bs, TableId tableId,
-                                                           BiFunction<TableId, Boolean, AccordRoutingKey> onSentinel,
+                                                           TriFunction<TableId, Boolean, Boolean, AccordRoutingKey> onSentinel,
                                                            BiFunction<TableId, Token, AccordRoutingKey> onToken,
                                                            BiFunction<TableId, Token, AccordRoutingKey> onMinToken,
                                                            ByteComparable.Version version, IPartitioner partitioner)
@@ -217,25 +280,29 @@ public class AccordRoutingKeyByteSource
             var prefix = ByteSourceInverse.getOptionalSignedFixedLength(ByteArrayAccessor.instance, component, 1);
             if (prefix == null)
                 throw new IllegalStateException("Unable to read prefix; prefix was null");
-            if (Arrays.equals(TOKEN_ORDER, prefix))
+            switch (prefix[0])
             {
-                component = ByteSourceInverse.nextComponentSource(bs);
-                if (component == null)
-                    throw new IllegalStateException("Unable to read token; component was not found");
-                return onToken.apply(tableId, partitioner.getTokenFactory().fromComparableBytes(component, version));
+                case TOKEN_ORDER_BYTE:
+                    component = ByteSourceInverse.nextComponentSource(bs);
+                    if (component == null)
+                        throw new IllegalStateException("Unable to read token; component was not found");
+                    return onToken.apply(tableId, partitioner.getTokenFactory().fromComparableBytes(component, version));
+                case MIN_TOKEN_ORDER_BYTE:
+                    component = ByteSourceInverse.nextComponentSource(bs);
+                    if (component == null)
+                        throw new IllegalStateException("Unable to read token; component was not found");
+                    return onMinToken.apply(tableId, partitioner.getTokenFactory().fromComparableBytes(component, version));
+                case MIN_MIN_ORDER_BYTE:
+                    return onSentinel.apply(tableId, true, true);
+                case MIN_MAX_ORDER_BYTE:
+                    return onSentinel.apply(tableId, true, false);
+                case MAX_MIN_ORDER_BYTE:
+                    return onSentinel.apply(tableId, false, true);
+                case MAX_MAX_ORDER_BYTE:
+                    return onSentinel.apply(tableId, false, false);
+                default:
+                    throw new AssertionError("Unknown prefix");
             }
-            if (Arrays.equals(MIN_TOKEN_ORDER, prefix))
-            {
-                component = ByteSourceInverse.nextComponentSource(bs);
-                if (component == null)
-                    throw new IllegalStateException("Unable to read token; component was not found");
-                return onMinToken.apply(tableId, partitioner.getTokenFactory().fromComparableBytes(component, version));
-            }
-            if (Arrays.equals(MIN_ORDER, prefix))
-                return onSentinel.apply(tableId, true);
-            if (Arrays.equals(MAX_ORDER, prefix))
-                return onSentinel.apply(tableId, false);
-            throw new AssertionError("Unknown prefix");
         }
 
         private static ByteSource.Peekable progress(ByteSource.Peekable bs)
