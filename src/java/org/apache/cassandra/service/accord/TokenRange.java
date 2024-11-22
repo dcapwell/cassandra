@@ -89,8 +89,8 @@ public class TokenRange extends Range.EndInclusive
     public RoutingKey someIntersectingRoutingKey(Ranges ranges)
     {
         RoutingKey pick = super.someIntersectingRoutingKey(ranges);
-        if (pick instanceof SentinelKey)
-            pick = ((SentinelKey) pick).toTokenKeyBroken();
+//        if (pick instanceof SentinelKey)
+//            pick = ((SentinelKey) pick).toTokenKeyBroken();
         return pick;
     }
 
