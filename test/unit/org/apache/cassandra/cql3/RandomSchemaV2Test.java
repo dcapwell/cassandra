@@ -56,6 +56,7 @@ import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.consensus.TransactionalMode;
+import org.apache.cassandra.service.consensus.migration.TransactionalMigrationFromMode;
 import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.utils.AbstractTypeGenerators;
 import org.apache.cassandra.utils.CassandraGenerators;
@@ -98,7 +99,7 @@ public class RandomSchemaV2Test extends CQLTester
             if (mode == Mode.AccordEnabled)
             {
                 // enable accord
-                schemaChange(String.format("ALTER TABLE %s WITH " + TransactionalMode.full.asCqlParam(), metadata));
+                schemaChange(String.format("ALTER TABLE %s WITH " + TransactionalMode.full.asCqlParam() + " AND " + TransactionalMigrationFromMode.full.asCqlParam(), metadata));
                 metadata = Objects.requireNonNull(Schema.instance.getTableMetadata(ks.name, metadata.name));
             }
             Map<ColumnMetadata, CreateIndexDDL> indexedColumns = createIndex(rs, metadata);
