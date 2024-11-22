@@ -58,6 +58,7 @@ import org.apache.cassandra.db.partitions.UnfilteredPartitionIterators;
 import org.apache.cassandra.db.rows.RowIterator;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.dht.Token.KeyBound;
 import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
@@ -75,6 +76,7 @@ import org.apache.cassandra.utils.MonotonicClock;
 import org.apache.cassandra.utils.ObjectSizes;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkState;
 import static org.apache.cassandra.service.accord.AccordSerializers.consistencyLevelSerializer;
 import static org.apache.cassandra.service.accord.IAccordService.SUPPORTED_READ_CONSISTENCY_LEVELS;
 import static org.apache.cassandra.utils.ByteBufferUtil.readWithVIntLength;
@@ -107,25 +109,34 @@ public class TxnRangeRead extends AbstractSerialized<ReadCommand> implements Txn
         for (int i = 0; i < ranges.size(); i++)
         {
             AbstractBounds<PartitionPosition> range = ranges.get(i);
+            // Should already have been unwrapped
+            checkState(!AbstractBounds.strictlyWrapsAround(range.left, range.right));
+
             // Read commands can contain a mix of different kinds of bounds to facilitate paging
             // and we need to communicate that to Accord as its own ranges. This uses
             // TokenKey, SentinelKey, and MinTokenKey and sticks exclusively with left exclusive/right inclusive
             // ranges rather add more types of ranges to the mix
             // MinTokenKey allows emulating inclusive left and exclusive right with Range
             boolean inclusiveLeft = range.inclusiveLeft();
-            Token startToken = range.left.getToken();
+            PartitionPosition startPP = range.left;
+            boolean startIsMinKeyBound = startPP.getClass() == KeyBound.class ? ((KeyBound)startPP).isMinimumBound : false;
+            Token startToken = startPP.getToken();
             AccordRoutingKey startAccordRoutingKey;
             if (startToken.isMinimum() && inclusiveLeft)
                 startAccordRoutingKey = SentinelKey.min(tableId);
-            else if (inclusiveLeft)
+            else if (inclusiveLeft || startIsMinKeyBound)
                 startAccordRoutingKey = new MinTokenKey(tableId, startToken);
             else
                 startAccordRoutingKey = new TokenKey(tableId, startToken);
 
             boolean inclusiveRight = range.inclusiveRight();
+            PartitionPosition endPP = range.right;
+            boolean endIsMinKeyBound = endPP.getClass() == KeyBound.class ? !((KeyBound)endPP).isMinimumBound : false;
             Token stopToken = range.right.getToken();
             AccordRoutingKey stopAccordRoutingKey;
-            if (inclusiveRight)
+            if (stopToken.isMinimum())
+                stopAccordRoutingKey = SentinelKey.max(tableId);
+            else if (inclusiveRight && !endIsMinKeyBound)
                 stopAccordRoutingKey = new TokenKey(tableId, stopToken);
             else
                 stopAccordRoutingKey = new MinTokenKey(tableId, stopToken);
@@ -185,8 +196,11 @@ public class TxnRangeRead extends AbstractSerialized<ReadCommand> implements Txn
         PartitionPosition startPP = bounds.left;
         PartitionPosition endPP = bounds.right;
         TokenKey startTokenKey = new TokenKey(command.metadata().id, startPP.getToken());
-        Token subRangeStartToken = ((AccordRoutingKey)r.start()).asTokenKey().token();
-        Token subRangeEndToken = ((AccordRoutingKey)r.end()).asTokenKey().token();
+        AccordRoutingKey startRoutingKey = ((AccordRoutingKey)r.start());
+        AccordRoutingKey endRoutingKey = ((AccordRoutingKey)r.end());
+        Token subRangeStartToken = startRoutingKey.getClass() == SentinelKey.class ? startPP.getToken() : ((AccordRoutingKey)r.start()).asTokenKey().token();
+        Token subRangeEndToken = endRoutingKey.getClass() == SentinelKey.class ? endPP.getToken() : ((AccordRoutingKey)r.end()).asTokenKey().token();
+
         /*
          * The way ranges/bounds work for range queries is that the beginning and ending bounds from the command
          * could be tokens (and min/max key bounds) or actual keys depending on the bounds of the top level query we
