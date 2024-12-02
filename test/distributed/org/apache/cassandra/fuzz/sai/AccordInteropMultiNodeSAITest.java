@@ -18,6 +18,9 @@
 
 package org.apache.cassandra.fuzz.sai;
 
+import org.apache.cassandra.harry.SchemaSpec;
+import org.apache.cassandra.harry.gen.Generator;
+import org.apache.cassandra.harry.gen.SchemaGenerators;
 import org.apache.cassandra.service.consensus.TransactionalMode;
 
 public class AccordInteropMultiNodeSAITest extends MultiNodeSAITestBase
@@ -25,5 +28,11 @@ public class AccordInteropMultiNodeSAITest extends MultiNodeSAITestBase
     public AccordInteropMultiNodeSAITest()
     {
         super(TransactionalMode.test_interop_read);
+    }
+
+    @Override
+    protected Generator<SchemaSpec> schemaGenerator()
+    {
+        return SchemaGenerators.schemaSpecGen(KEYSPACE, "basic_sai", MAX_PARTITION_SIZE, SchemaSpec.optionsBuilder().withTransactionalMode(TransactionalMode.test_interop_read));
     }
 }

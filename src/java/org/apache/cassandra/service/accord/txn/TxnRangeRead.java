@@ -131,7 +131,7 @@ public class TxnRangeRead extends AbstractSerialized<ReadCommand> implements Txn
 
             boolean inclusiveRight = range.inclusiveRight();
             PartitionPosition endPP = range.right;
-            boolean endIsMinKeyBound = endPP.getClass() == KeyBound.class ? !((KeyBound)endPP).isMinimumBound : false;
+            boolean endIsMinKeyBound = endPP.getClass() == KeyBound.class ? ((KeyBound)endPP).isMinimumBound : false;
             Token stopToken = range.right.getToken();
             AccordRoutingKey stopAccordRoutingKey;
             if (stopToken.isMinimum())

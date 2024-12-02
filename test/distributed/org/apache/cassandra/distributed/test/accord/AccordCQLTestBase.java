@@ -29,7 +29,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Random;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -383,20 +382,45 @@ public abstract class AccordCQLTestBase extends AccordTestBase
     }
 
     @Test
+    public void testRangeReadSingleToken() throws Throwable
+    {
+        test(cluster ->
+             {
+                 // This single partition read happens to execute as a range read (at least when this test was created)
+                 // and that exposed a problem with single token range reads
+                 ICoordinator node = cluster.coordinator(1);
+                 cluster.schemaChange(withKeyspace("CREATE TABLE %s.testRangeReadSingleToken (pk0 int, ck0 int, static0 int, regular0 int, PRIMARY KEY (pk0, ck0)) WITH " + transactionalMode.asCqlParam() + " AND CLUSTERING ORDER BY (ck0 ASC);"));
+                 cluster.schemaChange(withKeyspace("CREATE INDEX ck0_sai_idx ON %s.testRangeReadSingleToken (ck0) USING 'sai';"));
+                 node.executeWithResult(withKeyspace("INSERT INTO %s.testRangeReadSingleToken (pk0, ck0, static0, regular0) VALUES (?, ?, ?, ?)"), QUORUM, 42, 43, 44, 45);
+                 assertThat(node.executeWithResult(withKeyspace("SELECT pk0, ck0, static0, regular0 FROM %s.testRangeReadSingleToken WHERE pk0 = ? AND ck0 = ? AND static0 <= ? AND regular0 >= ? ALLOW FILTERING;"), ConsistencyLevel.ALL, 42, 43, 44, 45))
+                            .isEqualTo(42, 43, 44, 45);
+
+                 // This one is a little more explicit about trying to force a range read of a single token
+                 cluster.schemaChange(withKeyspace("CREATE TABLE %s.testRangeReadSingleToken2 (pk blob primary key) WITH " + TransactionalMode.full.asCqlParam()));
+                 long token = Long.MIN_VALUE;
+                 ByteBuffer keyForToken = Murmur3Partitioner.LongToken.keyForToken(token);
+                 node.executeWithResult(withKeyspace("INSERT INTO %s.testRangeReadSingleToken2 (pk) VALUES (?)"), QUORUM, keyForToken);
+                 assertThat(node.executeWithResult(withKeyspace("SELECT * FROM %s.testRangeReadSingleToken2 WHERE token(pk) >= token(?) AND token(pk) <= token(?)"), QUORUM, Murmur3Partitioner.LongToken.keyForToken(token), keyForToken))
+                            .isEqualTo(keyForToken);
+             });
+    }
+
+    @Test
     public void testRangeReadRightMin() throws Throwable
     {
         test(cluster ->
         {
-            cluster.schemaChange("CREATE TABLE distributed_test_keyspace.basic_sai0 (pk0 text,pk1 ascii,pk2 int,pk3 timestamp,pk4 bigint,pk5 float,pk6 smallint,pk7 float,ck0 tinyint,ck1 tinyint,ck2 text,ck3 tinyint,ck4 bigint,ck5 text,ck6 ascii,static0 double static,static1 uuid static,regular0 timestamp,regular1 double,regular2 smallint,regular3 tinyint,regular4 timestamp,regular5 ascii,regular6 int,regular7 tinyint, PRIMARY KEY ((pk0,pk1,pk2,pk3,pk4,pk5,pk6,pk7), ck0, ck1, ck2, ck3, ck4, ck5, ck6)) WITH transactional_mode = 'full' AND CLUSTERING ORDER BY (ck0 ASC,ck1 ASC,ck2 DESC,ck3 ASC,ck4 ASC,ck5 ASC,ck6 DESC);");
-            cluster.schemaChange("CREATE INDEX ck6_sai_idx ON distributed_test_keyspace.basic_sai0 (ck6) USING 'sai';");
-            cluster.coordinator(1).execute("SELECT * FROM distributed_test_keyspace.basic_sai0 WHERE pk0 = ? AND pk1 = ? AND pk2 = ? AND pk3 = ? AND pk4 = ? AND pk5 = ? AND pk6 = ? AND pk7 = ? AND ck6 = ? AND regular4 > ? AND static1 < ? ALLOW FILTERING;", ConsistencyLevel.ALL, ")?䊌操?뗘螇??ꎹ񱳽??᭘", "hjlgnyj", (int)680309240, new java.util.Date(4653332152890845609L), 909237048714349026L, (float)0.8014085, (short)4035, (float)0.029493034, "bjxmch", new java.util.Date(3153130488766643L), UUID.fromString("000f7fb9-87f4-48bb-b6cd-666843b44928"));
-            cluster.schemaChange(withKeyspace("CREATE TABLE %s.testRangeReadRightMin (pk blob primary key) WITH " + TransactionalMode.full.asCqlParam()));
-
             ICoordinator node = cluster.coordinator(1);
+            cluster.schemaChange(withKeyspace("CREATE TABLE %s.testRangeReadRightMin (pk blob primary key) WITH " + TransactionalMode.full.asCqlParam()));
             long token = Long.MIN_VALUE;
-            node.executeWithResult(withKeyspace("INSERT INTO %s.testRangeReadRightMin (pk) VALUES (?)"), QUORUM, Murmur3Partitioner.LongToken.keyForToken(token));
-            node.executeWithResult(withKeyspace("SELECT * FROM %s.testRangeReadRightMin WHERE token(pk) >= token(?)"), QUORUM, Murmur3Partitioner.LongToken.keyForToken(token));
-            node.executeWithResult(withKeyspace("SELECT * FROM %s.testRangeReadRightMin WHERE token(pk) > token(?) AND token(pk) < token(?)"), QUORUM, Murmur3Partitioner.LongToken.keyForToken(0), Murmur3Partitioner.LongToken.keyForToken(token));
+            ByteBuffer keyForToken = Murmur3Partitioner.LongToken.keyForToken(token);
+            node.executeWithResult(withKeyspace("INSERT INTO %s.testRangeReadRightMin (pk) VALUES (?)"), QUORUM, keyForToken);
+            assertThat(node.executeWithResult(withKeyspace("SELECT * FROM %s.testRangeReadRightMin WHERE token(pk) >= token(?)"), QUORUM, keyForToken))
+                       .isEqualTo(keyForToken);
+            assertThat(node.executeWithResult(withKeyspace("SELECT * FROM %s.testRangeReadRightMin WHERE token(pk) > token(?) AND token(pk) < token(?)"), QUORUM, Murmur3Partitioner.LongToken.keyForToken(0), keyForToken))
+                       .isEmpty();
+            assertThat(node.executeWithResult(withKeyspace("SELECT * FROM %s.testRangeReadRightMin WHERE token(pk) > token(?) AND token(pk) <= token(?)"), QUORUM, Murmur3Partitioner.LongToken.keyForToken(0), keyForToken))
+                       .isEqualTo(keyForToken);
         });
     }
 
