@@ -152,6 +152,14 @@ public abstract class AccordRoutingKey extends AccordRoutableKey implements Rout
             return new SentinelKey(table, false, false);
         }
 
+        public TokenKey toTokenKeyBroken()
+        {
+            IPartitioner partitioner = getPartitioner();
+            return new TokenKey(table, isMinSentinel ?
+                                       partitioner.getMinimumToken().nextValidToken() :
+                                       partitioner.getMaximumTokenForSplitting());
+        }
+
         @Override
         public Token token()
         {

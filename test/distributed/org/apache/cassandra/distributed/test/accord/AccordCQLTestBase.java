@@ -397,10 +397,18 @@ public abstract class AccordCQLTestBase extends AccordTestBase
 
                  // This one is a little more explicit about trying to force a range read of a single token
                  cluster.schemaChange(withKeyspace("CREATE TABLE %s.testRangeReadSingleToken2 (pk blob primary key) WITH " + TransactionalMode.full.asCqlParam()));
-                 long token = Long.MIN_VALUE;
+                 long token = 42;
                  ByteBuffer keyForToken = Murmur3Partitioner.LongToken.keyForToken(token);
                  node.executeWithResult(withKeyspace("INSERT INTO %s.testRangeReadSingleToken2 (pk) VALUES (?)"), QUORUM, keyForToken);
                  assertThat(node.executeWithResult(withKeyspace("SELECT * FROM %s.testRangeReadSingleToken2 WHERE token(pk) >= token(?) AND token(pk) <= token(?)"), QUORUM, Murmur3Partitioner.LongToken.keyForToken(token), keyForToken))
+                            .isEqualTo(keyForToken);
+                 assertThat(node.executeWithResult(withKeyspace("SELECT * FROM %s.testRangeReadSingleToken2 WHERE token(pk) = token(?)"), QUORUM, keyForToken))
+                            .isEqualTo(keyForToken);
+                 assertThat(node.executeWithResult(withKeyspace("SELECT * FROM %s.testRangeReadSingleToken2 WHERE token(pk) between token(?) AND token(?)"), QUORUM, Murmur3Partitioner.LongToken.keyForToken(0), keyForToken))
+                            .isEqualTo(keyForToken);
+                 assertThat(node.executeWithResult(withKeyspace("SELECT * FROM %s.testRangeReadSingleToken2 WHERE token(pk) between token(?) AND token(?)"), QUORUM, keyForToken, keyForToken))
+                            .isEqualTo(keyForToken);
+                 assertThat(node.executeWithResult(withKeyspace("SELECT * FROM %s.testRangeReadSingleToken2 WHERE token(pk) between token(?) AND token(?)"), QUORUM, Murmur3Partitioner.LongToken.keyForToken(0),  Murmur3Partitioner.LongToken.keyForToken(43)))
                             .isEqualTo(keyForToken);
              });
     }
@@ -417,11 +425,17 @@ public abstract class AccordCQLTestBase extends AccordTestBase
             node.executeWithResult(withKeyspace("INSERT INTO %s.testRangeReadRightMin (pk) VALUES (?)"), QUORUM, keyForToken);
             assertThat(node.executeWithResult(withKeyspace("SELECT * FROM %s.testRangeReadRightMin WHERE token(pk) >= token(?)"), QUORUM, keyForToken))
                        .isEqualTo(keyForToken);
+            assertThat(node.executeWithResult(withKeyspace("SELECT * FROM %s.testRangeReadRightMin WHERE token(pk) = token(?)"), QUORUM, keyForToken))
+                       .isEqualTo(keyForToken);
             assertThat(node.executeWithResult(withKeyspace("SELECT * FROM %s.testRangeReadRightMin WHERE token(pk) > token(?)"), QUORUM, keyForToken))
                        .isEmpty();
             assertThat(node.executeWithResult(withKeyspace("SELECT * FROM %s.testRangeReadRightMin WHERE token(pk) > token(?) AND token(pk) < token(?)"), QUORUM, Murmur3Partitioner.LongToken.keyForToken(0), keyForToken))
                        .isEmpty();
             assertThat(node.executeWithResult(withKeyspace("SELECT * FROM %s.testRangeReadRightMin WHERE token(pk) > token(?) AND token(pk) <= token(?)"), QUORUM, Murmur3Partitioner.LongToken.keyForToken(0), keyForToken))
+                       .isEqualTo(keyForToken);
+            assertThat(node.executeWithResult(withKeyspace("SELECT * FROM %s.testRangeReadRightMin WHERE token(pk) between token(?) AND token(?)"), QUORUM, Murmur3Partitioner.LongToken.keyForToken(0), keyForToken))
+                       .isEqualTo(keyForToken);
+            assertThat(node.executeWithResult(withKeyspace("SELECT * FROM %s.testRangeReadRightMin WHERE token(pk) between token(?) AND token(?)"), QUORUM, keyForToken, keyForToken))
                        .isEqualTo(keyForToken);
         });
     }
