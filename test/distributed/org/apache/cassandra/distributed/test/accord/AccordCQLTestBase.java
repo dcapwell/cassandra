@@ -417,6 +417,8 @@ public abstract class AccordCQLTestBase extends AccordTestBase
             node.executeWithResult(withKeyspace("INSERT INTO %s.testRangeReadRightMin (pk) VALUES (?)"), QUORUM, keyForToken);
             assertThat(node.executeWithResult(withKeyspace("SELECT * FROM %s.testRangeReadRightMin WHERE token(pk) >= token(?)"), QUORUM, keyForToken))
                        .isEqualTo(keyForToken);
+            assertThat(node.executeWithResult(withKeyspace("SELECT * FROM %s.testRangeReadRightMin WHERE token(pk) > token(?)"), QUORUM, keyForToken))
+                       .isEmpty();
             assertThat(node.executeWithResult(withKeyspace("SELECT * FROM %s.testRangeReadRightMin WHERE token(pk) > token(?) AND token(pk) < token(?)"), QUORUM, Murmur3Partitioner.LongToken.keyForToken(0), keyForToken))
                        .isEmpty();
             assertThat(node.executeWithResult(withKeyspace("SELECT * FROM %s.testRangeReadRightMin WHERE token(pk) > token(?) AND token(pk) <= token(?)"), QUORUM, Murmur3Partitioner.LongToken.keyForToken(0), keyForToken))
