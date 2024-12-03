@@ -84,19 +84,6 @@ public class TokenRange extends Range.EndInclusive
         return new TokenRange((AccordRoutingKey) start, (AccordRoutingKey) end);
     }
 
-//    @Override
-//    public RoutingKey someIntersectingRoutingKey(Ranges ranges)
-//    {
-//        RoutingKey pick = super.someIntersectingRoutingKey(ranges);
-//        if (pick instanceof SentinelKey)
-//        {
-//            SentinelKey sentinelKey = ((SentinelKey) pick);
-//            checkState(!sentinelKey.isMinMinSentinel);
-//            pick = new SentinelKey(sentinelKey.table(), sentinelKey.isMinSentinel, true);
-//        }
-//        return pick;
-//    }
-
     public org.apache.cassandra.dht.Range<Token> toKeyspaceRange ()
     {
         IPartitioner partitioner = DatabaseDescriptor.getPartitioner();
