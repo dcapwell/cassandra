@@ -80,8 +80,8 @@ public class ReconstructEpochTest extends TestBaseImpl
                                                               .getLogState(Epoch.create(start),
                                                                            Epoch.create(end),
                                                                            true,
-                                                                           Retry.Deadline.retryIndefinitely(DatabaseDescriptor.getCmsAwaitTimeout().to(TimeUnit.NANOSECONDS),
-                                                                                                            TCMMetrics.instance.commitRetries));
+                                                                           Retry.Deadline.after(DatabaseDescriptor.getCmsAwaitTimeout().to(TimeUnit.NANOSECONDS),
+                                                                                                new Retry.Jitter(TCMMetrics.instance.commitRetries)));
 
                     Assert.assertEquals(start, logState.baseState.epoch.getEpoch());
                     Iterator<Entry> iter = logState.entries.iterator();
