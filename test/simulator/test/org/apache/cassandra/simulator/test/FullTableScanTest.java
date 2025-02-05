@@ -19,36 +19,66 @@
 package org.apache.cassandra.simulator.test;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Arrays;
+import java.util.EnumMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import org.junit.Test;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import accord.utils.DefaultRandom;
+import accord.utils.Gen;
+import accord.utils.Gens;
 import accord.utils.RandomSource;
+import accord.utils.SeedProvider;
+import org.apache.cassandra.cql3.ast.Mutation;
+import org.apache.cassandra.cql3.ast.Select;
+import org.apache.cassandra.cql3.ast.StandardVisitors;
+import org.apache.cassandra.cql3.ast.Statement;
+import org.apache.cassandra.cql3.ast.Symbol;
+import org.apache.cassandra.db.marshal.AsciiType;
+import org.apache.cassandra.db.marshal.BytesType;
+import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.dht.Murmur3Partitioner;
-import org.apache.cassandra.distributed.api.IInstanceConfig;
-import org.apache.cassandra.harry.execution.DataTracker;
-import org.apache.cassandra.harry.gen.OperationsGenerators;
+import org.apache.cassandra.distributed.Cluster;
+import org.apache.cassandra.distributed.api.ConsistencyLevel;
+import org.apache.cassandra.distributed.api.IIsolatedExecutor;
+import org.apache.cassandra.distributed.impl.NodeLocalQuery;
+import org.apache.cassandra.distributed.impl.Query;
+import org.apache.cassandra.harry.model.ASTSingleTableModel;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.reads.repair.ReadRepairStrategy;
-import org.apache.cassandra.simulator.ActionSchedule;
-import org.apache.cassandra.simulator.ActionSchedule.Work;
-import org.apache.cassandra.simulator.ClusterSimulation;
+import org.apache.cassandra.simulator.Action;
+import org.apache.cassandra.simulator.ActionList;
+import org.apache.cassandra.simulator.Actions;
+import org.apache.cassandra.simulator.Debug;
+import org.apache.cassandra.simulator.OrderOn;
 import org.apache.cassandra.simulator.RunnableActionScheduler;
 import org.apache.cassandra.simulator.Simulation;
 import org.apache.cassandra.simulator.SimulationRunner;
+import org.apache.cassandra.simulator.cluster.ClusterActionListener;
+import org.apache.cassandra.simulator.cluster.ClusterActions;
+import org.apache.cassandra.simulator.systems.SimulatedActionCallable;
 import org.apache.cassandra.simulator.systems.SimulatedSystems;
+import org.apache.cassandra.utils.ASTGenerators;
 import org.apache.cassandra.utils.AbstractTypeGenerators;
 import org.apache.cassandra.utils.CassandraGenerators;
-import org.apache.cassandra.utils.CloseableIterator;
+import org.apache.cassandra.utils.FastByteOperations;
+import org.apache.cassandra.utils.Generators;
+import org.quicktheories.generators.SourceDSL;
 
-import static accord.utils.Property.qt;
-import static org.apache.cassandra.utils.Generators.regexWord;
+import static org.apache.cassandra.simulator.cluster.ClusterActions.InitialConfiguration.initializeAll;
+import static org.apache.cassandra.simulator.cluster.ClusterActions.Options.noActions;
+import static org.apache.cassandra.utils.AbstractTypeGenerators.getTypeSupport;
+import static org.apache.cassandra.utils.AbstractTypeGenerators.overridePrimitiveTypeSupport;
+import static org.apache.cassandra.utils.AbstractTypeGenerators.stringComparator;
 import static org.apache.cassandra.utils.Generators.toGen;
 
 /**
@@ -119,31 +149,38 @@ import static org.apache.cassandra.utils.Generators.toGen;
  --add-opens jdk.management.jfr/jdk.management.jfr=ALL-UNNAMED
  --add-opens java.desktop/com.sun.beans.introspect=ALL-UNNAMED
  */
-public class FullTableScanTest extends SimulationRunner
+public class FullTableScanTest extends SimulationTestBase
 {
     private static final Logger logger = LoggerFactory.getLogger(FullTableScanTest.class);
-    public static final String KS = "ks";
+
+    static
+    {
+        overridePrimitiveTypeSupport(AsciiType.instance, AbstractTypeGenerators.TypeSupport.of(AsciiType.instance, SourceDSL.strings().ascii().ofLengthBetween(1, 10), stringComparator(AsciiType.instance)));
+        overridePrimitiveTypeSupport(UTF8Type.instance, AbstractTypeGenerators.TypeSupport.of(UTF8Type.instance, Generators.utf8(1, 10), stringComparator(UTF8Type.instance)));
+        overridePrimitiveTypeSupport(BytesType.instance, AbstractTypeGenerators.TypeSupport.of(BytesType.instance, Generators.bytes(1, 10), FastByteOperations::compareUnsigned));
+    }
 
     @Test
-    public void test()
+    public void test() throws IOException
     {
-        qt().withExamples(10).check(FullTableScanTest::test);
+        // To rerun a failed seed
+        testOne(SimulationRunner.parseHex("0x2fdb994d37286ebf"));
+        for (int i = 0; i < 1000; i++)
+            testOne(SeedProvider.instance.nextSeed());
     }
 
-    private static void test(RandomSource rs)
+    private static final Gen.IntGen THREAD_COUNT_GEN = Gens.pickInt(10, 100, 1000);
+
+    private void testOne(long seed) throws IOException
     {
-//        logger.info("Seed 0x{}", Long.toHexString(seed));
+        RandomSource rs = new DefaultRandom(seed);
+        simulate(seed, new Builder().threadCount(THREAD_COUNT_GEN.nextInt(rs))
+                                    .nodes(3, 3)
+                                    .dcs(1, 1));
     }
-
-    static class BaseSimulationBuilder extends ClusterSimulation.Builder<BaseSimulation>
+    
+    static class Builder extends BasicSimulationBuilder
     {
-        protected final Consumer<IInstanceConfig> configUpdater;
-
-        BaseSimulationBuilder(Consumer<IInstanceConfig> configUpdater)
-        {
-            this.configUpdater = configUpdater;
-        }
-
         protected AbstractTypeGenerators.TypeGenBuilder supportedTypes()
         {
             return AbstractTypeGenerators.withoutUnsafeEquality(AbstractTypeGenerators.builder()
@@ -168,87 +205,209 @@ public class FullTableScanTest extends SimulationRunner
         }
 
         @Override
-        public ClusterSimulation<BaseSimulation> create(long seed) throws IOException
+        Simulation create(SimulatedSystems simulated, RunnableActionScheduler scheduler, Cluster cluster, ClusterActions.Options options)
         {
-            org.apache.cassandra.simulator.RandomSource random = new org.apache.cassandra.simulator.RandomSource.Default();
-            random.reset(seed);
-            return new ClusterSimulation<>(random, seed, 1, this, configUpdater,
-                                           (simulated, scheduler, cluster, options) -> {
-                                               DefaultRandom rs = new DefaultRandom(seed);
-                                               return new TestSimulation(simulated, scheduler, rs, defineTable(rs, KS));
-                                           });
-        }
-    }
-
-    static class TestSimulation extends BaseSimulation
-    {
-        private final RandomSource rs;
-        private final TableMetadata metadata;
-
-        protected TestSimulation(SimulatedSystems simulated, RunnableActionScheduler scheduler, RandomSource rs, TableMetadata metadata)
-        {
-            super(simulated, scheduler);
-            this.rs = rs;
-            this.metadata = metadata;
-        }
-
-        @Override
-        Work[] work()
-        {
-            List<Work> work = new ArrayList<>();
-            return work.toArray(Work[]::new);
-        }
-    }
-
-    static abstract class BaseSimulation implements Simulation
-    {
-        protected final SimulatedSystems simulated;
-        protected final RunnableActionScheduler scheduler;
-
-        protected BaseSimulation(SimulatedSystems simulated, RunnableActionScheduler scheduler)
-        {
-            this.simulated = simulated;
-            this.scheduler = scheduler;
-        }
-
-        abstract Work[] work();
-
-        @Override
-        public CloseableIterator<?> iterator()
-        {
-            return new ActionSchedule(simulated.time, simulated.futureScheduler, () -> 0L, scheduler, work());
-        }
-
-        @Override
-        public void run()
-        {
-            try (CloseableIterator<?> iter = iterator())
+            ClusterActions clusterActions = new ClusterActions(simulated, cluster,
+                                                               options, new ClusterActionListener.NoOpListener(), new Debug(new EnumMap<>(Debug.Info.class), new int[0]));
+            return new DTestClusterSimulation(simulated, scheduler, cluster)
             {
-                while (iter.hasNext())
+                private RandomSource rs;
+                private TableMetadata metadata;
+                private ASTSingleTableModel model;
+                private Gen<Mutation> mutationGen;
+                private Gen<Boolean> writeOrScan;
+                private final List<String> history = new ArrayList<>();
+                private Action next = null;
+
+                @Override
+                protected ActionList initialize()
                 {
-                    checkForErrors();
-                    iter.next();
+                    rs = new DefaultRandom(simulated.random.uniform(Long.MIN_VALUE, Long.MAX_VALUE)); //TODO (correctness): is "uniform" inclusive with max?
+                    writeOrScan = Gens.bools().all(); //TODO (coverage): bias
+                    ClusterActions.Options options = noActions(cluster.size());
+                    ClusterActions clusterActions = new ClusterActions(simulated, cluster,
+                                                                       options, new ClusterActionListener.NoOpListener(), new Debug(new EnumMap<>(Debug.Info.class), new int[0]));
+                    return ActionList.of(clusterActions.initializeCluster(initializeAll(cluster.size())));
                 }
-                checkForErrors();
-            }
+
+                @Override
+                protected ActionList teardown()
+                {
+                    return ActionList.of();
+                }
+
+                private int steps = 0;
+                private int examples = 0;
+
+                @Override
+                protected ActionList execute()
+                {
+                    return ActionList.of(Actions.infiniteStream(1, () -> {
+                        if (next != null)
+                        {
+                            Action r = next;
+                            next = null;
+                            return r;
+                        }
+                        if (steps++ % 1000 == 0)
+                        {
+                            history.clear();
+                            int example = examples++;
+                            String ks = "ks" + example;
+                            metadata = defineTable(rs, ks);
+                            model = new ASTSingleTableModel(metadata);
+
+                            List<LinkedHashMap<Symbol, Object>> uniquePartitions;
+                            {
+                                int unique = rs.nextInt(1, 10);
+                                List<Symbol> columns = model.factory.partitionColumns;
+                                List<Gen<?>> gens = new ArrayList<>(columns.size());
+                                for (int i = 0; i < columns.size(); i++)
+                                    gens.add(toGen(getTypeSupport(columns.get(i).type()).valueGen));
+                                uniquePartitions = Gens.lists(r2 -> {
+                                    LinkedHashMap<Symbol, Object> vs = new LinkedHashMap<>();
+                                    for (int i = 0; i < columns.size(); i++)
+                                        vs.put(columns.get(i), gens.get(i).next(r2));
+                                    return vs;
+                                }).uniqueBestEffort().ofSize(unique).next(rs);
+                            }
+
+                            this.mutationGen = toGen(new ASTGenerators.MutationGenBuilder(metadata)
+                                                     .withoutTransaction()
+                                                     .withoutTtl()
+                                                     .withoutTimestamp()
+                                                     .withPartitions(SourceDSL.arbitrary().pick(uniquePartitions))
+                                                     .build());
+
+                            next = clusterActions.schemaChange(1, metadata.toCqlString(false, false, false));
+                            return clusterActions.schemaChange(1, "CREATE KEYSPACE " + ks + " WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor' : 3}");
+                        }
+
+                        int nodeId = cluster.size() == 1 ? 1 : rs.nextInt(0, cluster.size()) + 1;
+                        if (writeOrScan.next(rs))
+                        {
+                            // write
+                            var mutation = mutationGen.next(rs);
+                            history.add(mutation.visit(StandardVisitors.DEBUG).toCQL() + " -- on node" + nodeId);
+                            return new SimulatedActionCallable<>("Mutation",
+                                                                 Action.Modifiers.RELIABLE_NO_TIMEOUTS,
+                                                                 Action.Modifiers.RELIABLE_NO_TIMEOUTS,
+                                                                 simulated,
+                                                                 cluster.get(nodeId),
+                                                                 query(mutation, ConsistencyLevel.NODE_LOCAL))
+                            {
+                                @Override
+                                public void accept(Object[][] objects, Throwable throwable)
+                                {
+                                    if (throwable != null)
+                                    {
+                                        failures.accept(decorate(throwable));
+                                        return;
+                                    }
+                                    model.update(mutation);
+                                }
+                            };
+                        }
+                        Select scan = Select.builder(metadata).build();
+                        history.add(scan.visit(StandardVisitors.DEBUG).toCQL() + " -- on node " + nodeId);
+                        return new SimulatedActionCallable<>("Full Table Scan",
+                                                             Action.Modifiers.RELIABLE_NO_TIMEOUTS,
+                                                             Action.Modifiers.RELIABLE_NO_TIMEOUTS,
+                                                             simulated,
+                                                             cluster.get(nodeId),
+                                                             query(scan, ConsistencyLevel.ALL))
+                        {
+                            @Override
+                            public void accept(Object[][] objects, Throwable throwable)
+                            {
+                                if (throwable != null)
+                                {
+                                    failures.accept(decorate(throwable));
+                                    return;
+                                }
+                                model.validate(toRows(objects), scan);
+                            }
+                        };
+                    }));
+                }
+
+                @Override
+                public void close()
+                {
+                    logger.info(displayHistory());
+                }
+
+                private IIsolatedExecutor.SerializableCallable<Object[][]> query(Statement statement, ConsistencyLevel cl)
+                {
+                    if (statement instanceof Mutation)
+                    {
+                        // Due to simulator's control of time, the observed client behavior is not respected. Here is an example
+                        //   Write A
+                        //   Write B
+                        //   Write C
+                        // These writes are all sequential and the client sees them as success, so one would think that
+                        // mean that A happens before B happens before C... but this is not true!
+                        // Each instance can have a timestamp that drifts from peers, so C can have a smaller timestamp
+                        // than B, which has a smaller timestamp than A!
+                        // To work around this, make sure all mutations own their timestampss.
+                        statement = ((Mutation) statement).withTimestamp(history.size() + 1);
+                    }
+                    // Simulator acts differently than jvm-dtest, so ByteBuffer isn't safe!
+                    // java.lang.RuntimeException: java.io.NotSerializableException: java.nio.HeapByteBuffer
+                    // So switch to literals for now
+                    statement = statement.visit(StandardVisitors.BIND_TO_LITERAL);
+                    if (cl == ConsistencyLevel.NODE_LOCAL)
+                        return new NodeLocalQuery(statement.toCQL(), statement.binds());
+                    return new Query(statement.toCQL(), -1, cl, null, statement.binds());
+                }
+
+                private String displayHistory()
+                {
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("Setup:\n\"CREATE KEYSPACE ks WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor' : 3};\"\n").append(metadata.toCqlString(false, false, false));
+                    int maxSpaces = spaces(history.size() - 1);
+                    sb.append("\nHistory:");
+                    for (int i = 0; i < history.size(); i++)
+                        sb.append("\n\t").append(padded(i, maxSpaces)).append(": ").append(history.get(i));
+                    return sb.toString();
+                }
+
+                private AssertionError decorate(Throwable t)
+                {
+                    return new AssertionError(displayHistory(), t);
+                }
+            };
         }
 
-        private void checkForErrors()
+    }
+
+    private static final ByteBuffer[][] EMPTY = new ByteBuffer[0][];
+    private static ByteBuffer[][] toRows(Object[][] rows)
+    {
+        if (rows.length == 0) return EMPTY;
+        ByteBuffer[][] result = new ByteBuffer[rows.length][];
+        for (int i = 0; i < rows.length; i++)
         {
-            if (simulated.failures.hasFailure())
-            {
-                AssertionError error = new AssertionError("Errors detected during simulation");
-                // don't care about the stack trace... the issue is the errors found and not what part of the scheduler we stopped
-                error.setStackTrace(new StackTraceElement[0]);
-                simulated.failures.get().forEach(error::addSuppressed);
-                throw error;
-            }
+            Object[] in = rows[i];
+            ByteBuffer[] out = new ByteBuffer[in.length];
+            for (int j = 0; j < in.length; j++)
+                out[j] = (ByteBuffer) in[j];
+            result[i] = out;
         }
+        return result;
+    }
 
-        @Override
-        public void close() throws Exception
-        {
+    private static int spaces(int value)
+    {
+        return Integer.toString(value).length();
+    }
 
-        }
+    private static String padded(int value, int maxSpaces)
+    {
+        int space = spaces(value);
+        int padding = maxSpaces - space;
+        return padding > 0
+               ? String.format("%0" + maxSpaces + "d", value)
+               : Integer.toString(value);
     }
 }
