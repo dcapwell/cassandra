@@ -21,6 +21,7 @@ package org.apache.cassandra.simulator.cluster;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -42,9 +43,11 @@ import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.IInstance;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
+import org.apache.cassandra.distributed.api.IIsolatedExecutor;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.locator.Replica;
 import org.apache.cassandra.locator.ReplicaLayout;
+import org.apache.cassandra.schema.ReplicationParams;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.simulator.Action;
 import org.apache.cassandra.simulator.ActionList;
@@ -52,8 +55,10 @@ import org.apache.cassandra.simulator.Actions;
 import org.apache.cassandra.simulator.Actions.StrictAction;
 import org.apache.cassandra.simulator.Debug;
 import org.apache.cassandra.simulator.RandomSource.Choices;
+import org.apache.cassandra.simulator.systems.InterceptedExecution;
 import org.apache.cassandra.simulator.systems.InterceptingExecutor;
 import org.apache.cassandra.simulator.systems.NonInterceptible;
+import org.apache.cassandra.simulator.systems.SimulatedActionTask;
 import org.apache.cassandra.simulator.systems.SimulatedSystems;
 import org.apache.cassandra.simulator.utils.KindOfSequence;
 import org.apache.cassandra.tcm.ClusterMetadata;
@@ -244,6 +249,35 @@ public class ClusterActions extends SimulatedSystems
     Action resetGossipState(IInvokableInstance i, List<InetSocketAddress> endpoints)
     {
         return transitivelyReliable("Reset Gossip", i, () -> Gossiper.runInGossipStageBlocking(Gossiper.instance::unsafeSetEnabled));
+    }
+
+    public Action reconfigureCMS(int node, int rf)
+    {
+        return reconfigureCMS(node, rf, false);
+    }
+
+    public Action reconfigureCMS(int node, int rf, boolean inEachDc)
+    {
+        String caption = String.format("Reconfigure CMS rf=%d, inEachDc=%s", rf, inEachDc);
+        return new SimulatedActionTask(caption, Action.Modifiers.RELIABLE_NO_TIMEOUTS, Action.Modifiers.RELIABLE_NO_TIMEOUTS, null, this,
+                                       new InterceptedExecution.InterceptedRunnableExecution((InterceptingExecutor) cluster.get(node).executor(),
+                                                                                             cluster.get(node).transfer((IIsolatedExecutor.SerializableRunnable) () -> {
+                                                                                                 ReplicationParams params;
+                                                                                                 if (inEachDc)
+                                                                                                 {
+                                                                                                     Map<String, Integer> rfs = new HashMap<>();
+                                                                                                     for (String dc : ClusterMetadata.current().directory.knownDatacenters())
+                                                                                                     {
+                                                                                                         rfs.put(dc, rf);
+                                                                                                     }
+                                                                                                     params = ReplicationParams.ntsMeta(rfs);
+                                                                                                 }
+                                                                                                 else
+                                                                                                 {
+                                                                                                     params = ReplicationParams.simpleMeta(rf, ClusterMetadata.current().directory.knownDatacenters());
+                                                                                                 }
+                                                                                                 ClusterMetadataService.instance().reconfigureCMS(params);
+                                                                                             })));
     }
 
     @SuppressWarnings("unchecked")

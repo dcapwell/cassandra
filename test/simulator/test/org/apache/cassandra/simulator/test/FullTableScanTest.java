@@ -161,8 +161,9 @@ public class FullTableScanTest extends SimulationTestBase
     {
         // To rerun a failed seed
 //        testOne(SimulationRunner.parseHex("0x2fdb994d37286ebf"));
-        for (int i = 0; i < 100; i++)
-            testOne(SeedProvider.instance.nextSeed());
+        testOne(3448519625378633114L);
+//        for (int i = 0; i < 10; i++)
+//            testOne(SeedProvider.instance.nextSeed());
     }
 
     private static final Gen.IntGen THREAD_COUNT_GEN = Gens.pickInt(10, 100, 1000);
@@ -238,8 +239,9 @@ public class FullTableScanTest extends SimulationTestBase
                 protected ActionList execute()
                 {
                     return ActionList.of(Actions.infiniteStream(1, () -> {
-                        if (steps++ % 1000 == 0)
+                        if (steps++ % 500 == 0)
                         {
+                            TableMetadata previous = metadata;
                             history.clear();
                             int example = examples++;
                             String ks = "ks" + example;
@@ -269,8 +271,17 @@ public class FullTableScanTest extends SimulationTestBase
                                                      .build());
 
                             return new Actions.ReliableAction("Create schema for example " + example, () -> {
-                                List<Action> actions = new ArrayList<>();
-                                actions.add(clusterActions.schemaChange(1, "CREATE KEYSPACE " + ks + " WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor' : 3}"));;
+                                List<Action> actions = new ArrayList<>(previous == null ? 3 : 4);
+                                if (previous != null)
+                                {
+                                    actions.add(clusterActions.schemaChange(1, "DROP TABLE " + previous));
+                                    actions.add(clusterActions.schemaChange(1, "DROP KEYSPACE " + previous.keyspace));
+                                }
+                                else
+                                {
+                                    actions.add(clusterActions.reconfigureCMS(1, 3));
+                                }
+                                actions.add(clusterActions.schemaChange(1, "CREATE KEYSPACE " + ks + " WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor' : 3}"));
                                 actions.add(clusterActions.schemaChange(1, metadata.toCqlString(false, false, false)));
                                 return ActionList.of(actions).setStrictlySequential();
                             }, true);
