@@ -25,6 +25,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.IntSupplier;
 import java.util.function.LongConsumer;
+import java.util.function.LongSupplier;
 import java.util.function.Predicate;
 
 import com.google.common.collect.Iterators;
@@ -44,6 +45,7 @@ import org.apache.cassandra.simulator.*;
 import org.apache.cassandra.simulator.ActionSchedule.Work;
 import org.apache.cassandra.simulator.asm.InterceptClasses;
 import org.apache.cassandra.simulator.asm.NemesisFieldSelectors;
+import org.apache.cassandra.simulator.cluster.ClusterActions;
 import org.apache.cassandra.simulator.systems.Failures;
 import org.apache.cassandra.simulator.systems.InterceptedWait;
 import org.apache.cassandra.simulator.systems.InterceptibleThread;
@@ -138,13 +140,44 @@ public class SimulationTestBase
             try (CloseableIterator<?> iter = iterator())
             {
                 while (iter.hasNext())
+                {
+                    checkForErrors();
                     iter.next();
+                }
+                checkForErrors();
+            }
+        }
+
+        private void checkForErrors()
+        {
+            if (simulated.failures.hasFailure())
+            {
+                AssertionError error = new AssertionError("Errors detected during simulation");
+                // don't care about the stack trace... the issue is the errors found and not what part of the scheduler we stopped
+                error.setStackTrace(new StackTraceElement[0]);
+                simulated.failures.get().forEach(error::addSuppressed);
+                throw error;
             }
         }
 
         public void close() throws Exception
         {
 
+        }
+    }
+
+    static abstract class BasicSimulationBuilder<S extends Simulation> extends ClusterSimulation.Builder<S>
+    {
+        abstract S create(SimulatedSystems simulated, RunnableActionScheduler scheduler, Cluster cluster, ClusterActions.Options options);
+
+        public ClusterSimulation<S> create(long seed) throws IOException
+        {
+            RandomSource random = new RandomSource.Default();
+            random.reset(seed);
+
+            return new ClusterSimulation<>(random, seed, 1, this,
+                                           (c) -> {},
+                                           this::create);
         }
     }
 
@@ -202,8 +235,20 @@ public class SimulationTestBase
     public static <T extends Simulation> void simulate(ClusterSimulation.Builder<T> factory,
                                                        Consumer<ClusterSimulation.Builder<T>> configure) throws IOException
     {
+        simulate(System::currentTimeMillis, factory, configure);
+    }
+
+    public static <T extends Simulation> void simulate(long seed, ClusterSimulation.Builder<T> factory) throws IOException
+    {
+        simulate(() -> seed, factory, i ->{});
+    }
+
+    public static <T extends Simulation> void simulate(LongSupplier seedGen,
+                                                       ClusterSimulation.Builder<T> factory,
+                                                       Consumer<ClusterSimulation.Builder<T>> configure) throws IOException
+    {
         SimulationRunner.beforeAll();
-        long seed = System.currentTimeMillis();
+        long seed = seedGen.getAsLong();
         // Development seed:
         //long seed = 1687184561194L;
         logger.info("Simulation seed: {}L", seed);
@@ -216,9 +261,14 @@ public class SimulationTestBase
             }
             catch (Throwable t)
             {
-                throw new AssertionError(String.format("Failed on seed %s", Long.toHexString(seed)),
-                                         t);
+                throw new SimulationException(seed, t);
             }
+        }
+        catch (Throwable t)
+        {
+            if (t instanceof SimulationException)
+                throw t;
+            throw new SimulationException(seed, t);
         }
     }
 

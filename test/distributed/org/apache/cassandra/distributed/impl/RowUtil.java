@@ -39,11 +39,16 @@ public class RowUtil
 {
     public static SimpleQueryResult toQueryResult(ResultMessage res)
     {
+        return toQueryResult(res, true);
+    }
+
+    public static SimpleQueryResult toQueryResult(ResultMessage res, boolean deserialize)
+    {
         if (res != null && res.kind == ResultMessage.Kind.ROWS)
         {
             ResultMessage.Rows rows = (ResultMessage.Rows) res;
             String[] names = getColumnNames(rows.result.metadata.requestNames());
-            Object[][] results = toObjects(rows);
+            Object[][] results = toObjects(rows, deserialize);
             
             // Warnings may be null here, due to ClientWarn#getWarnings() handling of empty warning lists.
             List<String> warnings = res.getWarnings();
@@ -72,7 +77,17 @@ public class RowUtil
         return toObjects(rows.result.metadata.requestNames(), rows.result.rows);
     }
 
+    public static Object[][] toObjects(ResultMessage.Rows rows, boolean deserialize)
+    {
+        return toObjects(rows.result.metadata.requestNames(), rows.result.rows, deserialize);
+    }
+
     public static Object[][] toObjects(List<ColumnSpecification> specs, List<List<ByteBuffer>> rows)
+    {
+        return toObjects(specs, rows, true);
+    }
+
+    public static Object[][] toObjects(List<ColumnSpecification> specs, List<List<ByteBuffer>> rows, boolean deserialize)
     {
         Object[][] result = new Object[rows.size()][];
         for (int i = 0; i < rows.size(); i++)
@@ -84,7 +99,7 @@ public class RowUtil
                 ByteBuffer bb = row.get(j);
 
                 if (bb != null)
-                    result[i][j] = specs.get(j).type.getSerializer().deserialize(bb);
+                    result[i][j] = deserialize ? specs.get(j).type.getSerializer().deserialize(bb) : bb;
             }
         }
         return result;

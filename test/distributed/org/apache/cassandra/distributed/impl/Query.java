@@ -57,6 +57,7 @@ public class Query implements IIsolatedExecutor.SerializableCallable<Object[][]>
 
     public Object[][] call()
     {
+//        return CoordinatorHelper.unsafeExecuteInternal(query, serialConsistencyOrigin, commitConsistencyOrigin, Dispatcher.RequestTime.forImmediateExecution(), boundValues).toObjectArrays();
         ConsistencyLevel commitConsistency = toCassandraCL(commitConsistencyOrigin);
         ConsistencyLevel serialConsistency = serialConsistencyOrigin == null ? null : toCassandraCL(serialConsistencyOrigin);
         ClientState clientState = CoordinatorHelper.makeFakeClientState();
@@ -88,7 +89,7 @@ public class Query implements IIsolatedExecutor.SerializableCallable<Object[][]>
         if (res != null)
             res.setWarnings(ClientWarn.instance.getWarnings());
 
-        return RowUtil.toQueryResult(res).toObjectArrays();
+        return RowUtil.toQueryResult(res, false).toObjectArrays();
     }
 
     public String toString()

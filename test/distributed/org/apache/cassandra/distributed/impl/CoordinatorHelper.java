@@ -79,7 +79,7 @@ public class CoordinatorHelper
             if (res != null)
                 res.setWarnings(ClientWarn.instance.getWarnings());
 
-            return RowUtil.toQueryResult(res);
+            return RowUtil.toQueryResult(res, false);
         }
         catch (Exception | Error e)
         {
