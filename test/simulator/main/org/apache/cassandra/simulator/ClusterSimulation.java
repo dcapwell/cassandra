@@ -35,6 +35,7 @@ import java.util.function.LongConsumer;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
+import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.AsyncFunction;
 import com.google.common.util.concurrent.FutureCallback;
 
@@ -563,6 +564,7 @@ public class ClusterSimulation<S extends Simulation> implements AutoCloseable
 
         public ThreadAllocator(RandomSource random, int threadsToAllocate, int betweenNodes)
         {
+            Preconditions.checkArgument(threadsToAllocate > 0, "threadsToAllocate must be a positive value, but given %s", threadsToAllocate);
             this.random = random;
             this.clusterPool = threadsToAllocate;
             this.remainingNodes = betweenNodes;
@@ -629,7 +631,12 @@ public class ClusterSimulation<S extends Simulation> implements AutoCloseable
             if (times == remaining)
                 return allocationPool / remaining;
             if (times + 1 == remaining)
-                return random.uniform(Math.max(min, (allocationPool - max) / times), Math.min(max, (allocationPool - min) / times));
+            {
+                if (min == max) return min;
+                int lower = Math.max(min, (allocationPool - max) / times);
+                int upper = Math.min(max, (allocationPool - min) / times);
+                return lower == upper ? lower : random.uniform(lower, upper);
+            }
 
             int median = allocationPool / remaining;
             min = Math.max(min, Math.min(max, median) / 2);
