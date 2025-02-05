@@ -164,7 +164,7 @@ public class FullTableScanTest extends SimulationTestBase
     public void test() throws IOException
     {
         // To rerun a failed seed
-        testOne(SimulationRunner.parseHex("0x2fdb994d37286ebf"));
+//        testOne(SimulationRunner.parseHex("0x2fdb994d37286ebf"));
         for (int i = 0; i < 1000; i++)
             testOne(SeedProvider.instance.nextSeed());
     }
@@ -217,7 +217,6 @@ public class FullTableScanTest extends SimulationTestBase
                 private Gen<Mutation> mutationGen;
                 private Gen<Boolean> writeOrScan;
                 private final List<String> history = new ArrayList<>();
-                private Action next = null;
 
                 @Override
                 protected ActionList initialize()
@@ -243,12 +242,6 @@ public class FullTableScanTest extends SimulationTestBase
                 protected ActionList execute()
                 {
                     return ActionList.of(Actions.infiniteStream(1, () -> {
-                        if (next != null)
-                        {
-                            Action r = next;
-                            next = null;
-                            return r;
-                        }
                         if (steps++ % 1000 == 0)
                         {
                             history.clear();
@@ -279,8 +272,12 @@ public class FullTableScanTest extends SimulationTestBase
                                                      .withPartitions(SourceDSL.arbitrary().pick(uniquePartitions))
                                                      .build());
 
-                            next = clusterActions.schemaChange(1, metadata.toCqlString(false, false, false));
-                            return clusterActions.schemaChange(1, "CREATE KEYSPACE " + ks + " WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor' : 3}");
+                            return new Actions.ReliableAction("Create schema for example " + example, () -> {
+                                List<Action> actions = new ArrayList<>();
+                                actions.add(clusterActions.schemaChange(1, "CREATE KEYSPACE " + ks + " WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor' : 3}"));;
+                                actions.add(clusterActions.schemaChange(1, metadata.toCqlString(false, false, false)));
+                                return ActionList.of(actions).setStrictlySequential();
+                            }, true);
                         }
 
                         int nodeId = cluster.size() == 1 ? 1 : rs.nextInt(0, cluster.size()) + 1;
