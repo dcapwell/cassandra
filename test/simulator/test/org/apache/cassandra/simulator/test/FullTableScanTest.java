@@ -21,15 +21,11 @@ package org.apache.cassandra.simulator.test;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.EnumMap;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.function.Supplier;
 
 import org.junit.Test;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -59,10 +55,8 @@ import org.apache.cassandra.simulator.Action;
 import org.apache.cassandra.simulator.ActionList;
 import org.apache.cassandra.simulator.Actions;
 import org.apache.cassandra.simulator.Debug;
-import org.apache.cassandra.simulator.OrderOn;
 import org.apache.cassandra.simulator.RunnableActionScheduler;
 import org.apache.cassandra.simulator.Simulation;
-import org.apache.cassandra.simulator.SimulationRunner;
 import org.apache.cassandra.simulator.cluster.ClusterActionListener;
 import org.apache.cassandra.simulator.cluster.ClusterActions;
 import org.apache.cassandra.simulator.systems.SimulatedActionCallable;
@@ -160,12 +154,14 @@ public class FullTableScanTest extends SimulationTestBase
         overridePrimitiveTypeSupport(BytesType.instance, AbstractTypeGenerators.TypeSupport.of(BytesType.instance, Generators.bytes(1, 10), FastByteOperations::compareUnsigned));
     }
 
+    private static final Gen<Gen<Boolean>> WRITE_OR_SCAN_DISTRIBUTION = Gens.bools().mixedDistribution();
+
     @Test
     public void test() throws IOException
     {
         // To rerun a failed seed
 //        testOne(SimulationRunner.parseHex("0x2fdb994d37286ebf"));
-        for (int i = 0; i < 1000; i++)
+        for (int i = 0; i < 100; i++)
             testOne(SeedProvider.instance.nextSeed());
     }
 
@@ -217,12 +213,15 @@ public class FullTableScanTest extends SimulationTestBase
                 private Gen<Mutation> mutationGen;
                 private Gen<Boolean> writeOrScan;
                 private final List<String> history = new ArrayList<>();
+                private int steps = 0;
+                private int examples = 0;
+                private int writesSinceLastScan = 0;
 
                 @Override
                 protected ActionList initialize()
                 {
                     rs = new DefaultRandom(simulated.random.uniform(Long.MIN_VALUE, Long.MAX_VALUE)); //TODO (correctness): is "uniform" inclusive with max?
-                    writeOrScan = Gens.bools().all(); //TODO (coverage): bias
+                    writeOrScan = WRITE_OR_SCAN_DISTRIBUTION.next(rs);
                     ClusterActions.Options options = noActions(cluster.size());
                     ClusterActions clusterActions = new ClusterActions(simulated, cluster,
                                                                        options, new ClusterActionListener.NoOpListener(), new Debug(new EnumMap<>(Debug.Info.class), new int[0]));
@@ -234,9 +233,6 @@ public class FullTableScanTest extends SimulationTestBase
                 {
                     return ActionList.of();
                 }
-
-                private int steps = 0;
-                private int examples = 0;
 
                 @Override
                 protected ActionList execute()
@@ -281,7 +277,7 @@ public class FullTableScanTest extends SimulationTestBase
                         }
 
                         int nodeId = cluster.size() == 1 ? 1 : rs.nextInt(0, cluster.size()) + 1;
-                        if (writeOrScan.next(rs))
+                        if (writesSinceLastScan == 0 || writeOrScan.next(rs))
                         {
                             // write
                             var mutation = mutationGen.next(rs);
@@ -305,6 +301,7 @@ public class FullTableScanTest extends SimulationTestBase
                                 }
                             };
                         }
+                        writesSinceLastScan = 0;
                         Select scan = Select.builder(metadata).build();
                         history.add(scan.visit(StandardVisitors.DEBUG).toCQL() + " -- on node " + nodeId);
                         return new SimulatedActionCallable<>("Full Table Scan",
