@@ -444,7 +444,7 @@ class LogTransaction extends Transactional.AbstractTransactional implements Tran
 
     static void waitForDeletions()
     {
-        FBUtilities.waitOnFuture(ScheduledExecutors.nonPeriodicTasks.schedule(Runnables.doNothing(), 0, TimeUnit.MILLISECONDS));
+//        FBUtilities.waitOnFuture(ScheduledExecutors.nonPeriodicTasks.schedule(Runnables.doNothing(), 0, TimeUnit.MILLISECONDS));
     }
 
     @VisibleForTesting
