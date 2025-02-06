@@ -37,6 +37,7 @@ import org.apache.cassandra.concurrent.ExecutorFactory;
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
+import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.api.IIsolatedExecutor;
 import org.apache.cassandra.distributed.impl.AbstractCluster;
 import org.apache.cassandra.distributed.impl.IsolatedExecutor;
@@ -170,13 +171,18 @@ public class SimulationTestBase
     {
         abstract S create(SimulatedSystems simulated, RunnableActionScheduler scheduler, Cluster cluster, ClusterActions.Options options);
 
+        protected void updateConfig(IInstanceConfig config)
+        {
+
+        }
+
         public ClusterSimulation<S> create(long seed) throws IOException
         {
             RandomSource random = new RandomSource.Default();
             random.reset(seed);
 
             return new ClusterSimulation<>(random, seed, 1, this,
-                                           (c) -> {},
+                                           this::updateConfig,
                                            this::create);
         }
     }

@@ -18,6 +18,8 @@
 
 package org.apache.cassandra.simulator.cluster;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -49,6 +51,7 @@ import org.apache.cassandra.locator.Replica;
 import org.apache.cassandra.locator.ReplicaLayout;
 import org.apache.cassandra.schema.ReplicationParams;
 import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.simulator.Action;
 import org.apache.cassandra.simulator.ActionList;
 import org.apache.cassandra.simulator.Actions;
@@ -256,12 +259,13 @@ public class ClusterActions extends SimulatedSystems
         return reconfigureCMS(node, rf, false);
     }
 
-    public Action reconfigureCMS(int node, int rf, boolean inEachDc)
+    public Action reconfigureCMS(int nodeId, int rf, boolean inEachDc)
     {
         String caption = String.format("Reconfigure CMS rf=%d, inEachDc=%s", rf, inEachDc);
+        IInvokableInstance node = cluster.get(nodeId);
         return new SimulatedActionTask(caption, Action.Modifiers.RELIABLE_NO_TIMEOUTS, Action.Modifiers.RELIABLE_NO_TIMEOUTS, null, this,
-                                       new InterceptedExecution.InterceptedRunnableExecution((InterceptingExecutor) cluster.get(node).executor(),
-                                                                                             cluster.get(node).transfer((IIsolatedExecutor.SerializableRunnable) () -> {
+                                       new InterceptedExecution.InterceptedRunnableExecution((InterceptingExecutor) node.executor(),
+                                                                                             node.transfer((IIsolatedExecutor.SerializableRunnable) () -> {
                                                                                                  ReplicationParams params;
                                                                                                  if (inEachDc)
                                                                                                  {
@@ -277,6 +281,62 @@ public class ClusterActions extends SimulatedSystems
                                                                                                      params = ReplicationParams.simpleMeta(rf, ClusterMetadata.current().directory.knownDatacenters());
                                                                                                  }
                                                                                                  ClusterMetadataService.instance().reconfigureCMS(params);
+                                                                                             })));
+    }
+
+    public Action flush(String keyspace, String... tableNames)
+    {
+        return new Actions.ReliableAction("Flush on all nodes", () -> {
+            List<Action> actions = new ArrayList<>(cluster.size());
+            for (int i = 0; i < cluster.size(); i++)
+                actions.add(flush(i + 1, keyspace, tableNames));
+            return ActionList.of(actions).setStrictlySequential();
+        }, true);
+    }
+
+    public Action flush(int nodeId, String keyspace, String... tableNames)
+    {
+        String caption = String.format("Flush %s: %s", keyspace, Arrays.toString(tableNames));
+        IInvokableInstance node = cluster.get(nodeId);
+        return new SimulatedActionTask(caption, Action.Modifiers.RELIABLE_NO_TIMEOUTS, Action.Modifiers.RELIABLE_NO_TIMEOUTS, null, this,
+                                       new InterceptedExecution.InterceptedRunnableExecution((InterceptingExecutor) node.executor(),
+                                                                                             node.transfer((IIsolatedExecutor.SerializableRunnable) () -> {
+                                                                                                 try
+                                                                                                 {
+                                                                                                     StorageService.instance.forceKeyspaceFlush(keyspace, tableNames);
+                                                                                                 }
+                                                                                                 catch (IOException e)
+                                                                                                 {
+                                                                                                     throw new UncheckedIOException(e);
+                                                                                                 }
+                                                                                             })));
+    }
+
+    public Action compact(String keyspace, String... tableNames)
+    {
+        return new Actions.ReliableAction("Compact on all nodes", () -> {
+            List<Action> actions = new ArrayList<>(cluster.size());
+            for (int i = 0; i < cluster.size(); i++)
+                actions.add(compact(i + 1, keyspace, tableNames));
+            return ActionList.of(actions).setStrictlySequential();
+        }, true);
+    }
+
+    public Action compact(int nodeId, String keyspace, String... tableNames)
+    {
+        String caption = String.format("Compact %s: %s", keyspace, Arrays.toString(tableNames));
+        IInvokableInstance node = cluster.get(nodeId);
+        return new SimulatedActionTask(caption, Action.Modifiers.RELIABLE_NO_TIMEOUTS, Action.Modifiers.RELIABLE_NO_TIMEOUTS, null, this,
+                                       new InterceptedExecution.InterceptedRunnableExecution((InterceptingExecutor) node.executor(),
+                                                                                             node.transfer((IIsolatedExecutor.SerializableRunnable) () -> {
+                                                                                                 try
+                                                                                                 {
+                                                                                                     StorageService.instance.forceKeyspaceCompaction(false, keyspace, tableNames);
+                                                                                                 }
+                                                                                                 catch (Throwable e)
+                                                                                                 {
+                                                                                                     throw new RuntimeException(e);
+                                                                                                 }
                                                                                              })));
     }
 

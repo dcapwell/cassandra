@@ -153,20 +153,18 @@ public class FullTableScanTest extends SimulationTestBase
         overridePrimitiveTypeSupport(UTF8Type.instance, AbstractTypeGenerators.TypeSupport.of(UTF8Type.instance, Generators.utf8(1, 10), stringComparator(UTF8Type.instance)));
         overridePrimitiveTypeSupport(BytesType.instance, AbstractTypeGenerators.TypeSupport.of(BytesType.instance, Generators.bytes(1, 10), FastByteOperations::compareUnsigned));
     }
-
-    private static final Gen<Gen<Boolean>> WRITE_OR_SCAN_DISTRIBUTION = Gens.bools().mixedDistribution();
+    private enum Command {WRITE, FLUSH, COMPACT, SCAN }
+    private static final Gen<Gen<Command>> COMMAND_DISTRIBUTION = Gens.enums().allMixedDistribution(Command.class);
+    private static final Gen.IntGen THREAD_COUNT_GEN = Gens.pickInt(10, 100, 1000);
 
     @Test
     public void test() throws IOException
     {
         // To rerun a failed seed
 //        testOne(SimulationRunner.parseHex("0x2fdb994d37286ebf"));
-        testOne(3448519625378633114L);
-//        for (int i = 0; i < 10; i++)
-//            testOne(SeedProvider.instance.nextSeed());
+//        testOne(3448519625378633114L); // this hit an issue where drop tables deadlocked and couldn't make progress.
+        testOne(SeedProvider.instance.nextSeed());
     }
-
-    private static final Gen.IntGen THREAD_COUNT_GEN = Gens.pickInt(10, 100, 1000);
 
     private void testOne(long seed) throws IOException
     {
@@ -186,9 +184,6 @@ public class FullTableScanTest extends SimulationTestBase
 
         protected TableMetadata defineTable(RandomSource rs, String ks)
         {
-            //TODO (correctness): the id isn't correct... this is what we use to create the table, so would miss the actual ID
-            // Defaults may also be incorrect, but given this is the same version it "shouldn't"
-            //TODO (coverage): partition is defined at the cluster level, so have to hard code in this model as the table is changed rather than cluster being recreated... this limits coverage
             TableMetadata tbl = toGen(new CassandraGenerators.TableMetadataBuilder()
                                       .withTableKinds(TableMetadata.Kind.REGULAR)
                                       .withKnownMemtables()
@@ -212,17 +207,16 @@ public class FullTableScanTest extends SimulationTestBase
                 private TableMetadata metadata;
                 private ASTSingleTableModel model;
                 private Gen<Mutation> mutationGen;
-                private Gen<Boolean> writeOrScan;
+                private Gen<Command> commandGen;
                 private final List<String> history = new ArrayList<>();
                 private int steps = 0;
                 private int examples = 0;
-                private int writesSinceLastScan = 0;
 
                 @Override
                 protected ActionList initialize()
                 {
                     rs = new DefaultRandom(simulated.random.uniform(Long.MIN_VALUE, Long.MAX_VALUE)); //TODO (correctness): is "uniform" inclusive with max?
-                    writeOrScan = WRITE_OR_SCAN_DISTRIBUTION.next(rs);
+                    commandGen = COMMAND_DISTRIBUTION.next(rs);
                     ClusterActions.Options options = noActions(cluster.size());
                     ClusterActions clusterActions = new ClusterActions(simulated, cluster,
                                                                        options, new ClusterActionListener.NoOpListener(), new Debug(new EnumMap<>(Debug.Info.class), new int[0]));
@@ -233,6 +227,68 @@ public class FullTableScanTest extends SimulationTestBase
                 protected ActionList teardown()
                 {
                     return ActionList.of();
+                }
+
+                private Action doWrite()
+                {
+                    int nodeId = cluster.size() == 1 ? 1 : rs.nextInt(0, cluster.size()) + 1;
+                    var mutation = mutationGen.next(rs);
+                    history.add(mutation.visit(StandardVisitors.DEBUG).toCQL() + " -- on node" + nodeId);
+                    return new SimulatedActionCallable<>("Mutation",
+                                                         Action.Modifiers.RELIABLE_NO_TIMEOUTS,
+                                                         Action.Modifiers.RELIABLE_NO_TIMEOUTS,
+                                                         simulated,
+                                                         cluster.get(nodeId),
+                                                         query(mutation, ConsistencyLevel.NODE_LOCAL))
+                    {
+                        @Override
+                        public void accept(Object[][] objects, Throwable throwable)
+                        {
+                            if (throwable != null)
+                            {
+                                failures.accept(decorate(throwable));
+                                return;
+                            }
+                            model.update(mutation);
+                        }
+                    };
+                }
+
+                private Action doScan()
+                {
+                    int nodeId = cluster.size() == 1 ? 1 : rs.nextInt(0, cluster.size()) + 1;
+                    Select scan = Select.builder(metadata).build();
+                    history.add(scan.visit(StandardVisitors.DEBUG).toCQL() + " -- on node " + nodeId);
+                    return new SimulatedActionCallable<>("Full Table Scan",
+                                                         Action.Modifiers.RELIABLE_NO_TIMEOUTS,
+                                                         Action.Modifiers.RELIABLE_NO_TIMEOUTS,
+                                                         simulated,
+                                                         cluster.get(nodeId),
+                                                         query(scan, ConsistencyLevel.ALL))
+                    {
+                        @Override
+                        public void accept(Object[][] objects, Throwable throwable)
+                        {
+                            if (throwable != null)
+                            {
+                                failures.accept(decorate(throwable));
+                                return;
+                            }
+                            model.validate(toRows(objects), scan);
+                        }
+                    };
+                }
+
+                private Action doFlush()
+                {
+                    history.add("nodetool flush " + metadata);
+                    return clusterActions.flush(metadata.keyspace, metadata.name);
+                }
+
+                private Action doCompact()
+                {
+                    history.add("nodetool compact " + metadata);
+                    return clusterActions.compact(metadata.keyspace, metadata.name);
                 }
 
                 @Override
@@ -286,53 +342,16 @@ public class FullTableScanTest extends SimulationTestBase
                                 return ActionList.of(actions).setStrictlySequential();
                             }, true);
                         }
-
-                        int nodeId = cluster.size() == 1 ? 1 : rs.nextInt(0, cluster.size()) + 1;
-                        if (writesSinceLastScan == 0 || writeOrScan.next(rs))
+                        Command command = commandGen.next(rs);
+                        switch (command)
                         {
-                            // write
-                            var mutation = mutationGen.next(rs);
-                            history.add(mutation.visit(StandardVisitors.DEBUG).toCQL() + " -- on node" + nodeId);
-                            return new SimulatedActionCallable<>("Mutation",
-                                                                 Action.Modifiers.RELIABLE_NO_TIMEOUTS,
-                                                                 Action.Modifiers.RELIABLE_NO_TIMEOUTS,
-                                                                 simulated,
-                                                                 cluster.get(nodeId),
-                                                                 query(mutation, ConsistencyLevel.NODE_LOCAL))
-                            {
-                                @Override
-                                public void accept(Object[][] objects, Throwable throwable)
-                                {
-                                    if (throwable != null)
-                                    {
-                                        failures.accept(decorate(throwable));
-                                        return;
-                                    }
-                                    model.update(mutation);
-                                }
-                            };
+                            case WRITE: return doWrite();
+                            case SCAN: return doScan();
+                            case FLUSH: return doFlush();
+                            case COMPACT: return doCompact();
+                            default:
+                                throw new UnsupportedOperationException(command.name());
                         }
-                        writesSinceLastScan = 0;
-                        Select scan = Select.builder(metadata).build();
-                        history.add(scan.visit(StandardVisitors.DEBUG).toCQL() + " -- on node " + nodeId);
-                        return new SimulatedActionCallable<>("Full Table Scan",
-                                                             Action.Modifiers.RELIABLE_NO_TIMEOUTS,
-                                                             Action.Modifiers.RELIABLE_NO_TIMEOUTS,
-                                                             simulated,
-                                                             cluster.get(nodeId),
-                                                             query(scan, ConsistencyLevel.ALL))
-                        {
-                            @Override
-                            public void accept(Object[][] objects, Throwable throwable)
-                            {
-                                if (throwable != null)
-                                {
-                                    failures.accept(decorate(throwable));
-                                    return;
-                                }
-                                model.validate(toRows(objects), scan);
-                            }
-                        };
                     }));
                 }
 
