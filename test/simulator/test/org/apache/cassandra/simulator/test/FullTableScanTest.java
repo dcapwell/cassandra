@@ -200,28 +200,14 @@ public class FullTableScanTest extends SimulationTestBase
         {
             return new SimpleSimulation(simulated, scheduler, cluster)
             {
-                private RandomSource rs;
+                private RandomSource rs = new DefaultRandom(simulated.random.uniform(Long.MIN_VALUE, Long.MAX_VALUE)); //TODO (correctness): is "uniform" inclusive with max?
                 private TableMetadata metadata;
                 private ASTSingleTableModel model;
                 private Gen<Mutation> mutationGen;
-                private Gen<Command> commandGen;
+                private Gen<Command> commandGen = COMMAND_DISTRIBUTION.next(rs);
                 private final List<String> history = new ArrayList<>();
                 private int steps = 0;
                 private int examples = 0;
-
-                @Override
-                protected ActionList initialize()
-                {
-                    rs = new DefaultRandom(simulated.random.uniform(Long.MIN_VALUE, Long.MAX_VALUE)); //TODO (correctness): is "uniform" inclusive with max?
-                    commandGen = COMMAND_DISTRIBUTION.next(rs);
-                    return ActionList.of(clusterActions.initializeCluster(initializeAll(cluster.size())));
-                }
-
-                @Override
-                protected ActionList teardown()
-                {
-                    return ActionList.of();
-                }
 
                 private Action doWrite()
                 {

@@ -214,7 +214,7 @@ public class BytesPartitionState
         return new Row(clustering, values);
     }
 
-    public Collection<Row> rows()
+    public List<Row> rows()
     {
         return state.rows().values().stream().map(this::toRow).collect(Collectors.toList());
     }

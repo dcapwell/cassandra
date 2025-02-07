@@ -73,6 +73,7 @@ import static org.apache.cassandra.simulator.ActionSchedule.Mode.UNLIMITED;
 import static org.apache.cassandra.simulator.ClusterSimulation.ISOLATE;
 import static org.apache.cassandra.simulator.ClusterSimulation.SHARE;
 import static org.apache.cassandra.simulator.SimulatorUtils.failWithOOM;
+import static org.apache.cassandra.simulator.cluster.ClusterActions.InitialConfiguration.initializeAll;
 import static org.apache.cassandra.simulator.utils.KindOfSequence.UNIFORM;
 import static org.apache.cassandra.utils.Shared.Scope.ANY;
 import static org.apache.cassandra.utils.Shared.Scope.SIMULATION;
@@ -123,15 +124,21 @@ public class SimulationTestBase
                                       null);
         }
 
-        protected abstract ActionList initialize();
-        protected abstract ActionList teardown();
+        protected ActionList initialize()
+        {
+            return ActionList.of(clusterActions.initializeCluster(initializeAll(cluster.size())));
+        }
+        protected ActionList teardown()
+        {
+            return ActionList.of();
+        }
         protected abstract ActionList execute();
 
         @Override
         public CloseableIterator<?> iterator()
         {
-            return ActionPlan.setUpTearDown(ActionList.of(initialize()),
-                                            ActionList.of(teardown()))
+            return ActionPlan.setUpTearDown(initialize(),
+                                            teardown())
                              .encapsulate(ActionPlan.interleave(Collections.singletonList(execute())))
                              .iterator(TIME_LIMITED, MINUTES.toNanos(10), () -> 0L, simulated.time, scheduler, simulated.futureScheduler);
         }

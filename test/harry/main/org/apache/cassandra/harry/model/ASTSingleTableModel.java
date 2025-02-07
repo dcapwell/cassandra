@@ -419,6 +419,11 @@ public class ASTSingleTableModel
         return partitions.get(ref);
     }
 
+    public BytesPartitionState get(Clustering<ByteBuffer> key)
+    {
+        return get(factory.createRef(key));
+    }
+
     public List<BytesPartitionState> getByToken(Token token)
     {
         NavigableSet<BytesPartitionState.Ref> keys = partitions.navigableKeySet();
@@ -428,6 +433,19 @@ public class ASTSingleTableModel
                                                             .tailSet(factory.createRef(token, false), true);
         if (matches.isEmpty()) return Collections.emptyList();
         return matches.stream().map(partitions::get).collect(Collectors.toList());
+    }
+
+    public List<Clustering<ByteBuffer>> partitions(Select select)
+    {
+        if (select.where.isEmpty())
+            throw new IllegalArgumentException("Partition is full table scan, doesn't directly list partitions");
+        LookupContext ctx = context(select);
+
+        if (ctx.unmatchable)
+            throw new IllegalArgumentException("Select can not match anything");
+        if (ctx.eq.keySet().containsAll(factory.partitionColumns))
+            return keys(ctx.eq, factory.partitionColumns);
+        throw new IllegalArgumentException("Partition does not directly list any partitions");
     }
 
     public void validate(ByteBuffer[][] actual, Select select)
