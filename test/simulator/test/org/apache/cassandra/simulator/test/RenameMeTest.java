@@ -59,6 +59,7 @@ import org.apache.cassandra.simulator.Action;
 import org.apache.cassandra.simulator.ActionList;
 import org.apache.cassandra.simulator.Actions;
 import org.apache.cassandra.simulator.RunnableActionScheduler;
+import org.apache.cassandra.simulator.SimulationRunner;
 import org.apache.cassandra.simulator.cluster.ClusterActions;
 import org.apache.cassandra.simulator.systems.SimulatedActionCallable;
 import org.apache.cassandra.simulator.systems.SimulatedSystems;
@@ -157,7 +158,7 @@ public class RenameMeTest extends SimulationTestBase
     {
         long seed = SeedProvider.instance.nextSeed();
         // To rerun a failed seed
-//        seed = SimulationRunner.parseHex("0x2fdbf4dd8925cc9e");
+        seed = SimulationRunner.parseHex("0x2fdbf73aa849f2a4");
 
         simulate(seed, ASTSingleTableSimulation::new);
     }
@@ -180,8 +181,9 @@ public class RenameMeTest extends SimulationTestBase
 
         protected AbstractTypeGenerators.TypeGenBuilder supportedTypes()
         {
-            return AbstractTypeGenerators.withoutUnsafeEquality(AbstractTypeGenerators.builder()
-                                                                                      .withTypeKinds(AbstractTypeGenerators.TypeKind.PRIMITIVE));
+            return AbstractTypeGenerators.withoutUnsafeEquality();
+//            return AbstractTypeGenerators.withoutUnsafeEquality(AbstractTypeGenerators.builder()
+//                                                                                      .withTypeKinds(AbstractTypeGenerators.TypeKind.PRIMITIVE));
         }
 
         protected TableMetadata defineTable(RandomSource rs, String ks)
@@ -201,9 +203,12 @@ public class RenameMeTest extends SimulationTestBase
         @Override
         protected ActionList initialize()
         {
-            return ActionList.of(clusterActions.initializeCluster(initializeAll(cluster.size())),
-                                 clusterActions.schemaChange(1, "CREATE KEYSPACE " + ks + " WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor' : "+Math.min(3, cluster.size())+"}"),
-                                 clusterActions.schemaChange(1, metadata.toCqlString(false, false, false)));
+            List<Action> actions = new ArrayList<>();
+            actions.add(clusterActions.initializeCluster(initializeAll(cluster.size())));
+            actions.add(clusterActions.schemaChange(1, "CREATE KEYSPACE " + ks + " WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor' : "+Math.min(3, cluster.size())+"}"));
+            CassandraGenerators.visitUDTs(metadata, udt -> actions.add(clusterActions.schemaChange(1, udt.toCqlString(false, false, false))));
+            actions.add(clusterActions.schemaChange(1, metadata.toCqlString(false, false, false)));
+            return ActionList.of(actions);
         }
 
         @Override
