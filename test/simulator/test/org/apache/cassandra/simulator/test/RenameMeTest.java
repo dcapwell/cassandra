@@ -321,7 +321,7 @@ public class RenameMeTest extends SimulationTestBase
                 {
                     if (throwable != null)
                     {
-                        simulated.failures.accept(decorate(throwable));
+                        simulated.failures.accept(new AssertionError(displaySetup(), throwable));
                         return;
                     }
                     onSuccess.accept(objects);
@@ -342,15 +342,9 @@ public class RenameMeTest extends SimulationTestBase
 
         private String displaySetup()
         {
-            StringBuilder sb = new StringBuilder();
-            sb.append("Setup:\nCREATE KEYSPACE ks WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor' : 3};\n")
-              .append(metadata.toCqlString(false, false, false));
-            return sb.toString();
-        }
-
-        private AssertionError decorate(Throwable t)
-        {
-            return new AssertionError(displaySetup(), t);
+            return "Setup:\n" +
+                   "CREATE KEYSPACE ks WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor' : 3};\n"
+                   + metadata.toCqlString(false, false, false);
         }
     }
 }
