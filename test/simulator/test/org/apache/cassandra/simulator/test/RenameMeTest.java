@@ -34,6 +34,7 @@ import accord.utils.DefaultRandom;
 import accord.utils.Gen;
 import accord.utils.Gens;
 import accord.utils.RandomSource;
+import accord.utils.SeedProvider;
 import org.apache.cassandra.cql3.ast.Mutation;
 import org.apache.cassandra.cql3.ast.Select;
 import org.apache.cassandra.cql3.ast.StandardVisitors;
@@ -58,7 +59,6 @@ import org.apache.cassandra.simulator.Action;
 import org.apache.cassandra.simulator.ActionList;
 import org.apache.cassandra.simulator.Actions;
 import org.apache.cassandra.simulator.RunnableActionScheduler;
-import org.apache.cassandra.simulator.SimulationRunner;
 import org.apache.cassandra.simulator.cluster.ClusterActions;
 import org.apache.cassandra.simulator.systems.SimulatedActionCallable;
 import org.apache.cassandra.simulator.systems.SimulatedSystems;
@@ -155,14 +155,10 @@ public class RenameMeTest extends SimulationTestBase
     @Test
     public void test() throws IOException
     {
+        long seed = SeedProvider.instance.nextSeed();
         // To rerun a failed seed
-        testOne(SimulationRunner.parseHex("0x2fdbf4dd8925cc9e"));
-//        testOne(3448519625378633114L); // this hit an issue where drop tables deadlocked and couldn't make progress.
-//        testOne(SeedProvider.instance.nextSeed());
-    }
+//        seed = SimulationRunner.parseHex("0x2fdbf4dd8925cc9e");
 
-    private void testOne(long seed) throws IOException
-    {
         simulate(seed, ASTSingleTableSimulation::new);
     }
 

@@ -231,7 +231,24 @@ public class SimulationTestBase
         simulate(() -> seed, factory, i ->{});
     }
 
+    public static <T extends Simulation> void simulate(ClusterSimulation.SimulationFactory<T> factory) throws IOException
+    {
+        simulate(System.currentTimeMillis(), factory);
+    }
+
     public static <T extends Simulation> void simulate(long seed, ClusterSimulation.SimulationFactory<T> factory) throws IOException
+    {
+        simulate(seed, factory, b -> b.threadCount(1000)
+                                      .nodes(3, 3)
+                                      .dcs(1, 1));
+    }
+
+    public static <T extends Simulation> void simulate(ClusterSimulation.SimulationFactory<T> factory, Consumer<ClusterSimulation.Builder<T>> configure) throws IOException
+    {
+        simulate(System.currentTimeMillis(), factory, configure);
+    }
+
+    public static <T extends Simulation> void simulate(long seed, ClusterSimulation.SimulationFactory<T> factory, Consumer<ClusterSimulation.Builder<T>> configure) throws IOException
     {
         BasicSimulationBuilder builder = new BasicSimulationBuilder()
         {
@@ -241,10 +258,7 @@ public class SimulationTestBase
                 return factory.create(simulated, scheduler, cluster, options);
             }
         };
-        builder.threadCount(1000)
-               .nodes(3, 3)
-               .dcs(1, 1);
-        simulate(seed, builder);
+        simulate(() -> seed, builder, configure);
     }
 
     public static <T extends Simulation> void simulate(LongSupplier seedGen,
