@@ -34,7 +34,6 @@ import accord.utils.DefaultRandom;
 import accord.utils.Gen;
 import accord.utils.Gens;
 import accord.utils.RandomSource;
-import accord.utils.SeedProvider;
 import org.apache.cassandra.cql3.ast.Mutation;
 import org.apache.cassandra.cql3.ast.Select;
 import org.apache.cassandra.cql3.ast.StandardVisitors;
@@ -53,7 +52,6 @@ import org.apache.cassandra.distributed.impl.Query;
 import org.apache.cassandra.distributed.impl.RowUtil;
 import org.apache.cassandra.harry.model.ASTSingleTableModel;
 import org.apache.cassandra.harry.model.BytesPartitionState;
-import org.apache.cassandra.harry.util.StringUtils;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.reads.repair.ReadRepairStrategy;
 import org.apache.cassandra.simulator.Action;
@@ -190,7 +188,6 @@ public class RenameMeTest extends SimulationTestBase
         private final RandomSource rs;
         private final TableMetadata metadata;
         private final ASTSingleTableModel model;
-        private final List<String> history = new ArrayList<>();
         private int steps = 0;
 
         protected ASTSingleTableSimulation(SimulatedSystems simulated, RunnableActionScheduler scheduler, Cluster cluster)
@@ -337,7 +334,6 @@ public class RenameMeTest extends SimulationTestBase
         private Action query(Statement statement, ConsistencyLevel cl, Consumer<Object[][]> onSuccess)
         {
             int nodeId = cluster.size() == 1 ? 1 : rs.nextInt(0, cluster.size()) + 1;
-            history.add(StringUtils.escapeControlChars(statement.visit(StandardVisitors.DEBUG).toCQL()) + " -- on node" + nodeId);
             return new SimulatedActionCallable<>(statement.getClass().getSimpleName(),
                                                  Action.Modifiers.RELIABLE_NO_TIMEOUTS,
                                                  Action.Modifiers.RELIABLE_NO_TIMEOUTS,
@@ -369,34 +365,17 @@ public class RenameMeTest extends SimulationTestBase
             return new Query(statement.toCQL(), -1, false, cl, null, statement.binds());
         }
 
-        private String displayHistory()
+        private String displaySetup()
         {
             StringBuilder sb = new StringBuilder();
-            sb.append("Setup:\n\"CREATE KEYSPACE ks WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor' : 3};\"\n").append(metadata.toCqlString(false, false, false));
-            int maxSpaces = spaces(history.size() - 1);
-            sb.append("\nHistory:");
-            for (int i = 0; i < history.size(); i++)
-                sb.append("\n\t").append(padded(i, maxSpaces)).append(": ").append(history.get(i));
+            sb.append("Setup:\nCREATE KEYSPACE ks WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor' : 3};\n")
+              .append(metadata.toCqlString(false, false, false));
             return sb.toString();
         }
 
         private AssertionError decorate(Throwable t)
         {
-            return new AssertionError(displayHistory(), t);
-        }
-
-        private static int spaces(int value)
-        {
-            return Integer.toString(value).length();
-        }
-
-        private static String padded(int value, int maxSpaces)
-        {
-            int space = spaces(value);
-            int padding = maxSpaces - space;
-            return padding > 0
-                   ? String.format("%0" + maxSpaces + "d", value)
-                   : Integer.toString(value);
+            return new AssertionError(displaySetup(), t);
         }
     }
 }
