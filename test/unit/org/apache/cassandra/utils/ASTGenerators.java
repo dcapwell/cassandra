@@ -71,11 +71,26 @@ import org.quicktheories.core.RandomnessSource;
 import org.quicktheories.generators.SourceDSL;
 import org.quicktheories.impl.Constraint;
 
+import static org.apache.cassandra.utils.AbstractTypeGenerators.getTypeSupport;
 import static org.apache.cassandra.utils.Generators.SYMBOL_GEN;
+import static org.apache.cassandra.utils.Generators.toGen;
 
 public class ASTGenerators
 {
     public static final EnumSet<KnownIssue> IGNORE_ISSUES = KnownIssue.ignoreAll();
+
+    public static Gen<LinkedHashMap<Symbol, Object>> columnValues(List<Symbol> columns)
+    {
+        List<Gen<?>> gens = new ArrayList<>(columns.size());
+        for (int i = 0; i < columns.size(); i++)
+            gens.add(getTypeSupport(columns.get(i).type()).valueGen);
+        return rs -> {
+            LinkedHashMap<Symbol, Object> vs = new LinkedHashMap<>();
+            for (int i = 0; i < columns.size(); i++)
+                vs.put(columns.get(i), gens.get(i).generate(rs));
+            return vs;
+        };
+    }
 
     static Gen<Value> valueGen(Object value, AbstractType<?> type)
     {

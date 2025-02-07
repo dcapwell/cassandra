@@ -214,20 +214,11 @@ public class RenameMeTest extends SimulationTestBase
         @Override
         protected ActionList execute()
         {
-            List<LinkedHashMap<Symbol, Object>> uniquePartitions;
-            {
-                int unique = rs.nextInt(1, 100);
-                List<Symbol> columns = model.factory.partitionColumns;
-                List<Gen<?>> gens = new ArrayList<>(columns.size());
-                for (int i = 0; i < columns.size(); i++)
-                    gens.add(toGen(getTypeSupport(columns.get(i).type()).valueGen));
-                uniquePartitions = Gens.lists(r2 -> {
-                    LinkedHashMap<Symbol, Object> vs = new LinkedHashMap<>();
-                    for (int i = 0; i < columns.size(); i++)
-                        vs.put(columns.get(i), gens.get(i).next(r2));
-                    return vs;
-                }).uniqueBestEffort().ofSize(unique).next(rs);
-            }
+            List<LinkedHashMap<Symbol, Object>> uniquePartitions = Gens.lists(toGen(ASTGenerators.columnValues(model.factory.partitionColumns)))
+                                                                       .uniqueBestEffort()
+                                                                       .ofSize(rs.nextInt(1, 100))
+                                                                       .next(rs);
+
             List<Action> partitions = new ArrayList<>(uniquePartitions.size());
             uniquePartitions.forEach(p -> partitions.add(sequentialPartitionAccess(p)));
             return ActionList.of(partitions);

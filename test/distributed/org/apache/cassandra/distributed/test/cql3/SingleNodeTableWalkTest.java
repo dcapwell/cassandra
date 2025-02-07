@@ -73,7 +73,6 @@ import org.quicktheories.generators.SourceDSL;
 
 import static accord.utils.Property.commands;
 import static accord.utils.Property.stateful;
-import static org.apache.cassandra.utils.AbstractTypeGenerators.getTypeSupport;
 import static org.apache.cassandra.utils.Generators.toGen;
 
 //TODO (coverage): add partition restricted clustering range queries: eg. WHERE pk=? and ck BETWEEN ? AND ?
@@ -420,20 +419,10 @@ public class SingleNodeTableWalkTest extends StatefulASTBase
 
             cluster.forEach(i -> i.nodetoolResult("disableautocompaction", metadata.keyspace, this.metadata.name).asserts().success());
 
-            List<LinkedHashMap<Symbol, Object>> uniquePartitions;
-            {
-                int unique = rs.nextInt(1, 10);
-                List<Symbol> columns = model.factory.partitionColumns;
-                List<Gen<?>> gens = new ArrayList<>(columns.size());
-                for (int i = 0; i < columns.size(); i++)
-                    gens.add(toGen(getTypeSupport(columns.get(i).type()).valueGen));
-                uniquePartitions = Gens.lists(r2 -> {
-                    LinkedHashMap<Symbol, Object> vs = new LinkedHashMap<>();
-                    for (int i = 0; i < columns.size(); i++)
-                        vs.put(columns.get(i), gens.get(i).next(r2));
-                    return vs;
-                }).uniqueBestEffort().ofSize(unique).next(rs);
-            }
+            List<LinkedHashMap<Symbol, Object>> uniquePartitions = Gens.lists(toGen(ASTGenerators.columnValues(model.factory.partitionColumns)))
+                                                                       .uniqueBestEffort()
+                                                                       .ofSize(rs.nextInt(1, 10))
+                                                                       .next(rs);
 
             this.mutationGen = toGen(new ASTGenerators.MutationGenBuilder(metadata)
                                      .withoutTransaction()
