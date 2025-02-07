@@ -20,7 +20,6 @@ package org.apache.cassandra.simulator.test;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 
@@ -54,10 +53,8 @@ import org.apache.cassandra.service.reads.repair.ReadRepairStrategy;
 import org.apache.cassandra.simulator.Action;
 import org.apache.cassandra.simulator.ActionList;
 import org.apache.cassandra.simulator.Actions;
-import org.apache.cassandra.simulator.Debug;
 import org.apache.cassandra.simulator.RunnableActionScheduler;
 import org.apache.cassandra.simulator.Simulation;
-import org.apache.cassandra.simulator.cluster.ClusterActionListener;
 import org.apache.cassandra.simulator.cluster.ClusterActions;
 import org.apache.cassandra.simulator.systems.SimulatedActionCallable;
 import org.apache.cassandra.simulator.systems.SimulatedSystems;
@@ -69,7 +66,6 @@ import org.apache.cassandra.utils.Generators;
 import org.quicktheories.generators.SourceDSL;
 
 import static org.apache.cassandra.simulator.cluster.ClusterActions.InitialConfiguration.initializeAll;
-import static org.apache.cassandra.simulator.cluster.ClusterActions.Options.noActions;
 import static org.apache.cassandra.utils.AbstractTypeGenerators.getTypeSupport;
 import static org.apache.cassandra.utils.AbstractTypeGenerators.overridePrimitiveTypeSupport;
 import static org.apache.cassandra.utils.AbstractTypeGenerators.stringComparator;
@@ -197,11 +193,12 @@ public class FullTableScanTest extends SimulationTestBase
         }
 
         @Override
-        Simulation create(SimulatedSystems simulated, RunnableActionScheduler scheduler, Cluster cluster, ClusterActions.Options options)
+        Simulation create(SimulatedSystems simulated,
+                          RunnableActionScheduler scheduler,
+                          Cluster cluster,
+                          ClusterActions.Options options)
         {
-            ClusterActions clusterActions = new ClusterActions(simulated, cluster,
-                                                               options, new ClusterActionListener.NoOpListener(), new Debug(new EnumMap<>(Debug.Info.class), new int[0]));
-            return new DTestClusterSimulation(simulated, scheduler, cluster)
+            return new SimpleSimulation(simulated, scheduler, cluster)
             {
                 private RandomSource rs;
                 private TableMetadata metadata;
@@ -217,9 +214,6 @@ public class FullTableScanTest extends SimulationTestBase
                 {
                     rs = new DefaultRandom(simulated.random.uniform(Long.MIN_VALUE, Long.MAX_VALUE)); //TODO (correctness): is "uniform" inclusive with max?
                     commandGen = COMMAND_DISTRIBUTION.next(rs);
-                    ClusterActions.Options options = noActions(cluster.size());
-                    ClusterActions clusterActions = new ClusterActions(simulated, cluster,
-                                                                       options, new ClusterActionListener.NoOpListener(), new Debug(new EnumMap<>(Debug.Info.class), new int[0]));
                     return ActionList.of(clusterActions.initializeCluster(initializeAll(cluster.size())));
                 }
 

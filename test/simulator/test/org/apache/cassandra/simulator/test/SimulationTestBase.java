@@ -90,17 +90,16 @@ public class SimulationTestBase
 
     private static final Logger logger = LoggerFactory.getLogger(Logger.class);
 
-    static abstract class DTestClusterSimulation implements Simulation
+    static abstract class SimpleSimulation extends AbstractSimulation
     {
-        protected final SimulatedSystems simulated;
-        protected final RunnableActionScheduler scheduler;
-        protected final Cluster cluster;
-
-        public DTestClusterSimulation(SimulatedSystems simulated, RunnableActionScheduler scheduler, Cluster cluster)
+        protected SimpleSimulation(SimulatedSystems simulated, RunnableActionScheduler scheduler, Cluster cluster)
         {
-            this.simulated = simulated;
-            this.scheduler = scheduler;
-            this.cluster = cluster;
+            super(simulated, scheduler, cluster);
+        }
+
+        protected SimpleSimulation(SimulatedSystems simulated, RunnableActionScheduler scheduler, Cluster cluster, ClusterActions clusterActions)
+        {
+            super(simulated, scheduler, cluster, clusterActions);
         }
 
         public Action executeQuery(int node, String query, ConsistencyLevel cl, Object... bindings)
@@ -128,42 +127,13 @@ public class SimulationTestBase
         protected abstract ActionList teardown();
         protected abstract ActionList execute();
 
+        @Override
         public CloseableIterator<?> iterator()
         {
             return ActionPlan.setUpTearDown(ActionList.of(initialize()),
                                             ActionList.of(teardown()))
                              .encapsulate(ActionPlan.interleave(Collections.singletonList(execute())))
                              .iterator(TIME_LIMITED, MINUTES.toNanos(10), () -> 0L, simulated.time, scheduler, simulated.futureScheduler);
-        }
-
-        public void run()
-        {
-            try (CloseableIterator<?> iter = iterator())
-            {
-                while (iter.hasNext())
-                {
-                    checkForErrors();
-                    iter.next();
-                }
-                checkForErrors();
-            }
-        }
-
-        private void checkForErrors()
-        {
-            if (simulated.failures.hasFailure())
-            {
-                AssertionError error = new AssertionError("Errors detected during simulation");
-                // don't care about the stack trace... the issue is the errors found and not what part of the scheduler we stopped
-                error.setStackTrace(new StackTraceElement[0]);
-                simulated.failures.get().forEach(error::addSuppressed);
-                throw error;
-            }
-        }
-
-        public void close() throws Exception
-        {
-
         }
     }
 
@@ -187,29 +157,29 @@ public class SimulationTestBase
         }
     }
 
-    static class DTestClusterSimulationBuilder extends ClusterSimulation.Builder<DTestClusterSimulation>
+    static class DTestClusterSimulationBuilder extends ClusterSimulation.Builder<SimpleSimulation>
     {
-        protected final Function<DTestClusterSimulation, ActionList> init;
-        protected final Function<DTestClusterSimulation, ActionList> test;
-        protected final Function<DTestClusterSimulation, ActionList> teardown;
+        protected final Function<SimpleSimulation, ActionList> init;
+        protected final Function<SimpleSimulation, ActionList> test;
+        protected final Function<SimpleSimulation, ActionList> teardown;
 
-        DTestClusterSimulationBuilder(Function<DTestClusterSimulation, ActionList> init,
-                                      Function<DTestClusterSimulation, ActionList> test,
-                                      Function<DTestClusterSimulation, ActionList> teardown)
+        DTestClusterSimulationBuilder(Function<SimpleSimulation, ActionList> init,
+                                      Function<SimpleSimulation, ActionList> test,
+                                      Function<SimpleSimulation, ActionList> teardown)
         {
             this.init = init;
             this.test = test;
             this.teardown = teardown;
         }
 
-        public ClusterSimulation<DTestClusterSimulation> create(long seed) throws IOException
+        public ClusterSimulation<SimpleSimulation> create(long seed) throws IOException
         {
             RandomSource random = new RandomSource.Default();
             random.reset(seed);
 
             return new ClusterSimulation<>(random, seed, 1, this,
                                            (c) -> {},
-                                           (simulated, scheduler, cluster, options) -> new DTestClusterSimulation(simulated, scheduler, cluster)
+                                           (simulated, scheduler, cluster, options) -> new SimpleSimulation(simulated, scheduler, cluster)
                                            {
                                                protected ActionList initialize()
                                                {
@@ -229,10 +199,10 @@ public class SimulationTestBase
         }
     }
 
-    public static void simulate(Function<DTestClusterSimulation, ActionList> init,
-                                Function<DTestClusterSimulation, ActionList> test,
-                                Function<DTestClusterSimulation, ActionList> teardown,
-                                Consumer<ClusterSimulation.Builder<DTestClusterSimulation>> configure) throws IOException
+    public static void simulate(Function<SimpleSimulation, ActionList> init,
+                                Function<SimpleSimulation, ActionList> test,
+                                Function<SimpleSimulation, ActionList> teardown,
+                                Consumer<ClusterSimulation.Builder<SimpleSimulation>> configure) throws IOException
     {
         simulate(new DTestClusterSimulationBuilder(init, test, teardown),
                  configure);

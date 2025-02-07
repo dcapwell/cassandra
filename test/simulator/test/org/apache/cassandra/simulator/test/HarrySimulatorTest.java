@@ -22,7 +22,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -71,25 +70,22 @@ import org.apache.cassandra.harry.model.TokenPlacementModel;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.schema.ReplicationParams;
+import org.apache.cassandra.simulator.AbstractSimulation;
 import org.apache.cassandra.simulator.Action;
 import org.apache.cassandra.simulator.ActionList;
 import org.apache.cassandra.simulator.ActionSchedule;
 import org.apache.cassandra.simulator.Actions;
 import org.apache.cassandra.simulator.AlwaysDeliverNetworkScheduler;
 import org.apache.cassandra.simulator.ClusterSimulation;
-import org.apache.cassandra.simulator.Debug;
 import org.apache.cassandra.simulator.FixedLossNetworkScheduler;
 import org.apache.cassandra.simulator.FutureActionScheduler;
 import org.apache.cassandra.simulator.OrderOn;
 import org.apache.cassandra.simulator.RandomSource;
 import org.apache.cassandra.simulator.RunnableActionScheduler;
-import org.apache.cassandra.simulator.Simulation;
 import org.apache.cassandra.simulator.SimulationException;
 import org.apache.cassandra.simulator.SimulationRunner;
 import org.apache.cassandra.simulator.SimulatorUtils;
-import org.apache.cassandra.simulator.cluster.ClusterActionListener.NoOpListener;
 import org.apache.cassandra.simulator.cluster.ClusterActions;
-import org.apache.cassandra.simulator.cluster.ClusterActions.Options;
 import org.apache.cassandra.simulator.systems.Failures;
 import org.apache.cassandra.simulator.systems.InterceptedExecution;
 import org.apache.cassandra.simulator.systems.InterceptingExecutor;
@@ -111,7 +107,6 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.apache.cassandra.distributed.api.ConsistencyLevel.ALL;
 import static org.apache.cassandra.harry.model.TokenPlacementModel.constantLookup;
 import static org.apache.cassandra.simulator.ActionSchedule.Mode.UNLIMITED;
-import static org.apache.cassandra.simulator.cluster.ClusterActions.Options.noActions;
 
 
 /**
@@ -360,14 +355,9 @@ public class HarrySimulatorTest
      * we are testing to both reduce the noise and the surface for potential investigations. This also
      * has a nice side effect of making simulations slightly faster.
      */
-    static class HarrySimulation implements Simulation
+    static class HarrySimulation extends AbstractSimulation
     {
-        protected final ClusterActions clusterActions;
         protected final SimulatedNodeState nodeState;
-
-        protected final SimulatedSystems simulated;
-        protected final RunnableActionScheduler scheduler;
-        protected final Cluster cluster;
         protected final Function<HarrySimulation, ActionSchedule.Work[]> schedule;
 
         protected final EntropySource rng;
@@ -391,6 +381,7 @@ public class HarrySimulatorTest
                                 Generator<Long> ltsGen,
                                 DataTracker tracker)
         {
+            super(simulated, scheduler, cluster);
             this.rng = rng;
             this.schema = schema;
             this.insertGen = OperationsGenerators.writeOp(schema);
@@ -433,14 +424,6 @@ public class HarrySimulatorTest
                 }
             });
 
-            this.simulated = simulated;
-            this.scheduler = scheduler;
-            this.cluster = cluster;
-
-            Options options = noActions(cluster.size());
-            this.clusterActions = new ClusterActions(simulated, cluster,
-                                                     options, new NoOpListener(), new Debug(new EnumMap<>(Debug.Info.class), new int[0]));
-
             this.nodeState = nodeState.apply(this);
             this.schedule = schedule;
 
@@ -480,36 +463,6 @@ public class HarrySimulatorTest
         public CloseableIterator<?> iterator()
         {
             return new ActionSchedule(simulated.time, simulated.futureScheduler, () -> 0L, scheduler, schedule.apply(this));
-        }
-
-        @Override
-        public void run()
-        {
-            try (CloseableIterator<?> iter = iterator())
-            {
-                while (iter.hasNext())
-                {
-                    checkForErrors();
-                    iter.next();
-                }
-                checkForErrors();
-            }
-        }
-
-        private void checkForErrors()
-        {
-            if (simulated.failures.hasFailure())
-            {
-                AssertionError error = new AssertionError("Errors detected during simulation");
-                // don't care about the stack trace... the issue is the errors found and not what part of the scheduler we stopped
-                error.setStackTrace(new StackTraceElement[0]);
-                simulated.failures.get().forEach(error::addSuppressed);
-                throw error;
-            }
-        }
-
-        public void close() throws Exception
-        {
         }
     }
 

@@ -23,6 +23,7 @@ import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -170,6 +171,15 @@ public class ClusterActions extends SimulatedSystems
         this.options = options;
         this.listener = listener;
         this.debug = debug;
+    }
+
+    public static ClusterActions simple(SimulatedSystems simulated, Cluster cluster)
+    {
+       return new ClusterActions(simulated, cluster,
+                                 Options.noActions(cluster.size()),
+                                 new ClusterActionListener.NoOpListener(),
+                                 new Debug(new EnumMap<>(Debug.Info.class),
+                                           new int[0]));
     }
 
     public static class InitialConfiguration
