@@ -70,7 +70,6 @@ import org.apache.cassandra.utils.Generators;
 import org.quicktheories.generators.SourceDSL;
 
 import static org.apache.cassandra.simulator.cluster.ClusterActions.InitialConfiguration.initializeAll;
-import static org.apache.cassandra.utils.AbstractTypeGenerators.getTypeSupport;
 import static org.apache.cassandra.utils.AbstractTypeGenerators.overridePrimitiveTypeSupport;
 import static org.apache.cassandra.utils.AbstractTypeGenerators.stringComparator;
 import static org.apache.cassandra.utils.Generators.toGen;
