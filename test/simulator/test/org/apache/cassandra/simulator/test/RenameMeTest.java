@@ -58,7 +58,6 @@ import org.apache.cassandra.simulator.Action;
 import org.apache.cassandra.simulator.ActionList;
 import org.apache.cassandra.simulator.Actions;
 import org.apache.cassandra.simulator.RunnableActionScheduler;
-import org.apache.cassandra.simulator.Simulation;
 import org.apache.cassandra.simulator.SimulationRunner;
 import org.apache.cassandra.simulator.cluster.ClusterActions;
 import org.apache.cassandra.simulator.systems.SimulatedActionCallable;
@@ -154,8 +153,6 @@ public class RenameMeTest extends SimulationTestBase
         overridePrimitiveTypeSupport(BytesType.instance, AbstractTypeGenerators.TypeSupport.of(BytesType.instance, Generators.bytes(1, 10), FastByteOperations::compareUnsigned));
     }
 
-    private static final Gen.IntGen THREAD_COUNT_GEN = Gens.pickInt(10, 100, 1000);
-
     @Test
     public void test() throws IOException
     {
@@ -167,19 +164,7 @@ public class RenameMeTest extends SimulationTestBase
 
     private void testOne(long seed) throws IOException
     {
-        RandomSource rs = new DefaultRandom(seed);
-        simulate(seed, new Builder().threadCount(THREAD_COUNT_GEN.nextInt(rs))
-                                                      .nodes(3, 3)
-                                                      .dcs(1, 1));
-    }
-
-    private static class Builder extends BasicSimulationBuilder
-    {
-        @Override
-        Simulation create(SimulatedSystems simulated, RunnableActionScheduler scheduler, Cluster cluster, ClusterActions.Options options)
-        {
-            return new ASTSingleTableSimulation(simulated, scheduler, cluster);
-        }
+        simulate(seed, ASTSingleTableSimulation::new);
     }
 
     public static class ASTSingleTableSimulation extends SimpleSimulation
@@ -190,9 +175,9 @@ public class RenameMeTest extends SimulationTestBase
         private final ASTSingleTableModel model;
         private int steps = 0;
 
-        protected ASTSingleTableSimulation(SimulatedSystems simulated, RunnableActionScheduler scheduler, Cluster cluster)
+        protected ASTSingleTableSimulation(SimulatedSystems simulated, RunnableActionScheduler scheduler, Cluster cluster, ClusterActions.Options options)
         {
-            super(simulated, scheduler, cluster);
+            super(simulated, scheduler, cluster, options);
             this.rs = new DefaultRandom(simulated.random.uniform(Long.MIN_VALUE, Long.MAX_VALUE)); //TODO (correctness): is "uniform" inclusive with max?
             this.metadata = defineTable(rs, ks);
             this.model = new ASTSingleTableModel(metadata);

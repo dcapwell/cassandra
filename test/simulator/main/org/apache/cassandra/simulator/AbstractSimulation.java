@@ -35,6 +35,11 @@ public abstract class AbstractSimulation implements Simulation
         this(simulated, scheduler, cluster, ClusterActions.simple(simulated, cluster));
     }
 
+    protected AbstractSimulation(SimulatedSystems simulated, RunnableActionScheduler scheduler, Cluster cluster, ClusterActions.Options options)
+    {
+        this(simulated, scheduler, cluster, ClusterActions.simple(simulated, cluster, options));
+    }
+
     protected AbstractSimulation(SimulatedSystems simulated, RunnableActionScheduler scheduler, Cluster cluster, ClusterActions clusterActions)
     {
         this.simulated = simulated;

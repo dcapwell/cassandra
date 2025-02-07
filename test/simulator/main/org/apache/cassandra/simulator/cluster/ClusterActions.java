@@ -175,11 +175,15 @@ public class ClusterActions extends SimulatedSystems
 
     public static ClusterActions simple(SimulatedSystems simulated, Cluster cluster)
     {
-       return new ClusterActions(simulated, cluster,
-                                 Options.noActions(cluster.size()),
-                                 new ClusterActionListener.NoOpListener(),
-                                 new Debug(new EnumMap<>(Debug.Info.class),
-                                           new int[0]));
+        return simple(simulated, cluster, Options.noActions(cluster.size()));
+    }
+
+    public static ClusterActions simple(SimulatedSystems simulated, Cluster cluster, Options options)
+    {
+        return new ClusterActions(simulated, cluster, options,
+                                  new ClusterActionListener.NoOpListener(),
+                                  new Debug(new EnumMap<>(Debug.Info.class),
+                                            new int[0]));
     }
 
     public static class InitialConfiguration

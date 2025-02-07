@@ -98,6 +98,11 @@ public class SimulationTestBase
             super(simulated, scheduler, cluster);
         }
 
+        protected SimpleSimulation(SimulatedSystems simulated, RunnableActionScheduler scheduler, Cluster cluster, ClusterActions.Options options)
+        {
+            super(simulated, scheduler, cluster, options);
+        }
+
         protected SimpleSimulation(SimulatedSystems simulated, RunnableActionScheduler scheduler, Cluster cluster, ClusterActions clusterActions)
         {
             super(simulated, scheduler, cluster, clusterActions);
@@ -224,6 +229,22 @@ public class SimulationTestBase
     public static <T extends Simulation> void simulate(long seed, ClusterSimulation.Builder<T> factory) throws IOException
     {
         simulate(() -> seed, factory, i ->{});
+    }
+
+    public static <T extends Simulation> void simulate(long seed, ClusterSimulation.SimulationFactory<T> factory) throws IOException
+    {
+        BasicSimulationBuilder builder = new BasicSimulationBuilder()
+        {
+            @Override
+            Simulation create(SimulatedSystems simulated, RunnableActionScheduler scheduler, Cluster cluster, ClusterActions.Options options)
+            {
+                return factory.create(simulated, scheduler, cluster, options);
+            }
+        };
+        builder.threadCount(1000)
+               .nodes(3, 3)
+               .dcs(1, 1);
+        simulate(seed, builder);
     }
 
     public static <T extends Simulation> void simulate(LongSupplier seedGen,
