@@ -21,8 +21,10 @@ package org.apache.cassandra.simulator.test;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.NavigableSet;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -47,19 +49,23 @@ import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
+import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.api.IIsolatedExecutor;
 import org.apache.cassandra.distributed.impl.NodeLocalQuery;
 import org.apache.cassandra.distributed.impl.Query;
 import org.apache.cassandra.distributed.impl.RowUtil;
 import org.apache.cassandra.harry.model.ASTSingleTableModel;
 import org.apache.cassandra.harry.model.BytesPartitionState;
+import org.apache.cassandra.harry.util.StringUtils;
+import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.reads.repair.ReadRepairStrategy;
 import org.apache.cassandra.simulator.Action;
 import org.apache.cassandra.simulator.ActionList;
 import org.apache.cassandra.simulator.Actions;
+import org.apache.cassandra.simulator.AlwaysDeliverNetworkScheduler;
+import org.apache.cassandra.simulator.FutureActionScheduler;
 import org.apache.cassandra.simulator.RunnableActionScheduler;
-import org.apache.cassandra.simulator.SimulationRunner;
 import org.apache.cassandra.simulator.cluster.ClusterActions;
 import org.apache.cassandra.simulator.systems.SimulatedActionCallable;
 import org.apache.cassandra.simulator.systems.SimulatedSystems;
@@ -70,6 +76,7 @@ import org.apache.cassandra.utils.FastByteOperations;
 import org.apache.cassandra.utils.Generators;
 import org.quicktheories.generators.SourceDSL;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.apache.cassandra.simulator.cluster.ClusterActions.InitialConfiguration.initializeAll;
 import static org.apache.cassandra.utils.AbstractTypeGenerators.overridePrimitiveTypeSupport;
 import static org.apache.cassandra.utils.AbstractTypeGenerators.stringComparator;
@@ -145,6 +152,10 @@ import static org.apache.cassandra.utils.Generators.toGen;
  */
 public class RenameMeTest extends SimulationTestBase
 {
+    private static final Gen<Gen.IntGen> VERB_DELAY_DISTRIBUTION_MS = Gens.ints().mixedDistribution(10, 1000);
+    private static final int MAX_STEPS = 1_000;
+    private static final int MAX_EXAMPLES = 10;
+
     static
     {
         // limit text/bytes so they are not too big; mostly for debugging than anything
@@ -156,34 +167,58 @@ public class RenameMeTest extends SimulationTestBase
     @Test
     public void test() throws IOException
     {
-        long seed = SeedProvider.instance.nextSeed();
         // To rerun a failed seed
-        seed = SimulationRunner.parseHex("0x2fdbf73aa849f2a4");
+//        testOne(SimulationRunner.parseHex("0x2fdbf73aa849f2a4"));
 
-        simulate(seed, ASTSingleTableSimulation::new);
+        for (int i = 0; i < MAX_EXAMPLES; i++)
+            testOne(SeedProvider.instance.nextSeed());
+    }
+
+    private void testOne(long seed) throws IOException
+    {
+        RandomSource rs = new DefaultRandom(seed);
+        int numDcs = rs.nextInt(1, 4);
+        int numNodes = numDcs * 3;
+        Gen.IntGen delayMillis = VERB_DELAY_DISTRIBUTION_MS.next(rs);
+        simulate(seed, ASTSingleTableSimulation::new, b ->
+                                                      b.futureActionScheduler((i1, time, i2) -> new AlwaysDeliverNetworkScheduler(time))
+                                                       .perVerbFutureActionSchedulers((i1, time, i2) -> {
+                                                           Map<Verb, FutureActionScheduler> map = new HashMap<>();
+                                                           for (Verb verb : Verb.values())
+                                                               map.put(verb, new AlwaysDeliverNetworkScheduler(time, TimeUnit.MILLISECONDS.toNanos(delayMillis.nextInt(rs))));
+                                                           return map;
+                                                       })
+                                                       .writeTimeoutNanos(SECONDS.toNanos(120))
+                                                       .readTimeoutNanos(SECONDS.toNanos(120))
+                                                       .requestTimeoutNanos(SECONDS.toNanos(120))
+                                                       .threadCount(1000)
+                                                       .nodes(numNodes, numNodes)
+                                                       .dcs(numDcs, numDcs));
     }
 
     public static class ASTSingleTableSimulation extends SimpleSimulation
     {
         private final String ks = "ks";
+        private String createKeyspace = "CREATE KEYSPACE " + ks + " WITH replication = {'class': 'NetworkTopologyStrategy'"; // when the simulation starts the RF gets populated
         private final RandomSource rs;
         private final TableMetadata metadata;
         private final ASTSingleTableModel model;
+        private final List<String> history = new ArrayList<>(MAX_STEPS);
         private int steps = 0;
 
         protected ASTSingleTableSimulation(SimulatedSystems simulated, RunnableActionScheduler scheduler, Cluster cluster, ClusterActions.Options options)
         {
             super(simulated, scheduler, cluster, options);
-            this.rs = new DefaultRandom(simulated.random.uniform(Long.MIN_VALUE, Long.MAX_VALUE)); //TODO (correctness): is "uniform" inclusive with max?
+            this.rs = new DefaultRandom(simulated.random.uniform(Long.MIN_VALUE, Long.MAX_VALUE));
             this.metadata = defineTable(rs, ks);
             this.model = new ASTSingleTableModel(metadata);
+
+            cluster.stream().forEach((IInvokableInstance i) -> simulated.failureDetector.markUp(i.config().broadcastAddress()));
         }
 
         protected AbstractTypeGenerators.TypeGenBuilder supportedTypes()
         {
             return AbstractTypeGenerators.withoutUnsafeEquality();
-//            return AbstractTypeGenerators.withoutUnsafeEquality(AbstractTypeGenerators.builder()
-//                                                                                      .withTypeKinds(AbstractTypeGenerators.TypeKind.PRIMITIVE));
         }
 
         protected TableMetadata defineTable(RandomSource rs, String ks)
@@ -205,7 +240,19 @@ public class RenameMeTest extends SimulationTestBase
         {
             List<Action> actions = new ArrayList<>();
             actions.add(clusterActions.initializeCluster(initializeAll(cluster.size())));
-            actions.add(clusterActions.schemaChange(1, "CREATE KEYSPACE " + ks + " WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor' : "+Math.min(3, cluster.size())+"}"));
+
+            int[] dcSizes = new int[clusterActions.snitch.dcCount()];
+            for (int nodeId = 1; nodeId <= cluster.size(); nodeId++)
+                dcSizes[clusterActions.snitch.dcOf(nodeId)]++;
+
+            for (int i = 0; i < dcSizes.length; i++)
+            {
+                String name = clusterActions.snitch.nameOfDc(i);
+                createKeyspace += ", '" + name + "': " + Math.min(3, dcSizes[i]);
+            }
+            createKeyspace += "};";
+
+            actions.add(clusterActions.schemaChange(1, createKeyspace));
             CassandraGenerators.visitUDTs(metadata, udt -> actions.add(clusterActions.schemaChange(1, udt.toCqlString(false, false, false))));
             actions.add(clusterActions.schemaChange(1, metadata.toCqlString(false, false, false)));
             return ActionList.of(actions);
@@ -216,7 +263,7 @@ public class RenameMeTest extends SimulationTestBase
         {
             List<LinkedHashMap<Symbol, Object>> uniquePartitions = Gens.lists(toGen(ASTGenerators.columnValues(model.factory.partitionColumns)))
                                                                        .uniqueBestEffort()
-                                                                       .ofSize(rs.nextInt(1, 100))
+                                                                       .ofSize(rs.nextInt(1, 20))
                                                                        .next(rs);
 
             List<Action> partitions = new ArrayList<>(uniquePartitions.size());
@@ -248,6 +295,8 @@ public class RenameMeTest extends SimulationTestBase
                 @Override
                 public Action get()
                 {
+                    if (steps > MAX_STEPS)
+                        return null;
                     if (actionGen == null || simulated.time.nanoTime() > resetActionsDeadlineNanos)
                         resetActions();
                     steps++;
@@ -310,6 +359,7 @@ public class RenameMeTest extends SimulationTestBase
         private Action query(Statement statement, ConsistencyLevel cl, Consumer<Object[][]> onSuccess)
         {
             int nodeId = cluster.size() == 1 ? 1 : rs.nextInt(0, cluster.size()) + 1;
+            history.add(StringUtils.escapeControlChars(statement.visit(StandardVisitors.DEBUG).toCQL()) + " -- on node" + nodeId);
             return new SimulatedActionCallable<>(statement.getClass().getSimpleName(),
                                                  Action.Modifiers.RELIABLE_NO_TIMEOUTS,
                                                  Action.Modifiers.RELIABLE_NO_TIMEOUTS,
@@ -322,7 +372,7 @@ public class RenameMeTest extends SimulationTestBase
                 {
                     if (throwable != null)
                     {
-                        simulated.failures.accept(new AssertionError(displaySetup(), throwable));
+                        simulated.failures.accept(new AssertionError(displayMessage(), throwable));
                         return;
                     }
                     onSuccess.accept(objects);
@@ -341,11 +391,16 @@ public class RenameMeTest extends SimulationTestBase
             return new Query(statement.toCQL(), -1, false, cl, null, statement.binds());
         }
 
-        private String displaySetup()
+        private String displayMessage()
         {
-            return "Setup:\n" +
-                   "CREATE KEYSPACE ks WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor' : 3};\n"
-                   + metadata.toCqlString(false, false, false);
+            StringBuilder sb = new StringBuilder();
+            sb.append("Setup:");
+            sb.append('\n').append(createKeyspace);
+            sb.append('\n').append(metadata.toCqlString(false, false, false));
+            sb.append("\nHistory:");
+            for (int i = 0; i < history.size(); i++)
+                sb.append("\n\t").append(i).append(": ").append(history.get(i));
+            return sb.toString();
         }
     }
 }

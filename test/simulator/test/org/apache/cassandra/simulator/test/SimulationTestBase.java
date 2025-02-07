@@ -238,9 +238,7 @@ public class SimulationTestBase
 
     public static <T extends Simulation> void simulate(long seed, ClusterSimulation.SimulationFactory<T> factory) throws IOException
     {
-        simulate(seed, factory, b -> b.threadCount(1000)
-                                      .nodes(3, 3)
-                                      .dcs(1, 1));
+        simulate(seed, factory, b -> {});
     }
 
     public static <T extends Simulation> void simulate(ClusterSimulation.SimulationFactory<T> factory, Consumer<ClusterSimulation.Builder<T>> configure) throws IOException

@@ -35,6 +35,8 @@ import java.util.function.LongConsumer;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
+import javax.annotation.Nullable;
+
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.AsyncFunction;
 import com.google.common.util.concurrent.FutureCallback;
@@ -193,6 +195,8 @@ public class ClusterSimulation<S extends Simulation> implements AutoCloseable
         protected HeapPool.Logged.Listener memoryListener;
         protected SimulatedTime.Listener timeListener = (i1, i2) -> {};
         protected LongConsumer onThreadLocalRandomCheck;
+        protected FutureActionSchedulerFactory futureActionSchedulerFactory;
+        protected PerVerbFutureActionSchedulersFactory perVerbFutureActionSchedulersFactory;
 
         public Builder<S> failures(Failures failures)
         {
@@ -480,8 +484,21 @@ public class ClusterSimulation<S extends Simulation> implements AutoCloseable
             return this;
         }
 
+        public interface FutureActionSchedulerFactory
+        {
+            FutureActionScheduler create(int nodeCount, SimulatedTime time, RandomSource random);
+        }
+
+        public Builder<S> futureActionScheduler(FutureActionSchedulerFactory factory)
+         {
+             futureActionSchedulerFactory = factory;
+             return this;
+         }
+
         public FutureActionScheduler futureActionScheduler(int nodeCount, SimulatedTime time, RandomSource random)
         {
+            if (futureActionSchedulerFactory != null)
+                return futureActionSchedulerFactory.create(nodeCount, time, random);
             KindOfSequence kind = Choices.random(random, KindOfSequence.values())
                                          .choose(random);
             return new SimulatedFutureActionScheduler(kind, nodeCount, random, time,
@@ -491,8 +508,21 @@ public class ClusterSimulation<S extends Simulation> implements AutoCloseable
                                                       new SchedulerConfig(schedulerDelayChance, schedulerDelayNanos, schedulerLongDelayNanos));
         }
 
+        public interface PerVerbFutureActionSchedulersFactory
+        {
+            Map<Verb, FutureActionScheduler> create(int nodeCount, SimulatedTime time, RandomSource random);
+        }
+
+        public Builder<S> perVerbFutureActionSchedulers(PerVerbFutureActionSchedulersFactory factory)
+        {
+            perVerbFutureActionSchedulersFactory = factory;
+            return this;
+        }
+
         public Map<Verb, FutureActionScheduler> perVerbFutureActionSchedulers(int nodeCount, SimulatedTime time, RandomSource random)
         {
+            if (perVerbFutureActionSchedulersFactory != null)
+                return perVerbFutureActionSchedulersFactory.create(nodeCount, time, random);
             return Collections.emptyMap();
         }
 
