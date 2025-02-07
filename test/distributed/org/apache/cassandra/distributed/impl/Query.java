@@ -30,6 +30,7 @@ import org.apache.cassandra.distributed.api.IIsolatedExecutor;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.ClientWarn;
 import org.apache.cassandra.service.QueryState;
+import org.apache.cassandra.service.reads.thresholds.CoordinatorWarnings;
 import org.apache.cassandra.transport.Dispatcher;
 import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.transport.messages.ResultMessage;
@@ -42,14 +43,21 @@ public class Query implements IIsolatedExecutor.SerializableCallable<Object[][]>
 
     final String query;
     final long timestamp;
+    final boolean deserializeResult;
     final org.apache.cassandra.distributed.api.ConsistencyLevel commitConsistencyOrigin;
     final org.apache.cassandra.distributed.api.ConsistencyLevel serialConsistencyOrigin;
     final Object[] boundValues;
 
     public Query(String query, long timestamp, org.apache.cassandra.distributed.api.ConsistencyLevel commitConsistencyOrigin, org.apache.cassandra.distributed.api.ConsistencyLevel serialConsistencyOrigin, Object[] boundValues)
     {
+        this(query, timestamp, true, commitConsistencyOrigin, serialConsistencyOrigin, boundValues);
+    }
+
+    public Query(String query, long timestamp, boolean deserializeResult, org.apache.cassandra.distributed.api.ConsistencyLevel commitConsistencyOrigin, org.apache.cassandra.distributed.api.ConsistencyLevel serialConsistencyOrigin, Object[] boundValues)
+    {
         this.query = query;
         this.timestamp = timestamp;
+        this.deserializeResult = deserializeResult;
         this.commitConsistencyOrigin = commitConsistencyOrigin;
         this.serialConsistencyOrigin = serialConsistencyOrigin;
         this.boundValues = boundValues;
@@ -57,7 +65,6 @@ public class Query implements IIsolatedExecutor.SerializableCallable<Object[][]>
 
     public Object[][] call()
     {
-//        return CoordinatorHelper.unsafeExecuteInternal(query, serialConsistencyOrigin, commitConsistencyOrigin, Dispatcher.RequestTime.forImmediateExecution(), boundValues).toObjectArrays();
         ConsistencyLevel commitConsistency = toCassandraCL(commitConsistencyOrigin);
         ConsistencyLevel serialConsistency = serialConsistencyOrigin == null ? null : toCassandraCL(serialConsistencyOrigin);
         ClientState clientState = CoordinatorHelper.makeFakeClientState();
@@ -71,25 +78,39 @@ public class Query implements IIsolatedExecutor.SerializableCallable<Object[][]>
         // Start capturing warnings on this thread. Note that this will implicitly clear out any previous
         // warnings as it sets a new State instance on the ThreadLocal.
         ClientWarn.instance.captureWarnings();
+        CoordinatorWarnings.init();
+        try
+        {
+            ResultMessage res = prepared.execute(QueryState.forInternalCalls(),
+                                                 QueryOptions.create(commitConsistency,
+                                                                     boundBBValues,
+                                                                     false,
+                                                                     Integer.MAX_VALUE,
+                                                                     null,
+                                                                     serialConsistency,
+                                                                     ProtocolVersion.CURRENT,
+                                                                     null,
+                                                                     timestamp,
+                                                                     FBUtilities.nowInSeconds()),
+                                                 Dispatcher.RequestTime.forImmediateExecution());
 
-        ResultMessage res = prepared.execute(QueryState.forInternalCalls(),
-                                             QueryOptions.create(commitConsistency,
-                                                                 boundBBValues,
-                                                                 false,
-                                                                 Integer.MAX_VALUE,
-                                                                 null,
-                                                                 serialConsistency,
-                                                                 ProtocolVersion.V4,
-                                                                 null,
-                                                                 timestamp,
-                                                                 FBUtilities.nowInSeconds()),
-                                             Dispatcher.RequestTime.forImmediateExecution());
+            // Collect warnings reported during the query.
+            CoordinatorWarnings.done();
+            if (res != null)
+                res.setWarnings(ClientWarn.instance.getWarnings());
 
-        // Collect warnings reported during the query.
-        if (res != null)
-            res.setWarnings(ClientWarn.instance.getWarnings());
-
-        return RowUtil.toQueryResult(res, false).toObjectArrays();
+            return RowUtil.toQueryResult(res, deserializeResult).toObjectArrays();
+        }
+        catch (Exception | Error e)
+        {
+            CoordinatorWarnings.done();
+            throw e;
+        }
+        finally
+        {
+            CoordinatorWarnings.reset();
+            ClientWarn.instance.resetWarnings();
+        }
     }
 
     public String toString()

@@ -294,7 +294,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
 
             if (result != null)
                 result.setWarnings(ClientWarn.instance.getWarnings());
-            return RowUtil.toQueryResult(result);
+            return RowUtil.toQueryResult(result, true);
         }
         catch (Exception | Error e)
         {

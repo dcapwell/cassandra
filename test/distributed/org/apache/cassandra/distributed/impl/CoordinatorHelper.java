@@ -42,12 +42,12 @@ import static org.apache.cassandra.distributed.impl.Coordinator.toCassandraCL;
 
 public class CoordinatorHelper
 {
-    public static SimpleQueryResult unsafeExecuteInternal(String query, ConsistencyLevel serialConsistencyLevel, ConsistencyLevel commitConsistencyLevel, Object[] boundValues)
+    public static SimpleQueryResult unsafeExecuteInternal(String query, ConsistencyLevel serialConsistencyLevel, ConsistencyLevel commitConsistencyLevel, boolean deserialize, Object[] boundValues)
     {
-        return unsafeExecuteInternal(query, serialConsistencyLevel, commitConsistencyLevel, Dispatcher.RequestTime.forImmediateExecution(), boundValues);
+        return unsafeExecuteInternal(query, serialConsistencyLevel, commitConsistencyLevel, deserialize, Dispatcher.RequestTime.forImmediateExecution(), boundValues);
     }
 
-    public static SimpleQueryResult unsafeExecuteInternal(String query, ConsistencyLevel serialConsistencyLevel, ConsistencyLevel commitConsistencyLevel, Dispatcher.RequestTime requestTime, Object... boundValues)
+    public static SimpleQueryResult unsafeExecuteInternal(String query, ConsistencyLevel serialConsistencyLevel, ConsistencyLevel commitConsistencyLevel, boolean deserialize, Dispatcher.RequestTime requestTime, Object... boundValues)
     {
         ClientState clientState =  makeFakeClientState();
         CQLStatement prepared = QueryProcessor.getStatement(query, clientState);
@@ -79,7 +79,7 @@ public class CoordinatorHelper
             if (res != null)
                 res.setWarnings(ClientWarn.instance.getWarnings());
 
-            return RowUtil.toQueryResult(res, false);
+            return RowUtil.toQueryResult(res, deserialize);
         }
         catch (Exception | Error e)
         {

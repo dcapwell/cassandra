@@ -165,6 +165,7 @@ public class ReadSpeculationTest extends TestBaseImpl
             CoordinatorHelper.unsafeExecuteInternal("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1",
                                                     ConsistencyLevel.QUORUM,
                                                     ConsistencyLevel.QUORUM,
+                                                    false,
                                                     new Dispatcher.RequestTime(before - enqueuedNsAgo,
                                                                                before - startedNsAgo));
             long after = System.nanoTime();
@@ -190,6 +191,7 @@ public class ReadSpeculationTest extends TestBaseImpl
                 CoordinatorHelper.unsafeExecuteInternal("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1",
                                                         ConsistencyLevel.QUORUM,
                                                         ConsistencyLevel.QUORUM,
+                                                        false,
                                                         new Dispatcher.RequestTime(before - enqueuedNsAgo,
                                                                                    before - startedNsAgo));
                 throw new AssertionError("Should have timed out");

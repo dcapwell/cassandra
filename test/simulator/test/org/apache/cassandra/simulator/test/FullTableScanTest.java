@@ -19,7 +19,6 @@
 package org.apache.cassandra.simulator.test;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
@@ -48,6 +47,7 @@ import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.IIsolatedExecutor;
 import org.apache.cassandra.distributed.impl.NodeLocalQuery;
 import org.apache.cassandra.distributed.impl.Query;
+import org.apache.cassandra.distributed.impl.RowUtil;
 import org.apache.cassandra.harry.model.ASTSingleTableModel;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.reads.repair.ReadRepairStrategy;
@@ -274,7 +274,7 @@ public class FullTableScanTest extends SimulationTestBase
                                 failures.accept(decorate(throwable));
                                 return;
                             }
-                            model.validate(toRows(objects), scan);
+                            model.validate(RowUtil.toByteBuffer(objects), scan);
                         }
                     };
                 }
@@ -382,7 +382,7 @@ public class FullTableScanTest extends SimulationTestBase
                     statement = statement.visit(StandardVisitors.BIND_TO_LITERAL);
                     if (cl == ConsistencyLevel.NODE_LOCAL)
                         return new NodeLocalQuery(statement.toCQL(), statement.binds());
-                    return new Query(statement.toCQL(), -1, cl, null, statement.binds());
+                    return new Query(statement.toCQL(), -1, false, cl, null, statement.binds());
                 }
 
                 private String displayHistory()
@@ -403,22 +403,6 @@ public class FullTableScanTest extends SimulationTestBase
             };
         }
 
-    }
-
-    private static final ByteBuffer[][] EMPTY = new ByteBuffer[0][];
-    private static ByteBuffer[][] toRows(Object[][] rows)
-    {
-        if (rows.length == 0) return EMPTY;
-        ByteBuffer[][] result = new ByteBuffer[rows.length][];
-        for (int i = 0; i < rows.length; i++)
-        {
-            Object[] in = rows[i];
-            ByteBuffer[] out = new ByteBuffer[in.length];
-            for (int j = 0; j < in.length; j++)
-                out[j] = (ByteBuffer) in[j];
-            result[i] = out;
-        }
-        return result;
     }
 
     private static int spaces(int value)

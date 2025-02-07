@@ -89,10 +89,9 @@ public class Coordinator implements ICoordinator
         }
     }
 
-
     public static SimpleQueryResult unsafeExecuteInternal(String query, ConsistencyLevel consistencyLevel, Object[] boundValues)
     {
-        return CoordinatorHelper.unsafeExecuteInternal(query, null, consistencyLevel, boundValues);
+        return CoordinatorHelper.unsafeExecuteInternal(query, null, consistencyLevel, true, boundValues);
     }
 
 
@@ -109,7 +108,7 @@ public class Coordinator implements ICoordinator
     @Override
     public SimpleQueryResult executeWithResult(String query, ConsistencyLevel serialConsistencyLevel, ConsistencyLevel commitConsistencyLevel, Object... boundValues)
     {
-        return instance.sync(() -> CoordinatorHelper.unsafeExecuteInternal(query, serialConsistencyLevel, commitConsistencyLevel, boundValues)).call();
+        return instance.sync(() -> CoordinatorHelper.unsafeExecuteInternal(query, serialConsistencyLevel, commitConsistencyLevel, true, boundValues)).call();
     }
 
     @Override
@@ -167,7 +166,7 @@ public class Coordinator implements ICoordinator
                                                                    selectStatement.keyspace());
 
                     rows = selectStatement.execute(queryState, nextOptions, requestTime);
-                    iter = Iterators.forArray(RowUtil.toObjects(initialRows.result.metadata.names, rows.result.rows));
+                    iter = Iterators.forArray(RowUtil.toObjects(initialRows.result.metadata.names, rows.result.rows, true));
 
                     return hasNext();
                 }

@@ -34,13 +34,11 @@ import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.distributed.api.QueryResults;
 import org.apache.cassandra.distributed.api.SimpleQueryResult;
 import org.apache.cassandra.transport.messages.ResultMessage;
+import org.apache.cassandra.utils.ByteBufferUtil;
 
 public class RowUtil
 {
-    public static SimpleQueryResult toQueryResult(ResultMessage res)
-    {
-        return toQueryResult(res, true);
-    }
+    private static final ByteBuffer[][] EMPTY_BB_ROWS = new ByteBuffer[0][];
 
     public static SimpleQueryResult toQueryResult(ResultMessage res, boolean deserialize)
     {
@@ -72,19 +70,9 @@ public class RowUtil
         return names.stream().map(c -> c.name.toString()).toArray(String[]::new);
     }
 
-    public static Object[][] toObjects(ResultMessage.Rows rows)
-    {
-        return toObjects(rows.result.metadata.requestNames(), rows.result.rows);
-    }
-
     public static Object[][] toObjects(ResultMessage.Rows rows, boolean deserialize)
     {
         return toObjects(rows.result.metadata.requestNames(), rows.result.rows, deserialize);
-    }
-
-    public static Object[][] toObjects(List<ColumnSpecification> specs, List<List<ByteBuffer>> rows)
-    {
-        return toObjects(specs, rows, true);
     }
 
     public static Object[][] toObjects(List<ColumnSpecification> specs, List<List<ByteBuffer>> rows, boolean deserialize)
@@ -101,6 +89,28 @@ public class RowUtil
                 if (bb != null)
                     result[i][j] = deserialize ? specs.get(j).type.getSerializer().deserialize(bb) : bb;
             }
+        }
+        return result;
+    }
+
+    /**
+     * When {@code deserialize=false} then all values are {@link ByteBuffer}, so this function can be used to convert the {@code Object[][]} to
+     * its {@link ByteBuffer} form.
+     *
+     * Calling this function if {@code  deserialize=true} should be expected to fail, but should not be relied on; it is
+     * safer to assume the behavior is undefined in this case.
+     */
+    public static ByteBuffer[][] toByteBuffer(Object[][] rows)
+    {
+        if (rows.length == 0) return EMPTY_BB_ROWS;
+        ByteBuffer[][] result = new ByteBuffer[rows.length][];
+        for (int i = 0; i < rows.length; i++)
+        {
+            Object[] in = rows[i];
+            ByteBuffer[] out = new ByteBuffer[in.length];
+            for (int j = 0; j < in.length; j++)
+                out[j] = (ByteBuffer) in[j];
+            result[i] = out;
         }
         return result;
     }
