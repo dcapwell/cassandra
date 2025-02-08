@@ -150,6 +150,7 @@ import static org.apache.cassandra.utils.Generators.toGen;
  --add-opens jdk.management.jfr/jdk.management.jfr=ALL-UNNAMED
  --add-opens java.desktop/com.sun.beans.introspect=ALL-UNNAMED
  */
+//TODO (coverage): refactor org.apache.cassandra.distributed.impl.Coordinator.executeWithPagingWithResult so it can be reused by simulator; allow select statements to play with paging
 public class RenameMeTest extends SimulationTestBase
 {
     private static final Gen<Gen.IntGen> VERB_DELAY_DISTRIBUTION_MS = Gens.ints().mixedDistribution(10, 1000);
