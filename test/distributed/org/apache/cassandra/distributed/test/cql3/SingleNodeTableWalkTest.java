@@ -69,7 +69,6 @@ import org.apache.cassandra.utils.AbstractTypeGenerators.TypeGenBuilder;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CassandraGenerators.TableMetadataBuilder;
 import org.apache.cassandra.utils.ImmutableUniqueList;
-import org.quicktheories.generators.SourceDSL;
 
 import static accord.utils.Property.commands;
 import static accord.utils.Property.stateful;
@@ -419,17 +418,17 @@ public class SingleNodeTableWalkTest extends StatefulASTBase
 
             cluster.forEach(i -> i.nodetoolResult("disableautocompaction", metadata.keyspace, this.metadata.name).asserts().success());
 
-            List<LinkedHashMap<Symbol, Object>> uniquePartitions = Gens.lists(toGen(ASTGenerators.columnValues(model.factory.partitionColumns)))
+            List<LinkedHashMap<Symbol, Object>> uniquePartitions = Gens.lists(ASTGenerators.columnValues(model.factory.partitionColumns))
                                                                        .uniqueBestEffort()
                                                                        .ofSize(rs.nextInt(1, 10))
                                                                        .next(rs);
 
-            this.mutationGen = toGen(new ASTGenerators.MutationGenBuilder(metadata)
-                                     .withoutTransaction()
-                                     .withoutTtl()
-                                     .withoutTimestamp()
-                                     .withPartitions(SourceDSL.arbitrary().pick(uniquePartitions))
-                                     .build());
+            this.mutationGen = new ASTGenerators.MutationGenBuilder(metadata)
+                               .withoutTransaction()
+                               .withoutTtl()
+                               .withoutTimestamp()
+                               .withPartitions(Gens.pick(uniquePartitions))
+                               .build();
 
             nonPartitionColumns = ImmutableList.<Symbol>builder()
                                                .addAll(model.factory.clusteringColumns)

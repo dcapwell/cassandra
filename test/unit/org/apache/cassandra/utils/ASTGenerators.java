@@ -41,6 +41,9 @@ import javax.annotation.Nullable;
 
 import com.google.common.collect.Iterables;
 
+import accord.utils.Gen;
+import accord.utils.Gens;
+import accord.utils.RandomSource;
 import org.apache.cassandra.cql3.KnownIssue;
 import org.apache.cassandra.cql3.ast.AssignmentOperator;
 import org.apache.cassandra.cql3.ast.Bind;
@@ -54,7 +57,6 @@ import org.apache.cassandra.cql3.ast.Reference;
 import org.apache.cassandra.cql3.ast.Select;
 import org.apache.cassandra.cql3.ast.Symbol;
 import org.apache.cassandra.cql3.ast.TableReference;
-import org.apache.cassandra.cql3.ast.Txn;
 import org.apache.cassandra.cql3.ast.TypeHint;
 import org.apache.cassandra.cql3.ast.Value;
 import org.apache.cassandra.db.marshal.AbstractType;
@@ -66,13 +68,8 @@ import org.apache.cassandra.db.marshal.SetType;
 import org.apache.cassandra.db.marshal.ShortType;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
-import org.quicktheories.core.Gen;
-import org.quicktheories.core.RandomnessSource;
-import org.quicktheories.generators.SourceDSL;
-import org.quicktheories.impl.Constraint;
 
 import static org.apache.cassandra.utils.AbstractTypeGenerators.getTypeSupport;
-import static org.apache.cassandra.utils.Generators.SYMBOL_GEN;
 import static org.apache.cassandra.utils.Generators.toGen;
 
 public class ASTGenerators
@@ -83,25 +80,24 @@ public class ASTGenerators
     {
         List<Gen<?>> gens = new ArrayList<>(columns.size());
         for (int i = 0; i < columns.size(); i++)
-            gens.add(getTypeSupport(columns.get(i).type()).valueGen);
+            gens.add(toGen(getTypeSupport(columns.get(i).type()).valueGen));
         return rs -> {
             LinkedHashMap<Symbol, Object> vs = new LinkedHashMap<>();
             for (int i = 0; i < columns.size(); i++)
-                vs.put(columns.get(i), gens.get(i).generate(rs));
+                vs.put(columns.get(i), gens.get(i).next(rs));
             return vs;
         };
     }
 
     static Gen<Value> valueGen(Object value, AbstractType<?> type)
     {
-        Gen<Boolean> bool = SourceDSL.booleans().all();
-        return rnd -> bool.generate(rnd) ? new Bind(value, type) : new Literal(value, type);
+        return rs -> rs.nextBoolean() ? new Bind(value, type) : new Literal(value, type);
     }
 
     static Gen<Value> valueGen(AbstractType<?> type)
     {
-        Gen<?> v = AbstractTypeGenerators.getTypeSupport(type).valueGen;
-        return rnd -> valueGen(v.generate(rnd), type).generate(rnd);
+        Gen<?> v = toGen(AbstractTypeGenerators.getTypeSupport(type).valueGen);
+        return rs -> valueGen(v.next(rs), type).next(rs);
     }
 
     private static <K, V> Map<K, V> assertDeterministic(Map<K, V> map)
@@ -118,23 +114,20 @@ public class ASTGenerators
         if (allowed.isEmpty())
             throw new IllegalArgumentException("Unable to create a operator gen for empty set of allowed operators");
         if (allowed.size() == 1)
-            return SourceDSL.arbitrary().constant(new AssignmentOperator(Iterables.getFirst(allowed, null), right));
+            return Gens.constant(new AssignmentOperator(Iterables.getFirst(allowed, null), right));
 
-        Gen<AssignmentOperator.Kind> kind = SourceDSL.arbitrary().pick(new ArrayList<>(allowed));
-        return kind.map(k -> new AssignmentOperator(k, right));
+        return rs -> new AssignmentOperator(rs.pickOrderedSet(allowed), right);
     }
 
-    public static Gen<Operator> operatorGen(Set<Operator.Kind> allowed, Expression e, Gen<Value> paramValueGen)
+    public static Gen<Operator> operatorGen(EnumSet<Operator.Kind> allowed, Expression e, Gen<Value> paramValueGen)
     {
         if (allowed.isEmpty())
             throw new IllegalArgumentException("Unable to create a operator gen for empty set of allowed operators");
-        Gen<Operator.Kind> kindGen = allowed.size() == 1 ?
-                                     SourceDSL.arbitrary().constant(Iterables.getFirst(allowed, null))
-                                                         : SourceDSL.arbitrary().pick(new ArrayList<>(allowed));
-        Gen<Boolean> bool = SourceDSL.booleans().all();
-        return rnd -> {
+        Gen<Operator.Kind> kindGen = rs -> rs.pickOrderedSet(allowed);
+        Gen<Boolean> bool = Gens.bools().all();
+        return rs -> {
             Gen<Value> valueGen = paramValueGen;
-            Operator.Kind kind = kindGen.generate(rnd);
+            Operator.Kind kind = kindGen.next(rs);
             if (kind == Operator.Kind.SUBTRACT && e.type() instanceof MapType)
             {
                 // `map - set` not `map - map`
@@ -146,9 +139,9 @@ public class ASTGenerators
                     return v.with(newValue, newType);
                 });
             }
-            Expression other = valueGen.generate(rnd);
+            Expression other = valueGen.next(rs);
             Expression left, right;
-            if (bool.generate(rnd))
+            if (bool.next(rs))
             {
                 left = e;
                 right = other;
@@ -178,13 +171,13 @@ public class ASTGenerators
         private final AbstractType<T> type;
         private final EnumSet<Operator.Kind> allowedOperators;
         private Gen<T> valueGen;
-        private Gen<Boolean> useOperator = SourceDSL.booleans().all();
+        private Gen<Boolean> useOperator = Gens.bools().all();
         private BiFunction<Object, AbstractType<?>, Gen<Value>> literalOrBindGen = ASTGenerators::valueGen;
 
         public ExpressionBuilder(AbstractType<T> type)
         {
             this.type = type.unwrap();
-            this.valueGen = AbstractTypeGenerators.getTypeSupport(this.type).valueGen;
+            this.valueGen = toGen(AbstractTypeGenerators.getTypeSupport(this.type).valueGen);
             this.allowedOperators = Operator.supportsOperators(this.type);
         }
 
@@ -202,7 +195,7 @@ public class ASTGenerators
 
         public ExpressionBuilder allowOperators()
         {
-            useOperator = SourceDSL.booleans().all();
+            useOperator = Gens.bools().all();
             return this;
         }
 
@@ -215,11 +208,11 @@ public class ASTGenerators
         public Gen<Expression> build()
         {
             //TODO (coverage): rather than single level operators, allow nested (a + b + c + d)
-            Gen<Value> leaf = rs -> literalOrBindGen.apply(valueGen.generate(rs), type).generate(rs);
+            Gen<Value> leaf = rs -> literalOrBindGen.apply(valueGen.next(rs), type).next(rs);
             return rs -> {
-                Expression e = leaf.generate(rs);
-                if (!allowedOperators.isEmpty() && useOperator.generate(rs))
-                    e = operatorGen(allowedOperators, e, leaf).generate(rs);
+                Expression e = leaf.next(rs);
+                if (!allowedOperators.isEmpty() && useOperator.next(rs))
+                    e = operatorGen(allowedOperators, e, leaf).next(rs);
                 return e;
             };
         }
@@ -257,15 +250,14 @@ public class ASTGenerators
         public SelectGenBuilder withDefaultLimit()
         {
             Gen<Optional<Value>> non = ignore -> Optional.empty();
-            Constraint limitLength = Constraint.between(1, 10_000);
-            Gen<Optional<Value>> positive = rnd -> Optional.of(valueGen(Math.toIntExact(rnd.next(limitLength)), Int32Type.instance).generate(rnd));
-            limitGen = non.mix(positive);
+            Gen<Optional<Value>> positive = rs -> Optional.of(valueGen(Math.toIntExact(rs.nextInt(1, 10_001)), Int32Type.instance).next(rs));
+            limitGen = rs -> rs.nextBoolean() ? non.next(rs) : positive.next(rs);
             return this;
         }
 
         public SelectGenBuilder withLimit1()
         {
-            this.limitGen = rnd -> Optional.of(valueGen(1, Int32Type.instance).generate(rnd));
+            this.limitGen = rs -> Optional.of(valueGen(1, Int32Type.instance).next(rs));
             return this;
         }
 
@@ -279,12 +271,12 @@ public class ASTGenerators
         {
             keyGen = rs -> {
                 Map<Symbol, Expression> keys = new LinkedHashMap<>();
-                for (Map.Entry<Symbol, Object> e : assertDeterministic(partitionKeys.generate(rs)).entrySet())
-                    keys.put(e.getKey(), literalOrBindGen.apply(e.getValue(), e.getKey().type()).generate(rs));
+                for (Map.Entry<Symbol, Object> e : assertDeterministic(partitionKeys.next(rs)).entrySet())
+                    keys.put(e.getKey(), literalOrBindGen.apply(e.getValue(), e.getKey().type()).next(rs));
                 if (!metadata.clusteringColumns().isEmpty())
                 {
-                    for (Map.Entry<Symbol, Object> e : assertDeterministic(clusteringKeys.generate(rs)).entrySet())
-                        keys.put(e.getKey(), literalOrBindGen.apply(e.getValue(), e.getKey().type()).generate(rs));
+                    for (Map.Entry<Symbol, Object> e : assertDeterministic(clusteringKeys.next(rs)).entrySet())
+                        keys.put(e.getKey(), literalOrBindGen.apply(e.getValue(), e.getKey().type()).next(rs));
                 }
                 return keys;
             };
@@ -294,10 +286,10 @@ public class ASTGenerators
         public Gen<Select> build()
         {
             Optional<TableReference> ref = Optional.of(TableReference.from(metadata));
-            return rnd -> {
-                List<Expression> select = selectGen.generate(rnd);
-                Conditional keyClause = and(keyGen.generate(rnd));
-                Optional<Value> limit = limitGen.generate(rnd);
+            return rs -> {
+                List<Expression> select = selectGen.next(rs);
+                Conditional keyClause = and(keyGen.next(rs));
+                Optional<Value> limit = limitGen.next(rs);
                 return new Select(select, ref, Optional.of(keyClause), Optional.empty(), limit);
             };
         }
@@ -313,16 +305,15 @@ public class ASTGenerators
         private static Gen<List<Expression>> selectColumns(TableMetadata metadata)
         {
             List<ColumnMetadata> columns = metadata.columnsInFixedOrder();
-            Constraint between = Constraint.between(0, columns.size() - 1);
-            Gen<int[]> indexGen = rnd -> {
-                int size = Math.toIntExact(rnd.next(between)) + 1;
+            Gen<int[]> indexGen = rs -> {
+                int size = Math.toIntExact(rs.nextInt(0, columns.size())) + 1;
                 Set<Integer> dedup = new LinkedHashSet<>();
                 while (dedup.size() < size)
-                    dedup.add(Math.toIntExact(rnd.next(between)));
+                    dedup.add(Math.toIntExact(rs.nextInt(0, columns.size())));
                 return dedup.stream().mapToInt(Integer::intValue).toArray();
             };
-            return rnd -> {
-                int[] indexes = indexGen.generate(rnd);
+            return rs -> {
+                int[] indexes = indexGen.next(rs);
                 List<Expression> es = new ArrayList<>(indexes.length);
                 IntStream.of(indexes).mapToObj(columns::get).forEach(c -> es.add(new Symbol(c)));
                 return es;
@@ -333,13 +324,13 @@ public class ASTGenerators
         {
             Map<ColumnMetadata, Gen<?>> gens = new LinkedHashMap<>();
             for (ColumnMetadata col : metadata.columnsInFixedOrder())
-                gens.put(col, AbstractTypeGenerators.getTypeSupport(col.type).valueGen);
-            return rnd -> {
+                gens.put(col, toGen(AbstractTypeGenerators.getTypeSupport(col.type).valueGen));
+            return rs -> {
                 Map<Symbol, Expression> output = new LinkedHashMap<>();
                 for (ColumnMetadata col : metadata.partitionKeyColumns())
                     output.put(new Symbol(col), gens.get(col)
-                                                    .map(o -> valueGen(o, col.type).generate(rnd))
-                                                    .generate(rnd));
+                                                    .map(o -> valueGen(o, col.type).next(rs))
+                                                    .next(rs));
                 return output;
             };
         }
@@ -353,14 +344,14 @@ public class ASTGenerators
         private final LinkedHashSet<Symbol> partitionColumns, clusteringColumns;
         private final LinkedHashSet<Symbol> primaryColumns;
         private final LinkedHashSet<Symbol> regularColumns, staticColumns, regularAndStaticColumns;
-        private Gen<Mutation.Kind> kindGen = SourceDSL.arbitrary().enumValues(Mutation.Kind.class);
-        private Gen<OptionalInt> ttlGen = SourceDSL.integers().between(1, Math.toIntExact(TimeUnit.DAYS.toSeconds(10))).map(i -> i % 2 == 0 ? OptionalInt.empty() : OptionalInt.of(i));
-        private Gen<OptionalLong> timestampGen = SourceDSL.longs().between(1, Long.MAX_VALUE).map(i -> i % 2 == 0 ? OptionalLong.empty() : OptionalLong.of(i));
+        private Gen<Mutation.Kind> kindGen = Gens.enums().all(Mutation.Kind.class);
+        private Gen<OptionalInt> ttlGen = Gens.ints().between(1, Math.toIntExact(TimeUnit.DAYS.toSeconds(10))).map(i -> i % 2 == 0 ? OptionalInt.empty() : OptionalInt.of(i));
+        private Gen<OptionalLong> timestampGen = Gens.longs().between(1, Long.MAX_VALUE).map(i -> i % 2 == 0 ? OptionalLong.empty() : OptionalLong.of(i));
         private Collection<Reference> references = Collections.emptyList();
-        private Gen<Boolean> withCasGen = SourceDSL.booleans().all();
-        private Gen<Boolean> useCasIf = SourceDSL.booleans().all();
-        private BiFunction<RandomnessSource, List<Symbol>, List<Symbol>> ifConditionFilter = (rnd, symbols) -> symbols;
-        private Gen<DeleteKind> deleteKindGen = SourceDSL.arbitrary().enumValues(DeleteKind.class);
+        private Gen<Boolean> withCasGen = Gens.bools().all();
+        private Gen<Boolean> useCasIf = Gens.bools().all();
+        private BiFunction<RandomSource, List<Symbol>, List<Symbol>> ifConditionFilter = (rs, symbols) -> symbols;
+        private Gen<DeleteKind> deleteKindGen = Gens.enums().all(DeleteKind.class);
         private Map<Symbol, ExpressionBuilder<?>> columnExpressions = new LinkedHashMap<>();
 
         public MutationGenBuilder(TableMetadata metadata)
@@ -388,7 +379,7 @@ public class ASTGenerators
 
         public MutationGenBuilder withDeletionKind(DeleteKind... values)
         {
-            return withDeletionKind(SourceDSL.arbitrary().pick(values));
+            return withDeletionKind(Gens.pick(values));
         }
 
         public MutationGenBuilder withLiteralOrBindGen(BiFunction<Object, AbstractType<?>, Gen<Value>> literalOrBindGen)
@@ -405,13 +396,13 @@ public class ASTGenerators
 
         public MutationGenBuilder withCas()
         {
-            withCasGen = SourceDSL.arbitrary().constant(true);
+            withCasGen = Gens.constant(true);
             return this;
         }
 
         public MutationGenBuilder withoutCas()
         {
-            withCasGen = SourceDSL.arbitrary().constant(false);
+            withCasGen = Gens.constant(false);
             return this;
         }
 
@@ -423,13 +414,13 @@ public class ASTGenerators
 
         public MutationGenBuilder withCasIf()
         {
-            useCasIf = SourceDSL.arbitrary().constant(true);
+            useCasIf = Gens.constant(true);
             return this;
         }
 
         public MutationGenBuilder withoutCasIf()
         {
-            useCasIf = SourceDSL.arbitrary().constant(false);
+            useCasIf = Gens.constant(false);
             return this;
         }
 
@@ -439,7 +430,7 @@ public class ASTGenerators
             return this;
         }
 
-        public MutationGenBuilder withIfColumnFilter(BiFunction<RandomnessSource, List<Symbol>, List<Symbol>> ifConditionFilter)
+        public MutationGenBuilder withIfColumnFilter(BiFunction<RandomSource, List<Symbol>, List<Symbol>> ifConditionFilter)
         {
             this.ifConditionFilter = Objects.requireNonNull(ifConditionFilter);
             return this;
@@ -490,7 +481,7 @@ public class ASTGenerators
             return this;
         }
 
-        private static void values(RandomnessSource rnd,
+        private static void values(RandomSource rs,
                                    Map<Symbol, ExpressionBuilder<?>> columnExpressions,
                                    Conditional.EqBuilder<?> builder,
                                    LinkedHashSet<Symbol> columns,
@@ -498,35 +489,35 @@ public class ASTGenerators
         {
             if (gen != null)
             {
-                Map<Symbol, Object> map = gen.generate(rnd);
+                Map<Symbol, Object> map = gen.next(rs);
                 for (Map.Entry<Symbol, ?> e : assertDeterministic(map).entrySet())
-                    builder.value(e.getKey(), valueGen(e.getValue(), e.getKey().type()).generate(rnd));
+                    builder.value(e.getKey(), valueGen(e.getValue(), e.getKey().type()).next(rs));
             }
             else
             {
                 //TODO (coverage): support IN rather than just EQ
                 for (Symbol s : columns)
-                    builder.value(s, columnExpressions.get(s).build().generate(rnd));
+                    builder.value(s, columnExpressions.get(s).build().next(rs));
             }
         }
 
         public Gen<Mutation> build()
         {
-            Gen<Boolean> bool = SourceDSL.booleans().all();
+            Gen<Boolean> bool = Gens.bools().all();
             Map<? extends AbstractType<?>, List<Reference>> typeToReference = references.stream().collect(Collectors.groupingBy(Reference::type));
-            return rnd -> {
-                Mutation.Kind kind = kindGen.generate(rnd);
+            return rs -> {
+                Mutation.Kind kind = kindGen.next(rs);
                 // when there are not non-primary-columns then can't support UPDATE
                 if (kind == Mutation.Kind.UPDATE && regularColumns.isEmpty())
                 {
                     int i;
                     int maxRetries = 42;
                     for (i = 0; i < maxRetries && kind == Mutation.Kind.UPDATE; i++)
-                        kind = kindGen.generate(rnd);
+                        kind = kindGen.next(rs);
                     if (i == maxRetries)
                         throw new IllegalArgumentException("Kind gen kept returning UPDATE, but not supported when there are no non-primary columns");
                 }
-                boolean isCas = withCasGen.generate(rnd);
+                boolean isCas = withCasGen.next(rs);
                 boolean isTransaction = isCas; //TODO (coverage): add accord support
                 switch (kind)
                 {
@@ -535,20 +526,20 @@ public class ASTGenerators
                         Mutation.InsertBuilder builder = Mutation.insert(metadata);
                         if (isCas)
                             builder.ifNotExists();
-                        var ttl = ttlGen.generate(rnd);
+                        var ttl = ttlGen.next(rs);
                         if (ttl.isPresent())
-                            builder.ttl(valueGen(ttl.getAsInt(), Int32Type.instance).generate(rnd));
-                        var timestamp = timestampGen.generate(rnd);
+                            builder.ttl(valueGen(ttl.getAsInt(), Int32Type.instance).next(rs));
+                        var timestamp = timestampGen.next(rs);
                         if (timestamp.isPresent())
-                            builder.timestamp(valueGen(timestamp.getAsLong(), LongType.instance).generate(rnd));
-                        values(rnd, columnExpressions, builder, partitionColumns, partitionValueGen);
-                        values(rnd, columnExpressions, builder, clusteringColumns, clusteringValueGen);
+                            builder.timestamp(valueGen(timestamp.getAsLong(), LongType.instance).next(rs));
+                        values(rs, columnExpressions, builder, partitionColumns, partitionValueGen);
+                        values(rs, columnExpressions, builder, clusteringColumns, clusteringValueGen);
                         LinkedHashSet<Symbol> columnsToGenerate;
                         if (regularAndStaticColumns.isEmpty())
                         {
                             columnsToGenerate = new LinkedHashSet<>(0);
                         }
-                        else if (regularAndStaticColumns.size() == 1 || bool.generate(rnd))
+                        else if (regularAndStaticColumns.size() == 1 || bool.next(rs))
                         {
                             // all columns
                             columnsToGenerate = new LinkedHashSet<>(regularAndStaticColumns);
@@ -556,37 +547,37 @@ public class ASTGenerators
                         else
                         {
                             // subset
-                            columnsToGenerate = new LinkedHashSet<>(subsetRegularAndStaticColumns(rnd));
+                            columnsToGenerate = new LinkedHashSet<>(subsetRegularAndStaticColumns(rs));
                         }
 
-                        generateRemaining(rnd, bool, Mutation.Kind.INSERT, isTransaction, typeToReference, builder, columnsToGenerate);
+                        generateRemaining(rs, bool, Mutation.Kind.INSERT, isTransaction, typeToReference, builder, columnsToGenerate);
                         return builder.build();
                     }
                     case UPDATE:
                     {
                         Mutation.UpdateBuilder builder = Mutation.update(metadata);
-                        var ttl = ttlGen.generate(rnd);
+                        var ttl = ttlGen.next(rs);
                         if (ttl.isPresent())
-                            builder.ttl(valueGen(ttl.getAsInt(), Int32Type.instance).generate(rnd));
-                        var timestamp = timestampGen.generate(rnd);
+                            builder.ttl(valueGen(ttl.getAsInt(), Int32Type.instance).next(rs));
+                        var timestamp = timestampGen.next(rs);
                         if (timestamp.isPresent())
-                            builder.timestamp(valueGen(timestamp.getAsLong(), LongType.instance).generate(rnd));
+                            builder.timestamp(valueGen(timestamp.getAsLong(), LongType.instance).next(rs));
                         if (isCas)
                         {
-                            if (useCasIf.generate(rnd))
+                            if (useCasIf.next(rs))
                             {
-                                ifGen(new ArrayList<>(regularAndStaticColumns)).generate(rnd).ifPresent(c -> builder.ifCondition(c));
+                                ifGen(new ArrayList<>(regularAndStaticColumns)).next(rs).ifPresent(c -> builder.ifCondition(c));
                             }
                             else
                             {
                                 builder.ifExists();
                             }
                         }
-                        values(rnd, columnExpressions, builder, partitionColumns, partitionValueGen);
-                        values(rnd, columnExpressions, builder, clusteringColumns, clusteringValueGen);
+                        values(rs, columnExpressions, builder, partitionColumns, partitionValueGen);
+                        values(rs, columnExpressions, builder, clusteringColumns, clusteringValueGen);
 
                         LinkedHashSet<Symbol> columnsToGenerate;
-                        if (regularAndStaticColumns.size() == 1 || bool.generate(rnd))
+                        if (regularAndStaticColumns.size() == 1 || bool.next(rs))
                         {
                             // all columns
                             columnsToGenerate = new LinkedHashSet<>(regularAndStaticColumns);
@@ -594,12 +585,12 @@ public class ASTGenerators
                         else
                         {
                             // subset must include a regular column
-                            columnsToGenerate = new LinkedHashSet<>(subset(rnd, regularColumns));
-                            if (!staticColumns.isEmpty() && bool.generate(rnd))
-                                columnsToGenerate.addAll(subset(rnd, staticColumns));
+                            columnsToGenerate = new LinkedHashSet<>(subset(rs, regularColumns));
+                            if (!staticColumns.isEmpty() && bool.next(rs))
+                                columnsToGenerate.addAll(subset(rs, staticColumns));
                         }
                         Conditional.EqBuilder<Mutation.UpdateBuilder> setBuilder = builder::set;
-                        generateRemaining(rnd, bool, Mutation.Kind.UPDATE, isTransaction, typeToReference, setBuilder, columnsToGenerate);
+                        generateRemaining(rs, bool, Mutation.Kind.UPDATE, isTransaction, typeToReference, setBuilder, columnsToGenerate);
                         return builder.build();
                     }
                     case DELETE:
@@ -607,14 +598,14 @@ public class ASTGenerators
                         Mutation.DeleteBuilder builder = Mutation.delete(metadata);
 
                         // 3 types of delete: partition, row, columns
-                        DeleteKind deleteKind = deleteKindGen.generate(rnd);
+                        DeleteKind deleteKind = deleteKindGen.next(rs);
                         // if there are no columns to delete, fallback to row
                         if (deleteKind == DeleteKind.Column && regularAndStaticColumns.isEmpty())
                             deleteKind = DeleteKind.Row;
                         if (deleteKind == DeleteKind.Row && clusteringColumns.isEmpty())
                             deleteKind = DeleteKind.Partition;
 
-                        values(rnd, columnExpressions, builder, partitionColumns, partitionValueGen);
+                        values(rs, columnExpressions, builder, partitionColumns, partitionValueGen);
 
                         switch (deleteKind)
                         {
@@ -622,47 +613,47 @@ public class ASTGenerators
                                 // nothing to do here, already handled
                                 break;
                             case Row:
-                                values(rnd, columnExpressions, builder, clusteringColumns, clusteringValueGen);
+                                values(rs, columnExpressions, builder, clusteringColumns, clusteringValueGen);
                                 break;
                             case Column:
                                 if (clusteringColumns.isEmpty())
                                 {
-                                    subsetRegularAndStaticColumns(rnd).forEach(builder::column);
+                                    subsetRegularAndStaticColumns(rs).forEach(builder::column);
                                 }
                                 else if (staticColumns.isEmpty())
                                 {
-                                    subset(rnd, regularColumns).forEach(builder::column);
-                                    values(rnd, columnExpressions, builder, clusteringColumns, clusteringValueGen);
+                                    subset(rs, regularColumns).forEach(builder::column);
+                                    values(rs, columnExpressions, builder, clusteringColumns, clusteringValueGen);
                                 }
                                 else if (regularColumns.isEmpty())
                                 {
-                                    subset(rnd, staticColumns).forEach(builder::column);
+                                    subset(rs, staticColumns).forEach(builder::column);
                                 }
                                 else
                                 {
                                     // 2 possible states:
                                     // 1) select a row then delete the columns
                                     // 2) select a partition then select static columns only
-                                    if (bool.generate(rnd))
+                                    if (bool.next(rs))
                                     {
                                         // select static
-                                        subset(rnd, staticColumns).forEach(builder::column);
+                                        subset(rs, staticColumns).forEach(builder::column);
                                     }
                                     else
                                     {
                                         // select a row, at least 1 regular, and 0 or more statics
-                                        values(rnd, columnExpressions, builder, clusteringColumns, clusteringValueGen);
-                                        subset(rnd, regularColumns).forEach(builder::column);
-                                        if (bool.generate(rnd))
-                                            subset(rnd, staticColumns).forEach(builder::column);
+                                        values(rs, columnExpressions, builder, clusteringColumns, clusteringValueGen);
+                                        subset(rs, regularColumns).forEach(builder::column);
+                                        if (bool.next(rs))
+                                            subset(rs, staticColumns).forEach(builder::column);
                                     }
                                 }
                                 if (!clusteringColumns.isEmpty() && !staticColumns.isEmpty())
                                 {
-                                    if (bool.generate(rnd))
+                                    if (bool.next(rs))
                                     {
                                         // static only
-                                        subset(rnd, staticColumns).forEach(builder::column);
+                                        subset(rs, staticColumns).forEach(builder::column);
                                     }
                                     else
                                     {
@@ -674,9 +665,9 @@ public class ASTGenerators
                                 throw new UnsupportedOperationException();
                         }
 
-                        var timestamp = timestampGen.generate(rnd);
+                        var timestamp = timestampGen.next(rs);
                         if (timestamp.isPresent())
-                            builder.timestamp(valueGen(timestamp.getAsLong(), LongType.instance).generate(rnd));
+                            builder.timestamp(valueGen(timestamp.getAsLong(), LongType.instance).next(rs));
                         if (isCas)
                         {
                             boolean existAllowed = true;
@@ -724,9 +715,9 @@ public class ASTGenerators
                                 default:
                                     throw new UnsupportedOperationException(deleteKind.name());
                             }
-                            if (!columns.isEmpty() && useCasIf.generate(rnd))
+                            if (!columns.isEmpty() && useCasIf.next(rs))
                             {
-                                ifGen(columns).generate(rnd).ifPresent(builder::ifCondition);
+                                ifGen(columns).next(rs).ifPresent(builder::ifCondition);
                             }
                             else if (existAllowed)
                             {
@@ -745,7 +736,7 @@ public class ASTGenerators
             };
         }
 
-        private void generateRemaining(RandomnessSource rnd,
+        private void generateRemaining(RandomSource rs,
                                        Gen<Boolean> bool,
                                        Mutation.Kind kind,
                                        boolean isTransaction,
@@ -762,10 +753,10 @@ public class ASTGenerators
                     List<Reference> matches = typeToReference.get(s.type());
                     if (matches == null)
                         continue;
-                    if (bool.generate(rnd))
+                    if (bool.next(rs))
                     {
                         columnsToGenerate.remove(s);
-                        builder.value(s, SourceDSL.arbitrary().pick(matches).generate(rnd));
+                        builder.value(s, Gens.pick(matches).next(rs));
                     }
                 }
             }
@@ -775,162 +766,41 @@ public class ASTGenerators
                 {
                     var useOperator = columnExpressions.get(c).useOperator;
                     EnumSet<AssignmentOperator.Kind> additionOperatorAllowed = AssignmentOperator.supportsOperators(c.type());
-                    if (!additionOperatorAllowed.isEmpty() && useOperator.generate(rnd))
+                    if (!additionOperatorAllowed.isEmpty() && useOperator.next(rs))
                     {
-                        Expression expression = columnExpressions.get(c).build().generate(rnd);
-                        builder.value(c, assignmentOperatorGen(additionOperatorAllowed, expression).generate(rnd));
+                        Expression expression = columnExpressions.get(c).build().next(rs);
+                        builder.value(c, assignmentOperatorGen(additionOperatorAllowed, expression).next(rs));
                         columnsToGenerate.remove(c);
                     }
                 }
             }
-            columnsToGenerate.forEach(s -> builder.value(s, columnExpressions.get(s).build().generate(rnd)));
+            columnsToGenerate.forEach(s -> builder.value(s, columnExpressions.get(s).build().next(rs)));
         }
 
-        private List<Symbol> subsetRegularAndStaticColumns(RandomnessSource rnd)
+        private List<Symbol> subsetRegularAndStaticColumns(RandomSource rs)
         {
-            return subset(rnd, regularAndStaticColumns);
+            return subset(rs, regularAndStaticColumns);
         }
 
-        private static List<Symbol> subset(RandomnessSource rnd, LinkedHashSet<Symbol> columns)
+        private static List<Symbol> subset(RandomSource rs, LinkedHashSet<Symbol> columns)
         {
             if (columns.size() == 1)
                 return new ArrayList<>(columns);
-            int numColumns = Math.toIntExact(rnd.next(Constraint.between(1, columns.size())));
-            List<Symbol> subset = Generators.uniqueList(SourceDSL.arbitrary().pick(new ArrayList<>(columns)), i -> numColumns).generate(rnd);
+            int numColumns = rs.nextInt(1, columns.size() + 1);
+            List<Symbol> subset = Gens.lists(r -> r.pickOrderedSet(columns)).unique().ofSize(numColumns).next(rs);
             return subset;
         }
 
         private Gen<Optional<CasCondition.IfCondition>> ifGen(List<Symbol> possibleColumns)
         {
-            return rnd -> {
-                List<Symbol> symbols = ifConditionFilter.apply(rnd, possibleColumns);
+            return rs -> {
+                List<Symbol> symbols = ifConditionFilter.apply(rs, possibleColumns);
                 if (symbols == null || symbols.isEmpty())
                     return Optional.empty();
                 Conditional.Builder builder = new Conditional.Builder();
                 for (Symbol symbol : symbols)
-                    builder.where(symbol, Conditional.Where.Inequality.EQUAL, columnExpressions.get(symbol).build().generate(rnd));
+                    builder.where(symbol, Conditional.Where.Inequality.EQUAL, columnExpressions.get(symbol).build().next(rs));
                 return Optional.of(new CasCondition.IfCondition(builder.build()));
-            };
-        }
-    }
-
-    public static class TxnGenBuilder
-    {
-        public enum TxReturn { NONE, TABLE, REF}
-        private final TableMetadata metadata;
-        private Constraint letRange = Constraint.between(0, 3);
-        private Constraint ifUpdateRange = Constraint.between(1, 3);
-        private Constraint updateRange = Constraint.between(0, 3);
-        private Gen<Select> selectGen;
-        private Gen<TxReturn> txReturnGen = SourceDSL.arbitrary().enumValues(TxReturn.class);
-        private boolean allowReferences = true;
-
-        public TxnGenBuilder(TableMetadata metadata)
-        {
-            this.metadata = metadata;
-            this.selectGen = new SelectGenBuilder(metadata)
-                             .withLimit1()
-                             .build();
-        }
-
-        public TxnGenBuilder withoutReferences()
-        {
-            this.allowReferences = false;
-            return this;
-        }
-
-        public Gen<Txn> build()
-        {
-            Gen<Boolean> bool = SourceDSL.booleans().all();
-            return rnd -> {
-                Txn.Builder builder = new Txn.Builder();
-                do
-                {
-                    int numLets = Math.toIntExact(rnd.next(letRange));
-                    for (int i = 0; i < numLets; i++)
-                    {
-                        // LET doesn't use normal symbol logic and acts closer to a common lanaguage; name does not lower
-                        // case... it is possible that a reserved word gets used, so make sure to use a generator that
-                        // filters those out.
-                        String name;
-                        while (builder.lets().containsKey(name = SYMBOL_GEN.generate(rnd))) {}
-                        builder.addLet(name, selectGen.generate(rnd));
-                    }
-                    Gen<Reference> refGen = SourceDSL.arbitrary().pick(new ArrayList<>(builder.allowedReferences()));
-                    if (allowReferences)
-                    {
-                        switch (txReturnGen.generate(rnd))
-                        {
-                            case REF:
-                            {
-                                if (!builder.allowedReferences().isEmpty())
-                                {
-                                    Gen<List<Reference>> refsGen = SourceDSL.lists().of(refGen).ofSizeBetween(1, Math.max(10, builder.allowedReferences().size()));
-                                    builder.addReturn(new Select((List<Expression>) (List<?>) refsGen.generate(rnd)));
-                                }
-                            }
-                            break;
-                            case TABLE:
-                                builder.addReturn(selectGen.generate(rnd));
-                                break;
-                        }
-                    }
-                    else
-                    {
-                        builder.addReturn(selectGen.generate(rnd));
-                    }
-                    MutationGenBuilder mutationBuilder = new MutationGenBuilder(metadata)
-                                                         .withoutCas()
-                                                         .withoutTimestamp()
-                                                         .withoutTtl()
-                                                         .withReferences(new ArrayList<>(builder.allowedReferences()));
-                    if (!allowReferences)
-                        mutationBuilder.withReferences(Collections.emptyList());
-                    Gen<Mutation> updateGen = mutationBuilder.build();
-                    if (allowReferences && !builder.lets().isEmpty() && bool.generate(rnd))
-                    {
-                        Gen<Conditional> conditionalGen = conditionalGen(refGen);
-                        int numUpdates = Math.toIntExact(rnd.next(ifUpdateRange));
-                        List<Mutation> mutations = new ArrayList<>(numUpdates);
-                        for (int i = 0; i < numUpdates; i++)
-                            mutations.add(updateGen.generate(rnd));
-                        builder.addIf(new Txn.If(conditionalGen.generate(rnd), mutations));
-                    }
-                    else
-                    {
-                        // Current limitation is that mutations are tied to the condition if present; can't have
-                        // a condition and mutations that don't belong to it in v1... once multiple conditions are
-                        // supported then can always attempt to add updates
-                        int numUpdates = Math.toIntExact(rnd.next(updateRange));
-                        for (int i = 0; i < numUpdates; i++)
-                            builder.addUpdate(updateGen.generate(rnd));
-                    }
-                } while (builder.isEmpty());
-                return builder.build();
-            };
-        }
-
-        private static Gen<Conditional> conditionalGen(Gen<Reference> refGen)
-        {
-            Constraint numConditionsConstraint = Constraint.between(1, 10);
-            return rnd -> {
-                //TODO support OR
-                Gen<Conditional.Where> whereGen = whereGen(refGen.generate(rnd));
-                int size = Math.toIntExact(rnd.next(numConditionsConstraint));
-                Conditional accum = whereGen.generate(rnd);
-                for (int i = 1; i < size; i++)
-                    accum = new Conditional.And(accum, whereGen.generate(rnd));
-                return accum;
-            };
-        }
-
-        private static Gen<Conditional.Where> whereGen(Reference ref)
-        {
-            Gen<Conditional.Where.Inequality> kindGen = SourceDSL.arbitrary().enumValues(Conditional.Where.Inequality.class);
-            Gen<?> dataGen = AbstractTypeGenerators.getTypeSupport(ref.type()).valueGen;
-            return rnd -> {
-                Conditional.Where.Inequality kind = kindGen.generate(rnd);
-                return Conditional.Where.create(kind, ref, valueGen(dataGen.generate(rnd), ref.type()).generate(rnd));
             };
         }
     }

@@ -64,7 +64,6 @@ import org.apache.cassandra.utils.AbstractTypeGenerators.TypeSupport;
 import org.apache.cassandra.utils.CassandraGenerators.TableMetadataBuilder;
 import org.apache.cassandra.utils.Generators;
 import org.apache.cassandra.utils.ImmutableUniqueList;
-import org.quicktheories.generators.SourceDSL;
 
 import static accord.utils.Property.commands;
 import static accord.utils.Property.stateful;
@@ -362,12 +361,12 @@ public class SingleNodeTokenConflictTest extends StatefulASTBase
             pkValues.forEach(bb -> uniquePartitions.add(Map.of(PK, bb)));
 
 
-            this.mutationGen = toGen(new ASTGenerators.MutationGenBuilder(metadata)
-                                     .withoutTransaction()
-                                     .withoutTtl()
-                                     .withoutTimestamp()
-                                     .withPartitions(SourceDSL.arbitrary().pick(uniquePartitions))
-                                     .build());
+            this.mutationGen = new ASTGenerators.MutationGenBuilder(metadata)
+                               .withoutTransaction()
+                               .withoutTtl()
+                               .withoutTimestamp()
+                               .withPartitions(Gens.pick(uniquePartitions))
+                               .build();
         }
 
         @Override

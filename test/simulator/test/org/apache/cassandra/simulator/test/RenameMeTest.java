@@ -262,7 +262,7 @@ public class RenameMeTest extends SimulationTestBase
         @Override
         protected ActionList execute()
         {
-            List<LinkedHashMap<Symbol, Object>> uniquePartitions = Gens.lists(toGen(ASTGenerators.columnValues(model.factory.partitionColumns)))
+            List<LinkedHashMap<Symbol, Object>> uniquePartitions = Gens.lists(ASTGenerators.columnValues(model.factory.partitionColumns))
                                                                        .uniqueBestEffort()
                                                                        .ofSize(rs.nextInt(1, 20))
                                                                        .next(rs);
@@ -274,12 +274,12 @@ public class RenameMeTest extends SimulationTestBase
 
         private Action sequentialPartitionAccess(LinkedHashMap<Symbol, Object> partition)
         {
-            Gen<Mutation> mutationGen = toGen(new ASTGenerators.MutationGenBuilder(metadata)
-                                              .withoutTransaction()
-                                              .withoutTtl()
-                                              .withoutTimestamp()
-                                              .withPartitions(i -> partition)
-                                              .build());
+            Gen<Mutation> mutationGen = new ASTGenerators.MutationGenBuilder(metadata)
+                                        .withoutTransaction()
+                                        .withoutTtl()
+                                        .withoutTimestamp()
+                                        .withPartitions(i -> partition)
+                                        .build();
             Select fullPartitionRead = select(partition).build();
             //TODO (coverage): once SAI and ALLOW FILTERING issues are addressed for single partition queries, add them here
             Gens.OneOfBuilder<Action> commandsBuilder = Gens.<Action>oneOf()
