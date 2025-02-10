@@ -23,6 +23,7 @@ import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
@@ -51,11 +52,13 @@ import org.apache.cassandra.cql3.KnownIssue;
 import org.apache.cassandra.cql3.ast.Bind;
 import org.apache.cassandra.cql3.ast.CQLFormatter;
 import org.apache.cassandra.cql3.ast.Conditional;
+import org.apache.cassandra.cql3.ast.CreateIndexDDL;
 import org.apache.cassandra.cql3.ast.Literal;
 import org.apache.cassandra.cql3.ast.Mutation;
 import org.apache.cassandra.cql3.ast.Select;
 import org.apache.cassandra.cql3.ast.StandardVisitors;
 import org.apache.cassandra.cql3.ast.Statement;
+import org.apache.cassandra.cql3.ast.Symbol;
 import org.apache.cassandra.cql3.ast.TableReference;
 import org.apache.cassandra.cql3.ast.Value;
 import org.apache.cassandra.cql3.ast.Visitor;
@@ -75,6 +78,8 @@ import org.apache.cassandra.distributed.test.TestBaseImpl;
 import org.apache.cassandra.harry.model.ASTSingleTableModel;
 import org.apache.cassandra.harry.util.StringUtils;
 import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.utils.ASTGenerators.ModelBasedSelect;
+import org.apache.cassandra.utils.ASTGenerators.ModelBasedSelect.Annotated;
 import org.apache.cassandra.utils.AbstractTypeGenerators;
 import org.apache.cassandra.utils.CassandraGenerators;
 import org.apache.cassandra.utils.FastByteOperations;
@@ -184,8 +189,7 @@ public class StatefulASTBase extends TestBaseImpl
 
     protected static <S extends BaseState> Property.Command<S, Void, ?> fullTableScan(RandomSource rs, S state)
     {
-        Select select = Select.builder(state.metadata).build();
-        return state.command(rs, select, "full table scan");
+        return state.command(rs, state.selects.fullTableScan());
     }
 
     protected static abstract class BaseState implements AutoCloseable
@@ -202,7 +206,9 @@ public class StatefulASTBase extends TestBaseImpl
         protected final Gen.IntGen fetchSizeGen;
         protected final TableMetadata metadata;
         protected final TableReference tableRef;
+        protected final LinkedHashMap<Symbol, CreateIndexDDL.IndexedColumn> indexes;
         protected final ASTSingleTableModel model;
+        protected final ModelBasedSelect selects;
         private final Visitor debug;
         private final int enoughMemtables;
         private final int enoughSSTables;
@@ -233,8 +239,12 @@ public class StatefulASTBase extends TestBaseImpl
 
             this.metadata = metadata;
             this.tableRef = TableReference.from(metadata);
+            this.indexes = createTable(metadata);
             this.model = new ASTSingleTableModel(metadata);
-            createTable(metadata);
+            this.selects = new ModelBasedSelect(model, indexes)
+                           .multiNode(isMultiNode())
+                           .ignoredIssues(IGNORED_ISSUES)
+                           .rangeInequalityGen(rangeInequalityGen);
         }
 
         protected boolean isMultiNode()
@@ -242,12 +252,13 @@ public class StatefulASTBase extends TestBaseImpl
             return cluster.size() > 1;
         }
 
-        protected void createTable(TableMetadata metadata)
+        protected LinkedHashMap<Symbol, CreateIndexDDL.IndexedColumn> createTable(TableMetadata metadata)
         {
             cluster.schemaChange(createKeyspaceCQL(metadata.keyspace));
 
             CassandraGenerators.visitUDTs(metadata, next -> cluster.schemaChange(next.toCqlString(false, false, true)));
             cluster.schemaChange(metadata.toCqlString(false, false, false));
+            return new LinkedHashMap<>();
         }
 
         private String createKeyspaceCQL(String ks)
@@ -301,6 +312,12 @@ public class StatefulASTBase extends TestBaseImpl
                 s.model.update(mutation);
                 s.mutation();
             });
+        }
+
+        public <S extends BaseState> Property.Command<S, Void, ?> command(RandomSource rs, Gen<Annotated> gen)
+        {
+            Annotated annotated = gen.next(rs);
+            return command(rs, annotated.select, annotated.annotation);
         }
 
         protected IInvokableInstance selectInstance(RandomSource rs)

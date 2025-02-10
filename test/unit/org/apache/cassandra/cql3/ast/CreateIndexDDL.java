@@ -259,4 +259,21 @@ public class CreateIndexDDL implements Element
             return Stream.of(column);
         }
     }
+
+    public static class IndexedColumn
+    {
+        public final Symbol symbol;
+        public final CreateIndexDDL indexDDL;
+
+        public IndexedColumn(Symbol symbol, CreateIndexDDL indexDDL)
+        {
+            this.symbol = symbol;
+            this.indexDDL = indexDDL;
+        }
+
+        public EnumSet<QueryType> supportedQueries()
+        {
+            return indexDDL.indexer.supportedQueries(symbol.type());
+        }
+    }
 }

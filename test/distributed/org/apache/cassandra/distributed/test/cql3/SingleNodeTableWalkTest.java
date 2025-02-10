@@ -19,21 +19,12 @@
 package org.apache.cassandra.distributed.test.cql3;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.NavigableSet;
 import java.util.Optional;
-import java.util.TreeMap;
 import java.util.stream.Collectors;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Sets;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,32 +34,22 @@ import accord.utils.Gens;
 import accord.utils.Property;
 import accord.utils.RandomSource;
 import org.apache.cassandra.cql3.KnownIssue;
-import org.apache.cassandra.cql3.ast.Bind;
-import org.apache.cassandra.cql3.ast.Conditional;
 import org.apache.cassandra.cql3.ast.CreateIndexDDL;
-import org.apache.cassandra.cql3.ast.FunctionCall;
 import org.apache.cassandra.cql3.ast.Mutation;
 import org.apache.cassandra.cql3.ast.ReferenceExpression;
-import org.apache.cassandra.cql3.ast.Select;
 import org.apache.cassandra.cql3.ast.Symbol;
 import org.apache.cassandra.cql3.ast.TableReference;
-import org.apache.cassandra.cql3.ast.Value;
-import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.marshal.AbstractType;
-import org.apache.cassandra.db.marshal.InetAddressType;
 import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.test.sai.SAIUtil;
-import org.apache.cassandra.harry.model.BytesPartitionState;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.ASTGenerators;
 import org.apache.cassandra.utils.AbstractTypeGenerators;
 import org.apache.cassandra.utils.AbstractTypeGenerators.TypeGenBuilder;
-import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CassandraGenerators.TableMetadataBuilder;
-import org.apache.cassandra.utils.ImmutableUniqueList;
 
 import static accord.utils.Property.commands;
 import static accord.utils.Property.stateful;
@@ -99,240 +80,6 @@ public class SingleNodeTableWalkTest extends StatefulASTBase
         return Collections.singletonList(CreateIndexDDL.SAI);
     }
 
-    public Property.Command<State, Void, ?> selectExisting(RandomSource rs, State state)
-    {
-        NavigableSet<BytesPartitionState.Ref> keys = state.model.partitionKeys();
-        BytesPartitionState.Ref ref = rs.pickOrderedSet(keys);
-        Clustering<ByteBuffer> key = ref.key;
-
-        Select.Builder builder = Select.builder().table(state.metadata);
-        ImmutableUniqueList<Symbol> pks = state.model.factory.partitionColumns;
-        ImmutableUniqueList<Symbol> cks = state.model.factory.clusteringColumns;
-        for (Symbol pk : pks)
-            builder.value(pk, key.bufferAt(pks.indexOf(pk)));
-
-        boolean wholePartition = cks.isEmpty() || rs.nextBoolean();
-        if (!wholePartition)
-        {
-            // find a row to select
-            BytesPartitionState partition = state.model.get(ref);
-            if (partition.isEmpty())
-            {
-                wholePartition = true;
-            }
-            else
-            {
-                NavigableSet<Clustering<ByteBuffer>> clusteringKeys = partition.clusteringKeys();
-                Clustering<ByteBuffer> clusteringKey = rs.pickOrderedSet(clusteringKeys);
-                for (Symbol ck : cks)
-                    builder.value(ck, clusteringKey.bufferAt(cks.indexOf(ck)));
-            }
-        }
-        Select select = builder.build();
-        return state.command(rs, select, (wholePartition ? "Whole Partition" : "Single Row"));
-    }
-
-    public Property.Command<State, Void, ?> selectToken(RandomSource rs, State state)
-    {
-        NavigableSet<BytesPartitionState.Ref> keys = state.model.partitionKeys();
-        BytesPartitionState.Ref ref = rs.pickOrderedSet(keys);
-
-        Select.Builder builder = Select.builder().table(state.metadata);
-        builder.where(FunctionCall.tokenByColumns(state.model.factory.partitionColumns),
-                      Conditional.Where.Inequality.EQUAL,
-                      token(state, ref));
-
-        Select select = builder.build();
-        return state.command(rs, select, "by token");
-    }
-
-    public Property.Command<State, Void, ?> selectTokenRange(RandomSource rs, State state)
-    {
-        NavigableSet<BytesPartitionState.Ref> keys = state.model.partitionKeys();
-        BytesPartitionState.Ref start, end;
-        switch (keys.size())
-        {
-            case 1:
-                start = end = Iterables.get(keys, 0);
-                break;
-            case 2:
-                start = Iterables.get(keys, 0);
-                end = Iterables.get(keys, 1);
-                break;
-            case 0:
-                throw new IllegalArgumentException("Unable to select token ranges when no partitions exist");
-            default:
-            {
-                int si = rs.nextInt(0, keys.size() - 1);
-                int ei = rs.nextInt(si + 1, keys.size());
-                start = Iterables.get(keys, si);
-                end = Iterables.get(keys, ei);
-            }
-            break;
-        }
-        Select.Builder builder = Select.builder().table(state.metadata);
-        FunctionCall pkToken = FunctionCall.tokenByColumns(state.model.factory.partitionColumns);
-        boolean startInclusive = rs.nextBoolean();
-        boolean endInclusive = rs.nextBoolean();
-        if (startInclusive && endInclusive && rs.nextBoolean())
-        {
-            // between
-            builder.between(pkToken, token(state, start), token(state, end));
-        }
-        else
-        {
-            builder.where(pkToken,
-                          startInclusive ? Conditional.Where.Inequality.GREATER_THAN_EQ : Conditional.Where.Inequality.GREATER_THAN,
-                          token(state, start));
-            builder.where(pkToken,
-                          endInclusive ? Conditional.Where.Inequality.LESS_THAN_EQ : Conditional.Where.Inequality.LESS_THAN,
-                          token(state, end));
-        }
-        Select select = builder.build();
-        return state.command(rs, select, "by token range");
-    }
-
-    public Property.Command<State, Void, ?> partitionRestrictedQuery(RandomSource rs, State state)
-    {
-        //TODO (now): remove duplicate logic
-        NavigableSet<BytesPartitionState.Ref> keys = state.model.partitionKeys();
-        BytesPartitionState.Ref ref = rs.pickOrderedSet(keys);
-        Clustering<ByteBuffer> key = ref.key;
-
-        Select.Builder builder = Select.builder().table(state.metadata);
-        ImmutableUniqueList<Symbol> pks = state.model.factory.partitionColumns;
-        for (Symbol pk : pks)
-            builder.value(pk, key.bufferAt(pks.indexOf(pk)));
-
-
-        Symbol symbol;
-        List<Symbol> searchableColumns = state.nonPartitionColumns;
-        if (state.hasMultiNodeAllowFilteringWithLocalWritesIssue())
-        {
-            if (state.nonPkIndexedColumns.isEmpty())
-                throw new AssertionError("Ignoring AF_MULTI_NODE_AND_NODE_LOCAL_WRITES is defined, but no non-partition columns are indexed");
-            symbol = rs.pick(state.nonPkIndexedColumns);
-        }
-        else
-        {
-            symbol = rs.pick(searchableColumns);
-        }
-
-        TreeMap<ByteBuffer, List<BytesPartitionState.PrimaryKey>> universe = state.model.index(ref, symbol);
-        // we need to index 'null' so LT works, but we can not directly query it... so filter out when selecting values
-        NavigableSet<ByteBuffer> allowed = Sets.filter(universe.navigableKeySet(), b -> !ByteBufferUtil.EMPTY_BYTE_BUFFER.equals(b));
-        if (allowed.isEmpty())
-            return Property.ignoreCommand();
-        ByteBuffer value = rs.pickOrderedSet(allowed);
-
-        EnumSet<CreateIndexDDL.QueryType> supported = !state.indexes.containsKey(symbol)
-                                                      ? EnumSet.noneOf(CreateIndexDDL.QueryType.class)
-                                                      : state.indexes.get(symbol).supportedQueries();
-        if (supported.isEmpty() || !supported.contains(CreateIndexDDL.QueryType.Range))
-            builder.allowFiltering();
-
-        // there are known SAI bugs, so need to avoid them to stay stable...
-        if (state.indexes.containsKey(symbol) && state.indexes.get(symbol).indexDDL.indexer == CreateIndexDDL.SAI)
-        {
-            if (symbol.type() == InetAddressType.instance
-                && IGNORED_ISSUES.contains(KnownIssue.SAI_INET_MIXED))
-                return eqSearch(rs, state, symbol, value, builder);
-        }
-
-        if (rs.nextBoolean())
-            return simpleRangeSearch(rs, state, symbol, value, builder);
-        //TODO (coverage): define search that has a upper and lower bound: a > and a < | a beteeen ? and ?
-        return eqSearch(rs, state, symbol, value, builder);
-    }
-
-    public Property.Command<State, Void, ?> nonPartitionQuery(RandomSource rs, State state)
-    {
-        Symbol symbol;
-        if (state.hasMultiNodeAllowFilteringWithLocalWritesIssue())
-        {
-            symbol = rs.pickUnorderedSet(state.indexes.keySet());
-        }
-        else
-        {
-            symbol = rs.pick(state.searchableColumns);
-        }
-        TreeMap<ByteBuffer, List<BytesPartitionState.PrimaryKey>> universe = state.model.index(symbol);
-        // we need to index 'null' so LT works, but we can not directly query it... so filter out when selecting values
-        NavigableSet<ByteBuffer> allowed = Sets.filter(universe.navigableKeySet(), b -> !ByteBufferUtil.EMPTY_BYTE_BUFFER.equals(b));
-        if (allowed.isEmpty())
-            return Property.ignoreCommand();
-        ByteBuffer value = rs.pickOrderedSet(allowed);
-        Select.Builder builder = Select.builder().table(state.metadata);
-
-        EnumSet<CreateIndexDDL.QueryType> supported = !state.indexes.containsKey(symbol) ? EnumSet.noneOf(CreateIndexDDL.QueryType.class) : state.indexes.get(symbol).supportedQueries();
-        if (supported.isEmpty() || !supported.contains(CreateIndexDDL.QueryType.Range))
-            builder.allowFiltering();
-
-        // there are known SAI bugs, so need to avoid them to stay stable...
-        if (state.indexes.containsKey(symbol) && state.indexes.get(symbol).indexDDL.indexer == CreateIndexDDL.SAI)
-        {
-            if (symbol.type() == InetAddressType.instance
-                && IGNORED_ISSUES.contains(KnownIssue.SAI_INET_MIXED))
-                return eqSearch(rs, state, symbol, value, builder);
-        }
-
-        if (rs.nextBoolean())
-            return simpleRangeSearch(rs, state, symbol, value, builder);
-        //TODO (coverage): define search that has a upper and lower bound: a > and a < | a beteeen ? and ?
-        return eqSearch(rs, state, symbol, value, builder);
-    }
-
-    public Property.Command<State, Void, ?> multiColumnQuery(RandomSource rs, State state)
-    {
-        List<Symbol> allowedColumns = state.multiColumnQueryColumns();
-
-        if (allowedColumns.size() <= 1)
-            throw new IllegalArgumentException("Unable to do multiple column query when there is only a single column");
-
-        int numColumns = rs.nextInt(1, allowedColumns.size()) + 1;
-
-        List<Symbol> cols = Gens.lists(Gens.pick(allowedColumns)).unique().ofSize(numColumns).next(rs);
-
-        Select.Builder builder = Select.builder().table(state.metadata).allowFiltering();
-
-        for (Symbol symbol : cols)
-        {
-            TreeMap<ByteBuffer, List<BytesPartitionState.PrimaryKey>> universe = state.model.index(symbol);
-            NavigableSet<ByteBuffer> allowed = Sets.filter(universe.navigableKeySet(), b -> !ByteBufferUtil.EMPTY_BYTE_BUFFER.equals(b));
-            //TODO (now): support
-            if (allowed.isEmpty())
-                return Property.ignoreCommand();
-            ByteBuffer value = rs.pickOrderedSet(allowed);
-            builder.value(symbol, value);
-        }
-
-        Select select = builder.build();
-        String annotate = cols.stream().map(symbol -> {
-            var indexed = state.indexes.get(symbol);
-            return symbol.detailedName() + (indexed == null ? "" : " (indexed with " + indexed.indexDDL.indexer.name() + ")");
-        }).collect(Collectors.joining(", "));
-        return state.command(rs, select, annotate);
-    }
-
-    private Property.Command<State, Void, ?> simpleRangeSearch(RandomSource rs, State state, Symbol symbol, ByteBuffer value, Select.Builder builder)
-    {
-        // do a simple search, like > or <
-        Conditional.Where.Inequality kind = state.rangeInequalityGen.next(rs);
-        builder.where(symbol, kind, value);
-        Select select = builder.build();
-        var indexed = state.indexes.get(symbol);
-        return state.command(rs, select, symbol.detailedName() + (indexed == null ? "" : ", indexed with " + indexed.indexDDL.indexer.name()));
-    }
-
-    private Property.Command<State, Void, ?> eqSearch(RandomSource rs, State state, Symbol symbol, ByteBuffer value, Select.Builder builder)
-    {
-        builder.value(symbol, value);
-
-        Select select = builder.build();
-        var indexed = state.indexes.get(symbol);
-        return state.command(rs, select, symbol.detailedName() + (indexed == null ? "" : ", indexed with " + indexed.indexDDL.indexer.name()));
-    }
-
     protected State createState(RandomSource rs, Cluster cluster)
     {
         return new State(rs, cluster);
@@ -353,14 +100,14 @@ public class SingleNodeTableWalkTest extends StatefulASTBase
             statefulBuilder.check(commands(() -> rs -> createState(rs, cluster))
                                   .add(StatefulASTBase::insert)
                                   .add(StatefulASTBase::fullTableScan)
-                                  .addIf(State::hasPartitions, this::selectExisting)
-                                  .addAllIf(State::supportTokens, b -> b.add(this::selectToken)
-                                                                        .add(this::selectTokenRange))
+                                  .addIf(State::hasPartitions, (rs, state) -> state.command(rs, state.selects.existing()))
+                                  .addAllIf(State::supportTokens, b -> b.add((rs, state) -> state.command(rs, state.selects.token()))
+                                                                        .add((rs, state) -> state.command(rs, state.selects.tokenRange())))
                                   .addIf(State::hasEnoughMemtable, StatefulASTBase::flushTable)
                                   .addIf(State::hasEnoughSSTables, StatefulASTBase::compactTable)
-                                  .addIf(State::allowNonPartitionQuery, this::nonPartitionQuery)
-                                  .addIf(State::allowNonPartitionMultiColumnQuery, this::multiColumnQuery)
-                                  .addIf(State::allowPartitionQuery, this::partitionRestrictedQuery)
+                                  .addIf(State::allowNonPartitionQuery, (rs, state) -> state.command(rs, state.selects.nonPartitionQuery()))
+                                  .addIf(State::allowNonPartitionMultiColumnQuery, (rs, state) -> state.command(rs, state.selects.multiColumnQuery()))
+                                  .addIf(State::allowPartitionQuery, (rs, state) -> state.command(rs, state.selects.partitionRestrictedQuery()))
                                   .destroyState(State::close)
                                   .onSuccess(onSuccess(logger))
                                   .build());
@@ -390,31 +137,13 @@ public class SingleNodeTableWalkTest extends StatefulASTBase
                                   .collect(Collectors.toList());
     }
 
-    private static FunctionCall token(State state, BytesPartitionState.Ref ref)
-    {
-        Preconditions.checkNotNull(ref.key);
-        List<Value> values = new ArrayList<>(ref.key.size());
-        for (int i = 0; i < ref.key.size(); i++)
-        {
-            ByteBuffer bb = ref.key.bufferAt(i);
-            Symbol type = state.model.factory.partitionColumns.get(i);
-            values.add(new Bind(bb, type.type()));
-        }
-        return FunctionCall.tokenByValue(values);
-    }
-
     public class State extends CommonState
     {
-        protected final LinkedHashMap<Symbol, IndexedColumn> indexes;
         private final Gen<Mutation> mutationGen;
-        private final List<Symbol> nonPartitionColumns;
-        private final List<Symbol> searchableColumns;
 
         public State(RandomSource rs, Cluster cluster)
         {
             super(rs, cluster, defineTable(rs, nextKeyspace()));
-
-            this.indexes = createIndexes(rs, metadata);
 
             cluster.forEach(i -> i.nodetoolResult("disableautocompaction", metadata.keyspace, this.metadata.name).asserts().success());
 
@@ -429,14 +158,13 @@ public class SingleNodeTableWalkTest extends StatefulASTBase
                                .withoutTimestamp()
                                .withPartitions(Gens.pick(uniquePartitions))
                                .build();
+        }
 
-            nonPartitionColumns = ImmutableList.<Symbol>builder()
-                                               .addAll(model.factory.clusteringColumns)
-                                               .addAll(model.factory.staticColumns)
-                                               .addAll(model.factory.regularColumns)
-                                               .build();
-
-            searchableColumns = metadata.partitionKeyColumns().size() > 1 ?  model.factory.selectionOrder : nonPartitionColumns;
+        @Override
+        protected LinkedHashMap<Symbol, CreateIndexDDL.IndexedColumn> createTable(TableMetadata metadata)
+        {
+            super.createTable(metadata);
+            return createIndexes(rs, metadata);
         }
 
         @Override
@@ -445,9 +173,9 @@ public class SingleNodeTableWalkTest extends StatefulASTBase
             return mutationGen;
         }
 
-        private LinkedHashMap<Symbol, IndexedColumn> createIndexes(RandomSource rs, TableMetadata metadata)
+        private LinkedHashMap<Symbol, CreateIndexDDL.IndexedColumn> createIndexes(RandomSource rs, TableMetadata metadata)
         {
-            LinkedHashMap<Symbol, IndexedColumn> indexed = new LinkedHashMap<>();
+            LinkedHashMap<Symbol, CreateIndexDDL.IndexedColumn> indexed = new LinkedHashMap<>();
             // for some test runs, avoid using indexes
             if (rs.nextBoolean())
                 return indexed;
@@ -482,7 +210,7 @@ public class SingleNodeTableWalkTest extends StatefulASTBase
                 //noinspection OptionalGetWithoutIsPresent
                 SAIUtil.waitForIndexQueryable(cluster, metadata.keyspace, ddl.name.get().name());
 
-                indexed.put(symbol, new IndexedColumn(symbol, ddl));
+                indexed.put(symbol, new CreateIndexDDL.IndexedColumn(symbol, ddl));
             }
             return indexed;
         }
@@ -499,7 +227,7 @@ public class SingleNodeTableWalkTest extends StatefulASTBase
 
         public boolean allowNonPartitionQuery()
         {
-            boolean result = !model.isEmpty() && !searchableColumns.isEmpty();
+            boolean result = !model.isEmpty() && !selects.searchableColumns.isEmpty();
             if (hasMultiNodeAllowFilteringWithLocalWritesIssue())
             {
                 return hasNonPkIndexedColumns() && result;
@@ -509,15 +237,7 @@ public class SingleNodeTableWalkTest extends StatefulASTBase
 
         public boolean allowNonPartitionMultiColumnQuery()
         {
-            return allowNonPartitionQuery() && multiColumnQueryColumns().size() > 1;
-        }
-
-        private List<Symbol> multiColumnQueryColumns()
-        {
-            List<Symbol> allowedColumns = searchableColumns;
-            if (hasMultiNodeAllowFilteringWithLocalWritesIssue())
-                allowedColumns = nonPkIndexedColumns;
-            return allowedColumns;
+            return allowNonPartitionQuery() && selects.multiColumnQueryColumns().size() > 1;
         }
 
         private boolean hasMultiNodeAllowFilteringWithLocalWritesIssue()
@@ -525,10 +245,9 @@ public class SingleNodeTableWalkTest extends StatefulASTBase
             return isMultiNode() && IGNORED_ISSUES.contains(KnownIssue.AF_MULTI_NODE_AND_NODE_LOCAL_WRITES);
         }
 
-        public List<Symbol> nonPkIndexedColumns;
         public boolean allowPartitionQuery()
         {
-            if (model.isEmpty() || nonPartitionColumns.isEmpty()) return false;
+            if (model.isEmpty() || selects.nonPartitionColumns.isEmpty()) return false;
             if (hasMultiNodeAllowFilteringWithLocalWritesIssue())
                 return hasNonPkIndexedColumns();
             return true;
@@ -536,10 +255,7 @@ public class SingleNodeTableWalkTest extends StatefulASTBase
 
         private boolean hasNonPkIndexedColumns()
         {
-            nonPkIndexedColumns = nonPartitionColumns.stream()
-                                                     .filter(indexes::containsKey)
-                                                     .collect(Collectors.toList());
-            return !nonPkIndexedColumns.isEmpty();
+            return !selects.nonPartitionIndexedColumns.isEmpty();
         }
 
         @Override
@@ -550,23 +266,6 @@ public class SingleNodeTableWalkTest extends StatefulASTBase
             toString(sb);
             indexes.values().forEach(c -> sb.append('\n').append(c.indexDDL.toCQL()).append(';'));
             return sb.toString();
-        }
-    }
-
-    public static class IndexedColumn
-    {
-        public final Symbol symbol;
-        public final CreateIndexDDL indexDDL;
-
-        public IndexedColumn(Symbol symbol, CreateIndexDDL indexDDL)
-        {
-            this.symbol = symbol;
-            this.indexDDL = indexDDL;
-        }
-
-        public EnumSet<CreateIndexDDL.QueryType> supportedQueries()
-        {
-            return indexDDL.indexer.supportedQueries(symbol.type());
         }
     }
 }

@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.utils;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -27,6 +28,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableSet;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -35,11 +37,16 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Sets;
 
 import accord.utils.Gen;
 import accord.utils.Gens;
@@ -49,7 +56,9 @@ import org.apache.cassandra.cql3.ast.AssignmentOperator;
 import org.apache.cassandra.cql3.ast.Bind;
 import org.apache.cassandra.cql3.ast.CasCondition;
 import org.apache.cassandra.cql3.ast.Conditional;
+import org.apache.cassandra.cql3.ast.CreateIndexDDL;
 import org.apache.cassandra.cql3.ast.Expression;
+import org.apache.cassandra.cql3.ast.FunctionCall;
 import org.apache.cassandra.cql3.ast.Literal;
 import org.apache.cassandra.cql3.ast.Mutation;
 import org.apache.cassandra.cql3.ast.Operator;
@@ -59,13 +68,17 @@ import org.apache.cassandra.cql3.ast.Symbol;
 import org.apache.cassandra.cql3.ast.TableReference;
 import org.apache.cassandra.cql3.ast.TypeHint;
 import org.apache.cassandra.cql3.ast.Value;
+import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.db.marshal.InetAddressType;
 import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.db.marshal.IntegerType;
 import org.apache.cassandra.db.marshal.LongType;
 import org.apache.cassandra.db.marshal.MapType;
 import org.apache.cassandra.db.marshal.SetType;
 import org.apache.cassandra.db.marshal.ShortType;
+import org.apache.cassandra.harry.model.ASTSingleTableModel;
+import org.apache.cassandra.harry.model.BytesPartitionState;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 
@@ -802,6 +815,356 @@ public class ASTGenerators
                     builder.where(symbol, Conditional.Where.Inequality.EQUAL, columnExpressions.get(symbol).build().next(rs));
                 return Optional.of(new CasCondition.IfCondition(builder.build()));
             };
+        }
+    }
+
+    public static class ModelBasedSelect
+    {
+        private static final List<Conditional.Where.Inequality> RANGE_INEQUALITY = Stream.of(Conditional.Where.Inequality.values())
+                                                                                         .filter(i -> i != Conditional.Where.Inequality.EQUAL && i != Conditional.Where.Inequality.NOT_EQUAL)
+                                                                                         .collect(Collectors.toList());
+        
+        private final ASTSingleTableModel model;
+        private final TableMetadata metadata;
+        private final LinkedHashMap<Symbol, CreateIndexDDL.IndexedColumn> indexes;
+        public final ImmutableList<Symbol> nonPartitionColumns;
+        public final ImmutableList<Symbol> nonPartitionIndexedColumns;
+        public final ImmutableList<Symbol> searchableColumns;
+        // mutable
+        private boolean multiNode = true;
+        private EnumSet<KnownIssue> ignoredIssues = KnownIssue.ignoreAll();
+        private Gen<Conditional.Where.Inequality> rangeInequalityGen = Gens.pick(RANGE_INEQUALITY);
+        private Function<AbstractType<?>, Gen<ByteBuffer>> dataGenFor = t -> toGen(getTypeSupport(t).bytesGen());
+
+        public ModelBasedSelect(ASTSingleTableModel model, LinkedHashMap<Symbol, CreateIndexDDL.IndexedColumn> indexes)
+        {
+            this.model = model;
+            this.metadata = model.factory.metadata;
+            this.indexes = indexes;
+
+            this.nonPartitionColumns = ImmutableList.<Symbol>builder()
+                                               .addAll(model.factory.clusteringColumns)
+                                               .addAll(model.factory.staticColumns)
+                                               .addAll(model.factory.regularColumns)
+                                               .build();
+            this.nonPartitionIndexedColumns = ImmutableList.copyOf(nonPartitionColumns.stream()
+                                                                                      .filter(indexes::containsKey)
+                                                                                      .collect(Collectors.toList()));
+
+            this.searchableColumns = metadata.partitionKeyColumns().size() > 1 ?  ImmutableList.copyOf(model.factory.selectionOrder) : this.nonPartitionColumns;
+        }
+
+        public ModelBasedSelect multiNode(boolean value)
+        {
+            multiNode = value;
+            return this;
+        }
+
+        public ModelBasedSelect ignoredIssues(EnumSet<KnownIssue> issues)
+        {
+            ignoredIssues = issues;
+            return this;
+        }
+
+        public ModelBasedSelect rangeInequalityGen(Gen<Conditional.Where.Inequality> rangeInequalityGen)
+        {
+            this.rangeInequalityGen = rangeInequalityGen;
+            return this;
+        }
+
+        public List<Symbol> multiColumnQueryColumns()
+        {
+            List<Symbol> allowedColumns = searchableColumns;
+            if (hasMultiNodeAllowFilteringWithLocalWritesIssue())
+                allowedColumns = nonPartitionIndexedColumns;
+            return allowedColumns;
+        }
+        
+        public Gen<Annotated> fullTableScan()
+        {
+            Annotated annotated = new Annotated(Select.builder(metadata).build(), "full table scan");
+            return Gens.constant(annotated);
+        }
+        
+        public Gen<Annotated> existing()
+        {
+            return rs -> {
+                NavigableSet<BytesPartitionState.Ref> keys = model.partitionKeys();
+                BytesPartitionState.Ref ref = rs.pickOrderedSet(keys);
+                Clustering<ByteBuffer> key = ref.key;
+
+                Select.Builder builder = Select.builder().table(metadata);
+                ImmutableUniqueList<Symbol> pks = model.factory.partitionColumns;
+                ImmutableUniqueList<Symbol> cks = model.factory.clusteringColumns;
+                for (Symbol pk : pks)
+                    builder.value(pk, key.bufferAt(pks.indexOf(pk)));
+
+                boolean wholePartition = cks.isEmpty() || rs.nextBoolean();
+                if (!wholePartition)
+                {
+                    // find a row to select
+                    BytesPartitionState partition = model.get(ref);
+                    if (partition.isEmpty())
+                    {
+                        wholePartition = true;
+                    }
+                    else
+                    {
+                        NavigableSet<Clustering<ByteBuffer>> clusteringKeys = partition.clusteringKeys();
+                        Clustering<ByteBuffer> clusteringKey = rs.pickOrderedSet(clusteringKeys);
+                        for (Symbol ck : cks)
+                            builder.value(ck, clusteringKey.bufferAt(cks.indexOf(ck)));
+                    }
+                }
+                return new Annotated(builder.build(), (wholePartition ? "Whole Partition" : "Single Row"));
+            };
+        }
+
+        public Gen<Annotated> token()
+        {
+            return rs -> {
+                NavigableSet<BytesPartitionState.Ref> keys = model.partitionKeys();
+                BytesPartitionState.Ref ref = rs.pickOrderedSet(keys);
+
+                Select.Builder builder = Select.builder().table(metadata);
+                builder.where(FunctionCall.tokenByColumns(model.factory.partitionColumns),
+                              Conditional.Where.Inequality.EQUAL,
+                              token(model.factory.partitionColumns, ref));
+                
+                return new Annotated(builder.build(), "by token");
+            };
+        }
+
+        public Gen<Annotated> tokenRange()
+        {
+            return rs -> {
+                NavigableSet<BytesPartitionState.Ref> keys = model.partitionKeys();
+                BytesPartitionState.Ref start, end;
+                switch (keys.size())
+                {
+                    case 1:
+                        start = end = Iterables.get(keys, 0);
+                        break;
+                    case 2:
+                        start = Iterables.get(keys, 0);
+                        end = Iterables.get(keys, 1);
+                        break;
+                    case 0:
+                        throw new IllegalArgumentException("Unable to select token ranges when no partitions exist");
+                    default:
+                    {
+                        int si = rs.nextInt(0, keys.size() - 1);
+                        int ei = rs.nextInt(si + 1, keys.size());
+                        start = Iterables.get(keys, si);
+                        end = Iterables.get(keys, ei);
+                    }
+                    break;
+                }
+                Select.Builder builder = Select.builder().table(metadata);
+                FunctionCall pkToken = FunctionCall.tokenByColumns(model.factory.partitionColumns);
+                boolean startInclusive = rs.nextBoolean();
+                boolean endInclusive = rs.nextBoolean();
+                if (startInclusive && endInclusive && rs.nextBoolean())
+                {
+                    // between
+                    builder.between(pkToken, token(model.factory.partitionColumns, start), token(model.factory.partitionColumns, end));
+                }
+                else
+                {
+                    builder.where(pkToken,
+                                  startInclusive ? Conditional.Where.Inequality.GREATER_THAN_EQ : Conditional.Where.Inequality.GREATER_THAN,
+                                  token(model.factory.partitionColumns, start));
+                    builder.where(pkToken,
+                                  endInclusive ? Conditional.Where.Inequality.LESS_THAN_EQ : Conditional.Where.Inequality.LESS_THAN,
+                                  token(model.factory.partitionColumns, end));
+                }
+                return new Annotated(builder.build(), "by token range");
+            };
+        }
+
+        public Gen<Annotated> multiColumnQuery()
+        {
+            return rs -> {
+                List<Symbol> allowedColumns = multiColumnQueryColumns();
+
+                if (allowedColumns.size() <= 1)
+                    throw new IllegalArgumentException("Unable to do multiple column query when there is only a single column");
+
+                int numColumns = rs.nextInt(1, allowedColumns.size()) + 1;
+
+                List<Symbol> cols = Gens.lists(Gens.pick(allowedColumns)).unique().ofSize(numColumns).next(rs);
+
+                Select.Builder builder = Select.builder().table(metadata).allowFiltering();
+
+                for (Symbol symbol : cols)
+                {
+                    TreeMap<ByteBuffer, List<BytesPartitionState.PrimaryKey>> universe = model.index(symbol);
+                    NavigableSet<ByteBuffer> allowed = Sets.filter(universe.navigableKeySet(), b -> !ByteBufferUtil.EMPTY_BYTE_BUFFER.equals(b));
+                    ByteBuffer value = value(rs, symbol, allowed);
+                    builder.value(symbol, value);
+                }
+
+                String annotate = cols.stream().map(symbol -> {
+                    var indexed = indexes.get(symbol);
+                    return symbol.detailedName() + (indexed == null ? "" : " (indexed with " + indexed.indexDDL.indexer.name() + ")");
+                }).collect(Collectors.joining(", "));
+                return new Annotated(builder.build(), annotate);
+            };
+        }
+
+        public Gen<Annotated> nonPartitionQuery()
+        {
+            return rs -> {
+                Symbol symbol;
+                if (hasMultiNodeAllowFilteringWithLocalWritesIssue())
+                {
+                    symbol = rs.pickUnorderedSet(indexes.keySet());
+                }
+                else
+                {
+                    symbol = rs.pick(searchableColumns);
+                }
+                TreeMap<ByteBuffer, List<BytesPartitionState.PrimaryKey>> universe = model.index(symbol);
+                // we need to index 'null' so LT works, but we can not directly query it... so filter out when selecting values
+                NavigableSet<ByteBuffer> allowed = Sets.filter(universe.navigableKeySet(), b -> !ByteBufferUtil.EMPTY_BYTE_BUFFER.equals(b));
+                ByteBuffer value = value(rs, symbol, allowed);
+                Select.Builder builder = Select.builder().table(metadata);
+
+                EnumSet<CreateIndexDDL.QueryType> supported = !indexes.containsKey(symbol) ? EnumSet.noneOf(CreateIndexDDL.QueryType.class) : indexes.get(symbol).supportedQueries();
+                if (supported.isEmpty() || !supported.contains(CreateIndexDDL.QueryType.Range))
+                    builder.allowFiltering();
+
+                // there are known SAI bugs, so need to avoid them to stay stable...
+                if (indexes.containsKey(symbol) && indexes.get(symbol).indexDDL.indexer == CreateIndexDDL.SAI)
+                {
+                    if (symbol.type() == InetAddressType.instance
+                        && ignoredIssues.contains(KnownIssue.SAI_INET_MIXED))
+                        return eqSearch(rs, symbol, value, builder);
+                }
+
+                if (rs.nextBoolean())
+                    return simpleRangeSearch(rs, symbol, value, builder);
+                //TODO (coverage): define search that has a upper and lower bound: a > and a < | a beteeen ? and ?
+                return eqSearch(rs, symbol, value, builder);
+            };
+        }
+
+        public Gen<Annotated> partitionRestrictedQuery()
+        {
+            return rs -> {
+                //TODO (now): remove duplicate logic
+                NavigableSet<BytesPartitionState.Ref> keys = model.partitionKeys();
+                BytesPartitionState.Ref ref = rs.pickOrderedSet(keys);
+                Clustering<ByteBuffer> key = ref.key;
+
+                Select.Builder builder = Select.builder().table(metadata);
+                ImmutableUniqueList<Symbol> pks = model.factory.partitionColumns;
+                for (Symbol pk : pks)
+                    builder.value(pk, key.bufferAt(pks.indexOf(pk)));
+
+
+                Symbol symbol;
+                List<Symbol> searchableColumns = nonPartitionColumns;
+                if (hasMultiNodeAllowFilteringWithLocalWritesIssue())
+                {
+                    if (nonPartitionIndexedColumns.isEmpty())
+                        throw new AssertionError("Ignoring AF_MULTI_NODE_AND_NODE_LOCAL_WRITES is defined, but no non-partition columns are indexed");
+                    symbol = rs.pick(nonPartitionIndexedColumns);
+                }
+                else
+                {
+                    symbol = rs.pick(searchableColumns);
+                }
+
+                TreeMap<ByteBuffer, List<BytesPartitionState.PrimaryKey>> universe = model.index(ref, symbol);
+                // we need to index 'null' so LT works, but we can not directly query it... so filter out when selecting values
+                NavigableSet<ByteBuffer> allowed = Sets.filter(universe.navigableKeySet(), b -> !ByteBufferUtil.EMPTY_BYTE_BUFFER.equals(b));
+                ByteBuffer value = value(rs, symbol, allowed);
+
+                EnumSet<CreateIndexDDL.QueryType> supported = !indexes.containsKey(symbol)
+                                                              ? EnumSet.noneOf(CreateIndexDDL.QueryType.class)
+                                                              : indexes.get(symbol).supportedQueries();
+                if (supported.isEmpty() || !supported.contains(CreateIndexDDL.QueryType.Range))
+                    builder.allowFiltering();
+
+                // there are known SAI bugs, so need to avoid them to stay stable...
+                if (indexes.containsKey(symbol) && indexes.get(symbol).indexDDL.indexer == CreateIndexDDL.SAI)
+                {
+                    if (symbol.type() == InetAddressType.instance
+                        && ignoredIssues.contains(KnownIssue.SAI_INET_MIXED))
+                        return eqSearch(rs, symbol, value, builder);
+                }
+
+                if (rs.nextBoolean())
+                    return simpleRangeSearch(rs, symbol, value, builder);
+                //TODO (coverage): define search that has a upper and lower bound: a > and a < | a beteeen ? and ?
+                return eqSearch(rs, symbol, value, builder);
+            };
+        }
+
+        public Gen<Gen<Annotated>> all()
+        {
+            return Gens.<Annotated>oneOf()
+                       .add(fullTableScan())
+                       .add(existing())
+                       .add(token())
+                       .add(tokenRange())
+                       .add(multiColumnQuery())
+                       .add(nonPartitionQuery())
+                       .add(partitionRestrictedQuery())
+                       .buildWithDynamicWeights();
+        }
+
+        public static class Annotated
+        {
+            public final Select select;
+            @Nullable
+            public final String annotation;
+
+            public Annotated(Select select, @Nullable String annotation)
+            {
+                this.select = select;
+                this.annotation = annotation;
+            }
+        }
+
+        private boolean hasMultiNodeAllowFilteringWithLocalWritesIssue()
+        {
+            return multiNode && ignoredIssues.contains(KnownIssue.AF_MULTI_NODE_AND_NODE_LOCAL_WRITES);
+        }
+
+        private Annotated simpleRangeSearch(RandomSource rs, Symbol symbol, ByteBuffer value, Select.Builder builder)
+        {
+            // do a simple search, like > or <
+            Conditional.Where.Inequality kind = rangeInequalityGen.next(rs);
+            builder.where(symbol, kind, value);
+            var indexed = indexes.get(symbol);
+            return new Annotated(builder.build(), symbol.detailedName() + (indexed == null ? "" : ", indexed with " + indexed.indexDDL.indexer.name()));
+        }
+
+        private Annotated eqSearch(RandomSource rs, Symbol symbol, ByteBuffer value, Select.Builder builder)
+        {
+            builder.value(symbol, value);
+            var indexed = indexes.get(symbol);
+            return new Annotated(builder.build(), symbol.detailedName() + (indexed == null ? "" : ", indexed with " + indexed.indexDDL.indexer.name()));
+        }
+
+        private ByteBuffer value(RandomSource rs, Symbol symbol, NavigableSet<ByteBuffer> allowed)
+        {
+            return !allowed.isEmpty() ? rs.pickOrderedSet(allowed) : dataGenFor.apply(symbol.type()).next(rs);
+        }
+
+        private static FunctionCall token(ImmutableUniqueList<Symbol> partitionColumns, BytesPartitionState.Ref ref)
+        {
+            Preconditions.checkNotNull(ref.key);
+            List<Value> values = new ArrayList<>(ref.key.size());
+            for (int i = 0; i < ref.key.size(); i++)
+            {
+                ByteBuffer bb = ref.key.bufferAt(i);
+                Symbol type = partitionColumns.get(i);
+                values.add(new Bind(bb, type.type()));
+            }
+            return FunctionCall.tokenByValue(values);
         }
     }
 }
