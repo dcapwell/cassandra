@@ -66,6 +66,7 @@ import org.apache.cassandra.simulator.Actions;
 import org.apache.cassandra.simulator.AlwaysDeliverNetworkScheduler;
 import org.apache.cassandra.simulator.FutureActionScheduler;
 import org.apache.cassandra.simulator.RunnableActionScheduler;
+import org.apache.cassandra.simulator.SimulationRunner;
 import org.apache.cassandra.simulator.cluster.ClusterActions;
 import org.apache.cassandra.simulator.systems.SimulatedActionCallable;
 import org.apache.cassandra.simulator.systems.SimulatedSystems;
@@ -169,10 +170,10 @@ public class RenameMeTest extends SimulationTestBase
     public void test() throws IOException
     {
         // To rerun a failed seed
-//        testOne(SimulationRunner.parseHex("0x2fdbf73aa849f2a4"));
+        testOne(SimulationRunner.parseHex("0x7e581aef4a92d9b6"));
 
-        for (int i = 0; i < MAX_EXAMPLES; i++)
-            testOne(SeedProvider.instance.nextSeed());
+//        for (int i = 0; i < MAX_EXAMPLES; i++)
+//            testOne(SeedProvider.instance.nextSeed());
     }
 
     private void testOne(long seed) throws IOException
@@ -183,15 +184,15 @@ public class RenameMeTest extends SimulationTestBase
         Gen.IntGen delayMillis = VERB_DELAY_DISTRIBUTION_MS.next(rs);
         simulate(seed, ASTSingleTableSimulation::new, b ->
                                                       b.futureActionScheduler((i1, time, i2) -> new AlwaysDeliverNetworkScheduler(time))
-                                                       .perVerbFutureActionSchedulers((i1, time, i2) -> {
-                                                           Map<Verb, FutureActionScheduler> map = new HashMap<>();
-                                                           for (Verb verb : Verb.values())
-                                                               map.put(verb, new AlwaysDeliverNetworkScheduler(time, TimeUnit.MILLISECONDS.toNanos(delayMillis.nextInt(rs))));
-                                                           return map;
-                                                       })
-                                                       .writeTimeoutNanos(SECONDS.toNanos(120))
-                                                       .readTimeoutNanos(SECONDS.toNanos(120))
-                                                       .requestTimeoutNanos(SECONDS.toNanos(120))
+//                                                       .perVerbFutureActionSchedulers((i1, time, i2) -> {
+//                                                           Map<Verb, FutureActionScheduler> map = new HashMap<>();
+//                                                           for (Verb verb : Verb.values())
+//                                                               map.put(verb, new AlwaysDeliverNetworkScheduler(time, TimeUnit.MILLISECONDS.toNanos(delayMillis.nextInt(rs))));
+//                                                           return map;
+//                                                       })
+//                                                       .writeTimeoutNanos(SECONDS.toNanos(120))
+//                                                       .readTimeoutNanos(SECONDS.toNanos(120))
+//                                                       .requestTimeoutNanos(SECONDS.toNanos(120))
                                                        .threadCount(1000)
                                                        .nodes(numNodes, numNodes)
                                                        .dcs(numDcs, numDcs));
