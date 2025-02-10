@@ -1102,7 +1102,17 @@ public class ASTGenerators
             };
         }
 
-        public Gen<Gen<Annotated>> all()
+        public Gen<Annotated> all()
+        {
+            return buildAll().build();
+        }
+
+        public Gen<Gen<Annotated>> allWithDynamicWeights()
+        {
+            return buildAll().buildWithDynamicWeights();
+        }
+
+        private Gens.OneOfBuilder<Annotated> buildAll()
         {
             return Gens.<Annotated>oneOf()
                        .add(fullTableScan())
@@ -1111,8 +1121,7 @@ public class ASTGenerators
                        .add(tokenRange())
                        .add(multiColumnQuery())
                        .add(nonPartitionQuery())
-                       .add(partitionRestrictedQuery())
-                       .buildWithDynamicWeights();
+                       .add(partitionRestrictedQuery());
         }
 
         public static class Annotated
