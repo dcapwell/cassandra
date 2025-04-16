@@ -23,8 +23,6 @@ import java.util.List;
 import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.concurrent.atomic.AtomicBoolean;
-
 
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
@@ -39,7 +37,6 @@ import org.apache.cassandra.CassandraTestBase.PrepareServerNoRegister;
 import org.apache.cassandra.CassandraTestBase.UseMurmur3Partitioner;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.ServerTestUtils;
-import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.distributed.test.log.ClusterMetadataTestHelper;
@@ -56,8 +53,6 @@ import org.apache.cassandra.tcm.membership.NodeId;
 import org.apache.cassandra.tcm.ownership.MovementMap;
 import org.apache.cassandra.tcm.sequences.BootstrapAndJoin;
 import org.apache.cassandra.utils.Pair;
-import org.jboss.byteman.contrib.bmunit.BMRule;
-import org.jboss.byteman.contrib.bmunit.BMRules;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -68,22 +63,6 @@ import static org.junit.Assert.assertTrue;
 public class BootStrapperTest extends CassandraTestBase
 {
     static Predicate<Replica> originalAlivePredicate = RangeStreamer.ALIVE_PREDICATE;
-    public static AtomicBoolean nonOptimizationHit = new AtomicBoolean(false);
-    public static AtomicBoolean optimizationHit = new AtomicBoolean(false);
-    private static final IFailureDetector mockFailureDetector = new IFailureDetector()
-    {
-        public boolean isAlive(InetAddressAndPort ep)
-        {
-            return true;
-        }
-
-        public void interpret(InetAddressAndPort ep) { throw new UnsupportedOperationException(); }
-        public void report(InetAddressAndPort ep) { throw new UnsupportedOperationException(); }
-        public void registerFailureDetectionEventListener(IFailureDetectionEventListener listener) { throw new UnsupportedOperationException(); }
-        public void unregisterFailureDetectionEventListener(IFailureDetectionEventListener listener) { throw new UnsupportedOperationException(); }
-        public void remove(InetAddressAndPort ep) { throw new UnsupportedOperationException(); }
-        public void forceConviction(InetAddressAndPort ep) { throw new UnsupportedOperationException(); }
-    };
 
     @BeforeClass
     public static void setup() throws ConfigurationException
@@ -115,49 +94,47 @@ public class BootStrapperTest extends CassandraTestBase
         }
     }
 
-    @Test
-    @BMRules(rules = { @BMRule(name = "Make sure the non-optimized path is picked up for some operations",
-                               targetClass = "org.apache.cassandra.dht.RangeStreamer",
-                               targetMethod = "convertPreferredEndpointsToWorkMap(EndpointsByReplica)",
-                               action = "org.apache.cassandra.dht.BootStrapperTest.nonOptimizationHit.set(true)"),
-                       @BMRule(name = "Make sure the optimized path is picked up for some operations",
-                               targetClass = "org.apache.cassandra.dht.RangeStreamer",
-                               targetMethod = "getOptimizedWorkMap(EndpointsByReplica,Collection,String)",
-                               action = "org.apache.cassandra.dht.BootStrapperTest.optimizationHit.set(true)") })
-    public void testStreamingCandidatesOptmizationSkip() throws UnknownHostException
-    {
-        testSkipStreamingCandidatesOptmizationFeatureFlag(true, true, false, getRangeStreamer());
-        testSkipStreamingCandidatesOptmizationFeatureFlag(false, true, true, getRangeStreamer());
-    }
-
-    private void testSkipStreamingCandidatesOptmizationFeatureFlag(boolean disableOptimization, boolean nonOptimizedPathHit, boolean optimizedPathHit, RangeStreamer s) throws UnknownHostException
-    {
-        try
-        {
-            nonOptimizationHit.set(false);
-            optimizationHit.set(false);
-            CassandraRelevantProperties.SKIP_OPTIMAL_STREAMING_CANDIDATES_CALCULATION.setBoolean(disableOptimization);
-
-            for (String keyspaceName : Schema.instance.getUserKeyspaces().names())
-                s.addKeyspaceToFetch(keyspaceName);
-
-            assertEquals(nonOptimizedPathHit, nonOptimizationHit.get());
-            if (disableOptimization) // The optimized path may or not be hit depending on the code.
-                assertEquals(optimizedPathHit, optimizationHit.get());
-        }
-        finally
-        {
-            CassandraRelevantProperties.SKIP_OPTIMAL_STREAMING_CANDIDATES_CALCULATION.reset();
-        }
-    }
-
     private RangeStreamer testSourceTargetComputation(String keyspaceName, int numOldNodes, int replicationFactor) throws UnknownHostException
     {
         ServerTestUtils.resetCMS();
         generateFakeEndpoints(numOldNodes);
         ClusterMetadata metadata = ClusterMetadata.current();
+
         assertEquals(numOldNodes, metadata.tokenMap.tokens().size());
-        RangeStreamer s = getRangeStreamer();
+        IFailureDetector mockFailureDetector = new IFailureDetector()
+        {
+            public boolean isAlive(InetAddressAndPort ep)
+            {
+                return true;
+            }
+
+            public void interpret(InetAddressAndPort ep) { throw new UnsupportedOperationException(); }
+            public void report(InetAddressAndPort ep) { throw new UnsupportedOperationException(); }
+            public void registerFailureDetectionEventListener(IFailureDetectionEventListener listener) { throw new UnsupportedOperationException(); }
+            public void unregisterFailureDetectionEventListener(IFailureDetectionEventListener listener) { throw new UnsupportedOperationException(); }
+            public void remove(InetAddressAndPort ep) { throw new UnsupportedOperationException(); }
+            public void forceConviction(InetAddressAndPort ep) { throw new UnsupportedOperationException(); }
+        };
+
+        Token myToken = metadata.partitioner.getRandomToken();
+        InetAddressAndPort myEndpoint = InetAddressAndPort.getByName("127.0.0.1");
+        NodeId newNode = ClusterMetadataTestHelper.register(myEndpoint);
+        ClusterMetadataTestHelper.JoinProcess join = ClusterMetadataTestHelper.lazyJoin(myEndpoint, myToken);
+        join.prepareJoin();
+        metadata = ClusterMetadata.current();
+        BootstrapAndJoin joiningPlan = (BootstrapAndJoin) metadata.inProgressSequences.get(newNode);
+        Pair<MovementMap, MovementMap> movements = joiningPlan.getMovementMaps(metadata);
+        RangeStreamer s = new RangeStreamer(metadata,
+                                            StreamOperation.BOOTSTRAP,
+                                            true,
+                                            DatabaseDescriptor.getNodeProximity(),
+                                            new StreamStateStore(),
+                                            mockFailureDetector,
+                                            false,
+                                            1,
+                                            movements.left,
+                                            movements.right,
+                                            true);
 
         assertNotNull(Keyspace.open(keyspaceName));
         s.addKeyspaceToFetch(keyspaceName);
@@ -181,39 +158,8 @@ public class BootStrapperTest extends CassandraTestBase
         // there isn't any point in testing the size of these collections for any specific size.  When a random partitioner
         // is used, they will vary.
         assert toFetch.values().size() > 0;
-
-        assert toFetch.keys().stream().noneMatch(InetAddressAndPort.getByName("127.0.0.1")::equals);
+        assert toFetch.keys().stream().noneMatch(myEndpoint::equals);
         return s;
-    }
-
-    private RangeStreamer getRangeStreamer() throws UnknownHostException
-    {
-        ClusterMetadata metadata = ClusterMetadata.current();
-        Pair<MovementMap, MovementMap> movements = Pair.create(MovementMap.empty(), MovementMap.empty());
-
-        if (metadata.myNodeId() == null)
-        {
-            Token myToken = metadata.partitioner.getRandomToken();
-            InetAddressAndPort myEndpoint = InetAddressAndPort.getByName("127.0.0.1");
-            NodeId newNode = ClusterMetadataTestHelper.register(myEndpoint);
-            ClusterMetadataTestHelper.JoinProcess join = ClusterMetadataTestHelper.lazyJoin(myEndpoint, myToken);
-            join.prepareJoin();
-            metadata = ClusterMetadata.current();
-            BootstrapAndJoin joiningPlan = (BootstrapAndJoin) metadata.inProgressSequences.get(newNode);
-            movements = joiningPlan.getMovementMaps(metadata);
-        }
-
-        return new RangeStreamer(metadata,
-               StreamOperation.BOOTSTRAP,
-               true,
-               DatabaseDescriptor.getNodeProximity(),
-               new StreamStateStore(),
-               mockFailureDetector,
-               false,
-               1,
-               movements.left,
-               movements.right,
-               true);
     }
 
     private boolean includesWraparound(Collection<Range<Token>> toFetch)
