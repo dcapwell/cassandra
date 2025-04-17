@@ -28,11 +28,4 @@ public class MigrationToAccordReadRaceTest extends AccordMigrationReadRaceTestBa
     {
         return false;
     }
-
-    @Ignore
-    @Override
-    public void testBounds() throws Throwable
-    {
-        super.testBounds();
-    }
 }
