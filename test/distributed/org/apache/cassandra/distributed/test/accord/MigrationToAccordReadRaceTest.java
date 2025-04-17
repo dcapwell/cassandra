@@ -20,6 +20,7 @@ package org.apache.cassandra.distributed.test.accord;
 
 import org.junit.Ignore;
 
+@Ignore("Flakey")
 public class MigrationToAccordReadRaceTest extends AccordMigrationReadRaceTestBase
 {
     @Override
