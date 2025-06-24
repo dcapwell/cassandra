@@ -18,12 +18,9 @@
 
 package org.apache.cassandra.fuzz.topology;
 
-import org.junit.Test;
-
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
-import org.apache.cassandra.distributed.shared.ClusterUtils;
 import org.apache.cassandra.distributed.test.log.FuzzTestBase;
 import org.apache.cassandra.harry.SchemaSpec;
 import org.apache.cassandra.harry.dsl.HistoryBuilder;
@@ -35,22 +32,28 @@ import org.apache.cassandra.harry.gen.SchemaGenerators;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.service.accord.AccordKeyspace;
 import org.apache.cassandra.service.accord.AccordService;
+import org.apache.cassandra.service.accord.JournalKey;
 import org.apache.cassandra.service.consensus.TransactionalMode;
+import org.junit.Assert;
+import org.junit.Test;
+
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.apache.cassandra.harry.checker.TestHelper.withRandom;
 
-public class IdenticalTopologyTest extends FuzzTestBase
+public class JournalGCTest extends FuzzTestBase
 {
     private static final int POPULATION = 1000;
 
     @Test
-    public void identicalTopologyTest() throws Throwable
+    public void journalGCTest() throws Throwable
     {
         try (Cluster cluster = init(builder().withNodes(1)
-                                             .withConfig(cfg -> cfg.set("accord.journal.compaction_period", "600s") // deliberately high
-                                                                   .set("max_value_size", "1MiB")) // deliberately low
-                                             .start(),
-                                    1))
+                                            .withConfig(cfg -> cfg.set("accord.gc_delay", "1s")
+                                                    .set("accord.shard_durability_target_splits", "1")
+                                                    .set("accord.shard_durability_cycle", "1s")
+                                                    .set("accord.global_durability_cycle", "1s"))
+                                            .start()))
         {
             withRandom(rng -> {
                 cluster.get(1).runOnInstance(() -> {
@@ -59,37 +62,54 @@ public class IdenticalTopologyTest extends FuzzTestBase
 
                 Generator<SchemaSpec> schemaGen = SchemaGenerators.trivialSchema(KEYSPACE, () -> "bootstrap_fuzz", POPULATION,
                                                                                  SchemaSpec.optionsBuilder()
-                                                                                           .addWriteTimestamps(false)
-                                                                                           .withTransactionalMode(TransactionalMode.full));
+                                                                                         .addWriteTimestamps(false)
+                                                                                         .withTransactionalMode(TransactionalMode.full));
 
                 SchemaSpec schema = schemaGen.generate(rng);
                 cluster.schemaChange(schema.compile());
                 HistoryBuilder history = new ReplayingHistoryBuilder(schema.valueGenerators,
                                                                      hb -> InJvmDTestVisitExecutor.builder()
-                                                                                                  .consistencyLevel(ConsistencyLevel.QUORUM)
-                                                                                                  .wrapQueries(QueryBuildingVisitExecutor.WrapQueries.TRANSACTION)
-                                                                                                  .pageSizeSelector(p -> InJvmDTestVisitExecutor.PageSizeSelector.NO_PAGING)
-                                                                                                  .build(schema, hb, cluster));
+                                                                             .consistencyLevel(ConsistencyLevel.QUORUM)
+                                                                             .wrapQueries(QueryBuildingVisitExecutor.WrapQueries.TRANSACTION)
+                                                                             .pageSizeSelector(p -> InJvmDTestVisitExecutor.PageSizeSelector.NO_PAGING)
+                                                                             .build(schema, hb, cluster));
 
-                for (int i = 0; i <= 100; i++)
-                {
-                    cluster.schemaChange(String.format("ALTER TABLE %s.%s WITH comment = '%d';", schema.keyspace, schema.table, i));
-
-                    for (int j = 0; j < 5; j++)
-                        history.insert(j);
-                    if (i % 20 == 0)
-                    {
-                        cluster.get(1).runOnInstance(() -> {
-                            ((AccordService) AccordService.instance()).journal().closeCurrentSegmentForTestingIfNonEmpty();
-                        });
-                    }
+                for (int pk = 0; pk < 500; pk++) {
+                    for (int i = 0; i < 500; i++)
+                        history.insert(pk);
                 }
+
                 cluster.get(1).runOnInstance(() -> {
+                    ((AccordService) AccordService.instance()).journal().closeCurrentSegmentForTestingIfNonEmpty();
                     ((AccordService) AccordService.instance()).journal().compactor().run();
                 });
+
+                int before = cluster.get(1).callOnInstance(() -> {
+                    AtomicInteger a = new AtomicInteger();
+                    ((AccordService) AccordService.instance()).journal().forEach((v) -> {
+                        if (v.type == JournalKey.Type.COMMAND_DIFF)
+                            a.incrementAndGet();
+                    });
+                    return a.get();
+                });
+
+                Thread.sleep(10_000);
+                cluster.get(1).runOnInstance(() -> {
+                    Keyspace.open(SchemaConstants.ACCORD_KEYSPACE_NAME).getColumnFamilyStore(AccordKeyspace.JOURNAL).forceMajorCompaction();
+                });
+
                 cluster.get(1).forceCompact("system_accord", "journal");
-                ClusterUtils.stopUnchecked(cluster.get(1));
-                cluster.get(1).startup();
+
+                int after = cluster.get(1).callOnInstance(() -> {
+                    AtomicInteger a = new AtomicInteger();
+                    ((AccordService) AccordService.instance()).journal().forEach((v) -> {
+                        if (v.type == JournalKey.Type.COMMAND_DIFF)
+                            a.incrementAndGet();
+                    });
+                    return a.get();
+                });
+                Assert.assertTrue(String.format("%s should have been strictly smaller than %s", after, before), before > after);
+                Assert.assertEquals(0, after);
             });
         }
     }

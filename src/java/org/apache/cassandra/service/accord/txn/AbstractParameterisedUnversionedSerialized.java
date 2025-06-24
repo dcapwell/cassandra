@@ -16,27 +16,27 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.tcm.migration;
+package org.apache.cassandra.service.accord.txn;
 
-import org.apache.cassandra.tcm.Commit;
-import org.apache.cassandra.tcm.Processor;
-import org.apache.cassandra.tcm.Retry;
-import org.apache.cassandra.tcm.log.Entry;
-import org.apache.cassandra.tcm.Epoch;
-import org.apache.cassandra.tcm.Transformation;
-import org.apache.cassandra.tcm.ClusterMetadata;
+import java.nio.ByteBuffer;
+import javax.annotation.Nullable;
 
-public class GossipProcessor implements Processor
+import org.apache.cassandra.io.ParameterisedUnversionedSerializer;
+
+public abstract class AbstractParameterisedUnversionedSerialized<T, P> extends AbstractSerialized<T>
 {
-    @Override
-    public Commit.Result commit(Entry.Id entryId, Transformation transform, Epoch lastKnown, Retry retryPolicy)
+    public AbstractParameterisedUnversionedSerialized(@Nullable ByteBuffer latestVersionBytes)
     {
-        throw new IllegalStateException("Can't commit transformations when running in gossip mode. Enable the ClusterMetadataService with `nodetool cms initialize`.");
+        super(latestVersionBytes);
     }
 
-    @Override
-    public ClusterMetadata fetchLogAndWait(Epoch waitFor, Retry retryPolicy)
+    protected abstract ParameterisedUnversionedSerializer<T, P> serializer();
+
+    protected T deserialize(P param)
     {
-        return ClusterMetadata.current();
+        T result = memoized;
+        if (result == null && latestVersionBytes != null)
+            memoized = result = serializer().deserializeUnchecked(param, latestVersionBytes);
+        return result;
     }
 }
