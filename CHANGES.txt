@@ -29,6 +29,7 @@ Merged from 4.1:
  * IntrusiveStack.accumulate is not accumulating correctly (CASSANDRA-20670)
  * Add nodetool get/setguardrailsconfig commands (CASSANDRA-19552)
 Merged from 4.0:
+ * Leveled Compaction doesn't validate maxBytesForLevel when the table is altered/created (CASSANDRA-20570)
  * Ensure prepared_statement INSERT timestamp precedes eviction DELETE (CASSANDRA-19703)
  * Gossip doesn't converge due to race condition when updating EndpointStates multiple fields (CASSANDRA-20659)
  * Honor MAX_PARALLEL_TRANSFERS correctly (CASSANDRA-20532)
