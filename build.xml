@@ -199,6 +199,7 @@
          If it's an individual test print the output from the test under the assumption someone is debugging the test
          and wants to know what is going on without having to context switch to the log file that is generated.
          Debug level output still needs to be retrieved from the log file.  -->
+    <!--
     <script language="javascript">
         if (project.getProperty("cassandra.keepBriefBrief") == null)
         {
@@ -208,6 +209,7 @@
                 project.setProperty("cassandra.keepBriefBrief", "false");
         }
     </script>
+    -->
 
     <condition property="java.version.8">
         <equals arg1="${ant.java.version}" arg2="1.8"/>
@@ -1393,6 +1395,7 @@
   <!-- Run a list of junit tasks but don't track errors or generate a report after
        If a test fails the testfailed property will be set. All the tests are run using the testdelegate
        macro that is specified as an attribute and they will be run sequentially in this ant process -->
+  <!--
   <scriptdef name="testhelper_" language="javascript">
     <attribute name="testdelegate"/>
     <![CDATA[
@@ -1408,6 +1411,25 @@
         p.perform();
     ]]>
   </scriptdef>
+  -->
+  <!-- Run tests separately and report errors after and generate a junit report -->
+  <macrodef name="testhelper">
+    <attribute name="testdelegate"/>
+    <sequential>
+        <taskdef name="testhelper_" classname="org.apache.cassandra.anttasks.TestHelper" classpath="${test.classes}"/>
+        <testhelper_ property="@{testdelegate}"/>
+      <fail message="Some test(s) failed.">
+        <condition>
+            <and>
+            <isset property="testfailed"/>
+            <not>
+              <isset property="ant.test.failure.ignore"/>
+            </not>
+          </and>
+        </condition>
+      </fail>
+    </sequential>
+  </macrodef>
 
   <!-- Defines how to run a set of tests. If you change the defaults for attributes
        you should also update them in testmacro.,
@@ -2106,6 +2128,7 @@
      </fileset>
   	</path>
   	<property name="eclipse-project-libs" refid="eclipse-project-libs-path"/>
+    <!--
        <script language="javascript">
         <classpath>
             <path refid="cassandra.classpath"/>
@@ -2137,6 +2160,7 @@
   		echo.setAppend(true);
   	    echo.perform();
   	]]> </script>
+    -->
     <mkdir dir=".settings" />
   </target>
 
