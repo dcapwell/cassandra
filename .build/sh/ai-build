@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+
+#set -o xtrace
+set -o errexit
+set -o pipefail
+set -o nounset
+
+bin="$(cd "$(dirname "$0")" > /dev/null; pwd)"
+home="$(cd "$bin/../.." > /dev/null; pwd)" # this script lives in .build/sh
+
+# Switch to the project root so all commands work properly
+cd "$home"
+
+opts=(
+  -Dant.gen-doc.skip=true
+  -Dno-checkstyle=true
+  -Dant.gen-doc.skip=true
+  -Drat.skip=true
+)
+
+ant "${opts[@]}" clean jar checkstyle checkstyle-test "$@" 2>&1 | "$bin"/ant-log-summary.py -
+
